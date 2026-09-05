@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>モイができるまで</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --canvas:#FFFDF8;
+  --canvas-hypo:#FBF6EC;
+  --ink:#2E2B26;
+  --head:#1C1A15;
+  --mute:#6E675C;
+  --hairline:#EBDFD2;
+  --quote:#F6F0E4;
+  --accent:#FF5714;
+  --m:#2F7BE0;
+  --o:#FF5714;
+  --y:#00A876;
+  --hypo:#7B4FB5;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --canvas:#17150F;
+    --canvas-hypo:#1D1A13;
+    --ink:#E6DFD2;
+    --head:#F5EFE3;
+    --mute:#A69D8E;
+    --hairline:#35312A;
+    --quote:#211E17;
+    --accent:#FF6A2E;
+    --m:#5C9BEA;
+    --o:#FF6A2E;
+    --y:#2DBE8C;
+    --hypo:#B08FE0;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --canvas:#17150F;
+  --canvas-hypo:#1D1A13;
+  --ink:#E6DFD2;
+  --head:#F5EFE3;
+  --mute:#A69D8E;
+  --hairline:#35312A;
+  --quote:#211E17;
+  --accent:#FF6A2E;
+  --m:#5C9BEA;
+  --o:#FF6A2E;
+  --y:#2DBE8C;
+  --hypo:#B08FE0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--canvas);
+  color:var(--ink);
+  font-family:'Shippori Mincho','Hiragino Mincho ProN','Yu Mincho',serif;
+  font-size:16.5px;
+  line-height:2.15;
+  letter-spacing:.05em;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+::selection{background:var(--accent);color:#fff}
+:focus-visible{outline:1px solid var(--accent);outline-offset:4px}
+a{color:inherit}
+.en{font-family:'EB Garamond',Georgia,serif;letter-spacing:.12em}
+
+/* ===== 表紙 ===== */
+.cover{
+  max-width:640px;margin:0 auto;padding:112px 24px 72px;
+  border-bottom:1px solid var(--hairline);
+}
+.dots{display:inline-flex;gap:9px;margin-bottom:34px}
+.dots i{width:7px;height:7px;border-radius:50%;display:block}
+.dots i:nth-child(1){background:var(--m)}
+.dots i:nth-child(2){background:var(--o)}
+.dots i:nth-child(3){background:var(--y)}
+.cover .kicker{
+  font-family:'EB Garamond',Georgia,serif;font-style:italic;
+  font-size:13px;letter-spacing:.3em;color:var(--mute);margin-bottom:22px;
+}
+.cover h1{
+  font-size:clamp(2rem,6vw,2.9rem);font-weight:500;color:var(--head);
+  line-height:1.5;letter-spacing:.12em;text-wrap:balance;
+}
+.cover .sub{
+  margin-top:18px;font-size:15px;color:var(--mute);line-height:2;letter-spacing:.08em;
+}
+.cover .meta{
+  margin-top:44px;display:flex;flex-wrap:wrap;gap:8px 28px;
+  font-size:12.5px;color:var(--mute);letter-spacing:.1em;
+}
+.cover .meta .en{font-style:italic}
+
+/* ===== 凡例 ===== */
+.legend{
+  max-width:640px;margin:0 auto;padding:36px 24px 0;
+  display:flex;flex-wrap:wrap;gap:10px 26px;font-size:12.5px;color:var(--mute);letter-spacing:.08em;
+}
+.tag{
+  display:inline-block;font-size:11px;letter-spacing:.22em;text-indent:.22em;
+  padding:1px 9px 1px 11px;border:1px solid currentColor;border-radius:2px;
+  margin-right:8px;vertical-align:2px;line-height:1.8;
+}
+.tag.fact{color:var(--ink)}
+.tag.hypo{color:var(--hypo)}
+
+/* ===== まえがき ===== */
+.preface{
+  max-width:640px;margin:0 auto;padding:56px 24px 40px;
+}
+.preface h2{
+  font-size:14px;font-weight:500;letter-spacing:.3em;color:var(--mute);margin-bottom:22px;
+}
+.preface p{margin-bottom:1.5em;font-size:15.5px;color:var(--ink)}
+.preface p:last-child{margin-bottom:0}
+
+/* ===== 章 ===== */
+main{position:relative}
+.chapter{
+  position:relative;
+  padding:88px 24px 40px;
+}
+.chapter > *{max-width:592px;margin-left:auto;margin-right:auto}
+.chapter h2{
+  display:grid;grid-template-columns:auto 1fr;column-gap:22px;align-items:baseline;
+  font-size:clamp(1.35rem,3.4vw,1.7rem);font-weight:500;color:var(--head);
+  letter-spacing:.14em;line-height:1.6;margin-bottom:52px;
+}
+.chapter h2 .no{
+  font-family:'EB Garamond',Georgia,serif;font-style:italic;font-weight:400;
+  font-size:1.05em;color:var(--accent);letter-spacing:.06em;
+  min-width:1.3em;
+}
+.chapter h2 .no::after{
+  content:'';display:block;width:34px;height:1px;background:var(--accent);margin-top:6px;opacity:.7;
+}
+.chapter h2 .tag{margin-left:14px;font-family:'Shippori Mincho',serif;font-weight:400;vertical-align:middle}
+.chapter p{margin-bottom:1.55em}
+.chapter p.lead-in{color:var(--mute)}
+.chapter p b{font-weight:600;color:var(--head)}
+.chapter blockquote{
+  margin:2.1em auto 2.3em;padding:18px 26px;
+  background:var(--quote);border-left:1px solid var(--accent);
+  font-size:15.5px;line-height:2;color:var(--head);
+}
+.chapter blockquote p{margin-bottom:1em}
+.chapter blockquote p:last-child{margin-bottom:0}
+.chapter .line{
+  font-size:clamp(1.15rem,2.8vw,1.35rem);color:var(--head);line-height:2;letter-spacing:.1em;
+  margin:2em auto 2.2em;text-wrap:balance;
+}
+.chapter .line em{
+  font-style:normal;
+  background:linear-gradient(90deg,var(--m),var(--o),var(--y)) no-repeat 0 100%/100% 2px;
+  padding-bottom:8px;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;
+}
+.chapter .three{
+  list-style:none;margin:0 auto 1.6em;display:grid;gap:14px;
+}
+.chapter .three li{
+  display:grid;grid-template-columns:2.2em 1fr;column-gap:14px;align-items:baseline;
+}
+.chapter .three li .n{
+  font-family:'EB Garamond',Georgia,serif;font-style:italic;color:var(--accent);font-size:1.05em;
+}
+
+/* 仮説の章 */
+.hinge{
+  max-width:640px;margin:56px auto 0;padding:0 24px;
+}
+.hinge .band{
+  border-top:1px dashed var(--hypo);border-bottom:1px dashed var(--hypo);
+  padding:16px 0;display:flex;align-items:center;gap:16px;
+  font-size:13px;color:var(--hypo);letter-spacing:.2em;
+}
+.hinge .band .en{font-style:italic;letter-spacing:.24em}
+.chapter.hypo{
+  background:var(--canvas-hypo);
+  padding-top:72px;
+  box-shadow:inset 0 1px 0 var(--hairline);
+}
+.chapter.hypo h2 .no{color:var(--hypo)}
+.chapter.hypo h2 .no::after{background:var(--hypo)}
+.chapter.hypo blockquote{border-left-color:var(--hypo)}
+.chapter.hypo + .chapter.hypo{padding-top:40px;box-shadow:none}
+.chapter.end{padding-top:96px;padding-bottom:110px}
+.chapter.end .close{
+  margin-top:2.4em;padding-top:2.2em;border-top:1px solid var(--hairline);
+}
+.chapter.end .close p{margin-bottom:1.3em}
+.chapter.end .dots{margin:26px 0 0;gap:9px}
+
+/* ===== 付録 ===== */
+.appendix{
+  border-top:1px solid var(--hairline);
+  padding:72px 24px 96px;
+}
+.appendix > *{max-width:592px;margin-left:auto;margin-right:auto}
+.appendix h2{
+  font-size:14px;font-weight:500;letter-spacing:.3em;color:var(--mute);margin-bottom:28px;
+}
+.appendix h2 .en{font-style:italic;margin-left:12px;letter-spacing:.2em}
+.timeline{list-style:none;margin:0 auto 64px;border-top:1px solid var(--hairline)}
+.timeline li{
+  display:grid;grid-template-columns:8.2em 1fr;column-gap:20px;
+  padding:14px 0;border-bottom:1px solid var(--hairline);
+  font-size:14.5px;line-height:1.9;
+}
+.timeline .d{
+  font-family:'EB Garamond',Georgia,serif;font-variant-numeric:tabular-nums;
+  letter-spacing:.06em;color:var(--mute);white-space:nowrap;
+}
+.timeline .d.future{color:var(--hypo)}
+.timeline li.kgi .t{color:var(--head)}
+.timeline li.kgi .t::before{
+  content:'';display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--accent);margin-right:10px;vertical-align:2px;
+}
+.sources{list-style:none;font-size:14.5px;line-height:1.9;color:var(--ink)}
+.sources li{
+  padding:8px 0 8px 22px;position:relative;border-bottom:1px solid var(--hairline);
+}
+.sources li::before{
+  content:'';position:absolute;left:0;top:1.25em;width:10px;height:1px;background:var(--mute);
+}
+.sources .d{font-family:'EB Garamond',Georgia,serif;color:var(--mute);margin-right:12px;font-variant-numeric:tabular-nums}
+.appendix .note{margin-top:22px;font-size:13px;color:var(--mute);letter-spacing:.06em}
+
+footer{
+  padding:48px 24px 64px;text-align:center;
+  font-family:'EB Garamond',Georgia,serif;font-size:12px;letter-spacing:.28em;color:var(--mute);
+  border-top:1px solid var(--hairline);
+}
+footer .dots{margin:0 0 16px}
+
+@media (max-width:640px){
+  body{font-size:15.5px;line-height:2.05;letter-spacing:.04em}
+  .cover{padding-top:72px}
+  .chapter{padding-top:64px}
+  .chapter h2{grid-template-columns:1fr;row-gap:6px;margin-bottom:36px}
+  .chapter h2 .tag{margin-left:0;display:inline-block;margin-top:6px}
+  .timeline li{grid-template-columns:1fr;row-gap:2px}
+}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+}
+@media print{
+  body{background:#fff;color:#000}
+  .chapter.hypo{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<header class="cover">
+  <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+  <p class="kicker">moy. / origin</p>
+  <h1>モイができるまで</h1>
+  <p class="sub">ある企画会社が「会社」になっていく記録と、その先の話</p>
+  <div class="meta">
+    <span>執筆時点　2026年9月5日</span>
+    <span class="en">written from the working papers</span>
+  </div>
+</header>
+
+<div class="legend" aria-label="凡例">
+  <span><span class="tag fact">事実</span>資料に残っていること（序章から第七章まで）</span>
+  <span><span class="tag hypo">仮説</span>まだ起きていないこと（第八章から先）</span>
+</div>
+
+<section class="preface" aria-labelledby="pf">
+  <h2 id="pf">この読み物について</h2>
+  <p>これは、2026年8月から9月にかけて、三人の人間が「moy.（モイ）」という会社を立ち上げようとしている過程を、手元に残っている資料をもとに書き起こしたものである。</p>
+  <p>序章から第七章までは、資料に残っている事実と、そこに書かれた考えをもとにしている。第八章から先は、まだ起きていない。三人が描いた計画の通りに進んだとしたら、という仮定の物語である。仮説の章に出てくる会社や数字は、資料の想定値を借りた例であって、実測ではない。</p>
+  <p>どこまでが事実で、どこからが仮説か。その線を引くことは、この会社が最初に決めた約束のひとつでもある。</p>
+</section>
+
+<main>
+
+<section class="chapter" id="c0">
+  <h2><span class="no">0</span><span>序　もや</span></h2>
+  <p>展示会が終わった夜、出展した会社の担当者の手元に残るのは、名刺の束と、なんとなくの手応えである。</p>
+  <p>三日間、ブースに立った。人は来た。話もした。名刺は百枚ほど集まった。上司には「盛況でした」と報告する。嘘ではない。</p>
+  <p>ただ、ひとつだけ答えられない問いがある。ブースの前を通った人のうち、何割が立ち止まったのか。立ち止まった人のうち、何割が中に入り、何割が話をし、何割が名刺を置いていったのか。その数字を、数えたことがない。</p>
+  <p>数えていないので、来年どこを変えればいいのかも分からない。看板を大きくするのか、声のかけ方を変えるのか、人を増やすのか。分からないまま、また同じブースを出す。</p>
+  <p>この「分からなさ」を、三人は「もや」と呼ぶことにした。</p>
+  <p class="line"><em>イベントのもやもやを晴らす会社。</em><br>それが、この読み物の主役である。</p>
+</section>
+
+<section class="chapter" id="c1">
+  <h2><span class="no">1</span><span>一　三人</span></h2>
+  <p>会社の名前が決まるより先に、三人がいた。</p>
+  <p><b>三輪大樹。</b>かつて消費者向けのイベント会社を経営し、いまは大きな企業の広報部門で、イベントを「発注する側」に立っている。どんなイベントに予算がつき、どんな提案が社内で通り、どんな報告が上に喜ばれるか。その景色を内側から見ている。</p>
+  <p>三輪にはひとつの構想があった。展示会の来場者の行動を、ひとりずつ観察して記録するプロトコル。名前は HBP。目的文にはこう書かれている。</p>
+  <blockquote><p>人の意思決定と行動変容を観察し、挑戦が起こる構造を研究する</p></blockquote>
+  <p>研究の言葉で書かれているが、後にこの一文が、そのまま商売の芯になる。</p>
+  <p><b>山口宗紀。</b>大きな展示会を、現場で成立させてきた人である。搬入の段取り、施工会社との付き合い、当日の運営、撤収。企画書に書かれた絵を、原価と工程に落とし、実際に建てて動かす。協力会社の土地勘を持っている。</p>
+  <p>企画に値段がつくためには、その企画が「実現できる」という保証がいる。三人の中でそれを数字で保証できるのは、山口だけだった。</p>
+  <p><b>折原泰久。</b>本業を持ちながら、AIを日常の道具として使い倒し、仕組みにする技術を持つ。提案書、分析、レポート、サイト。三人という人数で大手並みの量を出すための「増幅装置」を自認している。そして、この会社の資料のほぼすべてを、叩き台として書いた。</p>
+  <p>八月の会議資料に、こうある。</p>
+  <blockquote><p>発注側の景色（三輪）× 現場の実現力（山口）× AIの増幅（折原）。どれか一つ欠けると「普通のイベント会社」か「絵に描いた餅」になる。</p></blockquote>
+  <p>三人の組み合わせそのものが商品である。この認識が、後に社名にまで刻まれることになる。</p>
+</section>
+
+<section class="chapter" id="c2">
+  <h2><span class="no">2</span><span>二　八月十一日、夜八時</span></h2>
+  <p>2026年8月11日、火曜日の夜八時。三人はオンラインで集まった。</p>
+  <p>折原が用意した叩き台の表題は「イベント会社 立ち上げ：3ヶ月検証計画（案）」。冒頭にはこう書かれていた。「HBPを『売り物』にするための3ヶ月」。</p>
+  <p>この夜、決めようとしたことが三つある。</p>
+  <p><b>ひとつめは、会社の定義である。</b></p>
+  <p>「言われたイベントを作る会社」ではない。「成果から逆算して企画を出す会社」である。売るのは制作ではなく企画。企画に値段がつく会社を目指す。制作単体の相見積りには参加しない。ただし、企画から入った案件の制作・運営は一気通貫で受ける。</p>
+  <p>「何を作りますか」ではなく「何を起こしたいですか」から入る。会議資料にはそう書かれている。</p>
+  <p><b>ふたつめは、規約の壁と、その越え方である。</b></p>
+  <p>当初、八月か九月のビッグサイトの展示会で、会場を歩いて来場者を観察してみよう、という案があった。しかし折原が調べると、会場は取材目的以外の撮影を原則断っており、主催者の参加規約には、事前の書面承認なしの勧誘や商業活動の禁止が明記されていた。</p>
+  <p>無許可で観察したデータは、出所を説明できない。説明できないデータは提案書に載せられない。つまり、売り物にならない。</p>
+  <p>道はひとつしかなかった。出展社一社と組み、会期の前に契約し、その会社の小間の中から堂々と計測する。「前契約」が、この会社の営業の型になった。</p>
+  <p><b>みっつめは、期限のある目標である。</b></p>
+  <p class="line"><em>九月十五日までに、展示会前契約の有償案件を一件受注する。</em></p>
+  <p>一社目の価格は五万円から十五万円。東京への移動と拘束を考えれば赤字である。それを三人で確認した上で、「売価ではなく実績づくりへの投資」と位置づけた。九月十五日に契約がゼロなら、売り方を見直す。HBP自体は残す。ダラダラ続けない。撤退条件まで、この夜の資料に書かれている。</p>
+  <p>全員に本業がある。だから時間ではなく、アウトプットでコミットを定義することにした。各自が「三ヶ月で何を出すか」を自分の口で宣言し、月に一度それだけを確認する。</p>
+  <p>持分や法人設立は、十月の成果を見てから。契約と請求の名義だけは八月末までに決める。三輪は、現職の兼業規定を確認するのが先だった。</p>
+</section>
+
+<section class="chapter" id="c3">
+  <h2><span class="no">3</span><span>三　数えたことはありますか</span></h2>
+  <p>会社の定義が決まった同じ日に、営業の手順書が書かれている。「営業プレイブック v1」。副題はこうだ。「1社目を取るまでの全手順」。</p>
+  <p>売る商品は、ひとつに固定された。「来場者行動診断」。会期一日、出展社の小間の中から来場者の行動を計測し、当日夕方に速報を一枚、一週間後に改善レポートと次回出展の企画提案を渡す。</p>
+  <p>価格は八万円、二社限定。通常価格として二十五万円を予定し、その上で「実績づくり期間の特別価格」と正直に言う。</p>
+  <p>手順書には、こんな一文がある。</p>
+  <blockquote><p>「データが実証済み」とは絶対に言わない。自主調査はまだやっていないので嘘になる。</p></blockquote>
+  <p>まだデータの蓄積は途上である。だから安い。この論理のほうが、二社限定・特別価格と辻褄が合い、強い。誇張しないことを、営業上の武器にする。この姿勢は、以後のすべての資料に貫かれていく。</p>
+  <p>打診のメールには、ひとつの問いが置かれた。</p>
+  <blockquote><p>前回のご出展で、ブース前を通った方のうち何%が立ち止まったか、数えたことはありますか？</p></blockquote>
+  <p>この問いは、自社のデータがゼロでも成立する。相手が数えていないことを、三人は知っている。</p>
+  <p>数字も逆算で置かれた。リスト三十社、打診二十社、商談五件、提案三件、契約一件。毎週金曜の十八時に十五分だけ三人で数字を見て、悪いときは「打診数、文面の返信率、商談転換率」の順に疑う。手法を疑うのは最後だ。</p>
+  <p>狙う展示会は、九月十六日から三日間の「総務・人事・経理Week」。中小の出展社が多く、決裁が速い。間に合わなければ、九月末の産業DX総合展に軸を移す。そのときは目標が消えるのではなく、期日が九月二十五日にスライドする。それも先に合意しておく。</p>
+</section>
+
+<section class="chapter" id="c4">
+  <h2><span class="no">4</span><span>四　十分の窓</span></h2>
+  <p>HBPは三輪の設計だが、そのままでは現場で回らない。年代、性別、歩行速度、スマホの利用、同伴人数。フル版の項目は、二人の観察者が三日間立ち続けるには多すぎた。</p>
+  <p>折原は「提案の数字になる指標」だけを残し、残りをフル版として保持する設計を書いた。捨てるのではない。閑散時間帯と研究用に取っておく。</p>
+  <p>残った指標は、通過、立ち寄り、会話、リード。ブース前を通った人数を分母に、立ち止まって展示に体を向けた人の割合、会話が発生した割合、名刺やバーコードにつながった割合。この掛け算のどの項が細いかを見つけるのが、分析の本体である。細い項が、そのまま次の企画の当てどころになる。</p>
+  <p>観測の単位は「毎時十分の一窓」。分母と分子を同じ窓で数えるから、率の掛け算が成り立つ。</p>
+  <p>そして施策の有無を、この窓に時間帯交互で割り付ける。奇数時は施策あり、偶数時は現状のまま。翌日は入れ替える。日単位の比較をやめることで、客層の日差や天候や隣のブースの影響が消え、比較のペアが二十組前後に増える。出展社が本番を丸一日実験台にする必要もなくなる。</p>
+  <p>初日はベースライン。二日目は施策のオンとオフ。三日目は割付を反転して、再現を確かめる。</p>
+  <p>これが「仮説を一緒に実験しませんか」という営業トークの実体である。</p>
+  <p>ここにも、誇張への戒めが書かれている。</p>
+  <blockquote><p>このNで「統計的に有意」とは絶対に言わない。盛った瞬間に、この設計の唯一の武器である誠実さを自分で捨てることになる。</p></blockquote>
+  <p>比較はすべて率で語り、結果は「二十窓ペア中、何ペアで同じ方向に動いたか」という一貫性の言葉で語る。全数ではなく推計であることは、聞かれる前に自分から言う。</p>
+  <p>映像は撮らない。個人を識別する記録は取らない。規約と個人情報のリスクを避けるためであり、同時に「撮りません」が出展社への売り文句になる。</p>
+</section>
+
+<section class="chapter" id="c5">
+  <h2><span class="no">5</span><span>五　名前</span></h2>
+  <p>8月17日、折原は社名の企画書を書いた。</p>
+  <p>それまでの候補は「VOUTER」だった。VALUE と OUTLIER を掛けた造語で、「外れ値に価値がある」という思想の名前である。エディトリアルで格好よく、サイトもロゴも作り込んであった。</p>
+  <p>それを捨てる提案だった。</p>
+  <p class="line">新しい名前は「<em>MOY</em>」。読みは「モイ」。</p>
+  <p>由来は三つある。</p>
+  <ol class="three">
+    <li><span class="n">i</span><span>三輪、折原、山口。三人の頭文字である。この会社は三人の組み合わせ自体が商品なのだから、その構造を社名に刻むのが一番正直で、一番強い。並びはアルファベット順ではなく、発音したときに一番きれいに聞こえる順で選んだ。</span></li>
+    <li><span class="n">ii</span><span>綴りを見ると「もや」とも読める。展示会のあとに残る、あの「もやもや」である。もやを晴らす会社。社名を名乗ること自体が、事業の説明になる。「もやっとしたら、MOYの出番です」。</span></li>
+    <li><span class="n">iii</span><span>二音で呼べ、三文字で書ける。展示会場の立ち話と名刺交換で、口に出してもらえる名前であること。「足で稼ぐ」段階の営業には、思想を語る名前より、現場で覚えてもらえる名前が要る。</span></li>
+  </ol>
+  <p>企画書は、反対意見も自分で書いている。</p>
+  <p>「もや」は不透明という意味のネガティブワードでもある。ライブ配信サービスを運営する「モイ株式会社」がすでに存在し、「モイ」で検索すると上位はほぼそちらである。moy.jp も moy.co.jp も他社が取得済みで、moy-event.jp が現実的な第一候補。頭文字社名は、人が増減したら意味が壊れる。</p>
+  <p>評価表の脚注には、こうまで書かれている。</p>
+  <blockquote><p>この表は折原の主観評価。「覚えやすさ」「説明しやすさ」「営業との相性」の三軸は実質「口頭で伝わるか」の言い換えで、MOYに有利に重複計上されている自覚がある。</p></blockquote>
+  <p>自分の提案の弱点を、提案者が先に書く。この会社の資料は、どれもそういう書き方をしている。</p>
+  <p>色は最初から決まっていた。Mは青、Oはオレンジ、Yは緑。三つの点が並ぶと、それがロゴになる。</p>
+</section>
+
+<section class="chapter" id="c6">
+  <h2><span class="no">6</span><span>六　確からしさ</span></h2>
+  <p>8月18日、折原はサイトを作った。静謐で、高級感のある案。象牙色の紙のような背景に、ゆっくりと現れる「moy.」の文字。</p>
+  <p>8月27日、三人はふたたび集まる。今度の議題は「サイトに『確からしさ』を載せる」。</p>
+  <p>サイトの見た目はできている。埋まっていないのは中身だった。商号、代表者、所在地、問い合わせ先。すべて「要設定」のまま。三人の欄も、実名と役割だけで、経歴も顔写真もない。</p>
+  <p>実績がゼロの会社が、どうやって「任せて大丈夫だ」と思ってもらうか。</p>
+  <p>資料は、確からしさを五つの層に分解した。実在の証拠、人の証拠、方法の証拠、正直さの証拠、第三者の証拠。五つめの「事例・顧客の声」は、まだゼロである。九月の一社目が最初の種になる。だから焦って作らない。四つめまでの辻褄が合っていること。それが、実績ゼロの会社にとっての確からしさだと定義した。</p>
+  <blockquote><p>新しい会社のサイトの信頼は「盛った瞬間」に壊れる。</p></blockquote>
+  <p>「載せた瞬間に確からしさが死ぬもの」のリストも書かれた。受注していない案件を当社実績と書くこと。許諾のない勤務先名や顧客名。登記前の「株式会社」表記。裏付けのない「全国対応」。そして自画自賛の言葉。</p>
+  <p>三人はそれぞれ本業を持ち、所属先との関係がある。三輪の兼業規定、山口の過去案件の掲載許可、折原の本業と自分の法人。誰の何を、どこまで書けるのか。折原の推しは「段階公開」だった。公開時は固有名詞のない一般化した経歴で出し、許可が取れたものから固有名詞に置き換える。後から足すのは簡単で、引っ込めるのは事故だからだ。</p>
+  <p>このサイトの役割も、はっきり決められている。検索で客を集める場所ではない。「モイ」で検索してもたどり着けないのだから。メールや名刺や紹介から来た人が、十五秒で「実在する、ちゃんとしている」と確かめる場所である。</p>
+  <p>9月2日のサイトは、こう始まる。</p>
+  <p>冒頭の暗転。広告の言葉が紙面を埋め尽くし、そこに一行が浮かぶ。</p>
+  <p class="line"><em>並ぶな、際立て。</em></p>
+  <p>そして晴れる。</p>
+  <blockquote>
+    <p>展示会のあとに残るのは、名刺の枚数と、なんとなくの手応え。</p>
+    <p>人はなぜ足を止め、何に心が動くのか。その答えから、設計する。</p>
+  </blockquote>
+  <p>サービスは四つの段階で書かれた。対話、観察、企画、実測。本番の実測が、次の企画の根拠になる。回を重ねるほど精度が上がる。</p>
+  <p>計測のものさしは六つ。通行、停止、滞在、入場、接客、成果。</p>
+  <p>メンバー欄には、三つの色の点と、三人の名前。</p>
+</section>
+
+<section class="chapter" id="c7">
+  <h2><span class="no">7</span><span>七　ここまでが、事実</span></h2>
+  <p>この読み物を書いている時点は、2026年9月5日である。</p>
+  <p>手元の資料から分かるのは、ここまでだ。三人がいること。会社の定義と営業の型が決まっていること。名前が MOY に決まったこと。サイトが作られたこと。九月十五日という期限があること。</p>
+  <p>分からないこともある。打診のメールが何社に送られ、何社から返事が来たか。商談が何件あったか。三輪の兼業規定がどう判断されたか。契約の名義が誰になったか。そして、一社目が取れたかどうか。</p>
+  <p>手元の資料は「叩き台」ばかりで、決定を記した「議事録」がない。決めるのは三人の会議であり、資料は決定の前に書かれている。だから、ここから先は書けない。</p>
+  <p>書けないが、三人が描いた通りに進んだとしたら、こうなるはずだ、という物語は書ける。</p>
+  <p>ここから先は、仮説である。</p>
+</section>
+
+<div class="hinge" aria-hidden="true">
+  <div class="band"><span class="tag hypo">仮説</span><span>ここから先は、まだ起きていない</span><span class="en" style="margin-left:auto">not yet</span></div>
+</div>
+
+<section class="chapter hypo" id="c8">
+  <h2><span class="no">8</span><span>八　最初の一回転<span class="tag hypo">仮説</span></span></h2>
+  <p>九月の半ば、東京ビッグサイト。</p>
+  <p>総務・人事・経理Weekの会場の一角に、一小間か二小間の、小さなブースがある。従業員百人ほどの会社で、毎年出展している。担当者は昨年も一昨年もここに立ち、「盛況でした」と報告してきた。</p>
+  <p>そのブースの隅に、二人が立っている。首から下げたバッジは、出展社に追加発行してもらったもの。手には、カチカチと音のするカウンターと、スマホ。</p>
+  <p>初日の開場前、二人は同じ十分間を並んで観察し、「立ち寄り」の判定が一致するかを確かめた。歩みを止めて、展示に体を向けた人。それを立ち寄りと数える。秒数では数えない。目測ではぶれるからだ。</p>
+  <p>毎時十分の窓が始まる。通過した人を数える。立ち止まった人を数え、きっかけを一つだけ選ぶ。実機か、映像か、掲示物か、スタッフか、人だかりか。会話が起きたら、それも数える。会話の中身は記録しない。</p>
+  <p>初日の撤収前、三輪が出展社の担当者と十分だけ立ち話をする。今日の数字を見せる。通過は推計でおよそ千二百人。立ち寄りは一割強。そのうち会話に至ったのは三割弱。</p>
+  <p>「細いのは、ここですね」</p>
+  <p>会話化率だった。入口でスタッフが待ち構えているとき、来場者は目が合った瞬間に素通りする。翌日の施策を一つだけ決める。声をかけるタイミングを、入口ではなく、実機のデモ中に変える。</p>
+  <p>二日目。奇数時は新しい声のかけ方、偶数時は昨日のまま。三日目はそれを反転する。</p>
+  <p>最終日の夕方、A4一枚の速報が担当者に渡される。骨子は会期前に作ってあり、数字を差し込んだだけだ。「二十窓ペア中、十四ペアで会話化率が同じ方向に動きました」。有意とは書かれていない。推計であることも、最初の行に書いてある。</p>
+  <p>一週間後、レポートが届く。ファネルのどこが細いか。試した施策がどう効いたか。足を止めたきっかけの何割が実機だったか。そして最後の章に、次回出展の企画提案。細かった項を太くするための、ブースの構成と、人の配置と、その原価。山口が見積もった数字が、そこに入っている。</p>
+  <p>八万円の仕事は、ここで終わる。</p>
+  <p>ここから先が、この会社の本命である。次回の出展を、企画から一緒に作る。企画フィーと、そこから続く制作と運営。「診断、企画、一気通貫」の階段を、一社目から意識して納品する。手順書にはそう書かれていた。</p>
+  <p>これが、循環の最初の一回転である。</p>
+  <p class="line"><em>調査を売る。行動データが溜まる。発信の材料になる。専門家として引き合いが来る。もっと調査が売れる。</em></p>
+  <p>一社目が取れなければ、この循環は回らない。だから九月十五日までの一件が、すべての起点だった。</p>
+</section>
+
+<section class="chapter hypo" id="c9">
+  <h2><span class="no">9</span><span>九　仕組みで、資産で<span class="tag hypo">仮説</span></span></h2>
+  <p>2027年。三人が「フェーズ1」と呼ぶ段階。</p>
+  <p>事例が三社になり、自主調査のレポートが一本ある。診断は定額のパックになり、事後レポートは次回出展の提案につながって、年間の伴走契約になる。商工会議所の出展支援セミナーで話す。レポートを公開する。引き合いが、向こうから来るようになる。</p>
+  <p>営業マンの数ではなく、蓄積したデータと事例が営業する構造。八月のビジョン資料は、これを後発が真似しにくい理由に挙げていた。ただし、そのためには最初の契約から匿名化と事例掲載の許諾を入れておく必要がある。「これが抜けると二本目の矢印が折れる」。</p>
+  <p>2028年。フェーズ2。</p>
+  <p>主催者に直接売る。主催者の指標はリピート出展率で、出展社の成果が上がれば翌年も出てくれる。一契約で数百の出展社に届く。</p>
+  <p>そして、ここに反転がある。いま規約の壁の向こう側にいる主催者が、データの買い手に変わる。それが可能なのは、最初から「個人を識別しない計測」を選んだからだ。八月十一日の夜に、規約を読んで選んだ道が、二年後の商品になっている。</p>
+  <p>この絵が崩れるケースも、同じ資料に書かれている。一社目の反応率が想定を下回れば、支援機関のセミナー経由に軸足を移す。AIカメラが計測を安くしてしまえば、解釈と提案に完全に寄せる。HBPの価値は計測ではなく仮説にある、という設計は、最初からその保険だった。納品が春と秋の会期に集中して三人で捌けなくなれば、会期外の商品で平準化する。</p>
+</section>
+
+<section class="chapter end" id="c10">
+  <h2><span class="no">10</span><span>十　会社になる</span></h2>
+  <p>会社が「成り立つ」とは、何を指すのだろう。</p>
+  <p>登記の日ではない。三人はそれを、十月の成果を見てから決めることにしている。名刺ができた日でも、サイトが公開された日でもない。</p>
+  <p>おそらく、循環が一回転した日である。誰かが八万円を払い、三日間の数字を受け取り、「次もお願いします」と言った日。企画に値段がついた日。</p>
+  <p>その日はまだ来ていない。来ないかもしれない。九月十五日に契約がゼロなら売り方を見直す、と三人は最初に決めている。それも含めて、この会社は成り立とうとしている。</p>
+  <div class="close">
+    <p>展示会のあとに残るのは、名刺の束と、なんとなくの手応え。</p>
+    <p>そのもやを、数えることで晴らす。</p>
+    <p>三つの色の点は、そのために並んでいる。</p>
+    <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+  </div>
+</section>
+
+</main>
+
+<section class="appendix" aria-labelledby="ap">
+  <h2 id="ap">付録　年表<span class="en">timeline</span></h2>
+  <ol class="timeline">
+    <li><span class="d">2026-08-11</span><span class="t">オンライン打合せ。会社の定義（成果から逆算して企画を出す会社）、3ヶ月検証計画、役割分担、KGI「9/15までに有償案件1件」。同日に営業プレイブック v1、HBP分析設計シート v1、全体ビジョン（案）を作成</span></li>
+    <li><span class="d">2026-08-12</span><span class="t">人脈棚卸しの期日</span></li>
+    <li><span class="d">2026-08-17</span><span class="t">社名企画書。VOUTER から MOY（モイ）への変更を提案。ドメイン実査（moy-event.jp / moy-inc.jp が空き）</span></li>
+    <li><span class="d">2026-08-18</span><span class="t">三輪の兼業規定確認、主催者への実務確認の期日。折原がサイト案（静謐×高級感）を制作</span></li>
+    <li><span class="d">2026-08-25</span><span class="t">ターゲットリスト30社、契約・請求体制の確定期日</span></li>
+    <li><span class="d">2026-08-26</span><span class="t">打診メール開始予定日</span></li>
+    <li><span class="d">2026-08-27</span><span class="t">会議「サイトに確からしさを載せる」。決定9項目、確認4項目</span></li>
+    <li><span class="d">2026-09-02</span><span class="t">サイト v2（moy.）。オープニング「並ぶな、際立て。」</span></li>
+    <li><span class="d">2026-09-05</span><span class="t">この読み物の執筆時点</span></li>
+    <li class="kgi"><span class="d future">2026-09-15</span><span class="t">KGIの期日（有償案件1件）</span></li>
+    <li><span class="d future">2026-09-16〜18</span><span class="t">総務・人事・経理Week【東京】（本命の展示会）</span></li>
+    <li><span class="d future">2026-09-30〜10-02</span><span class="t">産業DX総合展 2026 夏 東京（保険の展示会）</span></li>
+  </ol>
+
+  <h2>出典<span class="en">sources</span></h2>
+  <ul class="sources">
+    <li><span class="d">2026-08-11</span>イベント会社 打合せメモ（3ヶ月検証計画）</li>
+    <li><span class="d">2026-08-11</span>イベント会社 会議資料（会社の定義・役割・営業の型）</li>
+    <li><span class="d">2026-08-11</span>イベント会社 全体ビジョン（案）</li>
+    <li><span class="d">2026-08-11</span>イベント会社 営業プレイブック v1</li>
+    <li><span class="d">2026-08-11</span>HBP分析設計シート v1</li>
+    <li><span class="d">2026-08-17</span>イベント会社 社名企画書 MOY</li>
+    <li><span class="d">2026-08-27</span>MOY会議資料 サイトに「確からしさ」を載せる</li>
+    <li><span class="d">2026-09-02</span>moy-site v2（コーポレートサイト）</li>
+  </ul>
+  <p class="note">いずれも折原が叩き台として作成した資料。決定事項ではなく提案として書かれたものを、本文では「決めた」「書かれている」と区別して扱った。</p>
+</section>
+
+<footer>
+  <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div><br>
+  moy. — origin story
+</footer>
+
+</body>
+</html>
