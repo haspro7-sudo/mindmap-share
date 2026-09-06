@@ -173,6 +173,28 @@ main{position:relative}
   font-family:'EB Garamond',Georgia,serif;font-style:italic;color:var(--accent);font-size:1.05em;
 }
 
+.part{
+  max-width:640px;margin:96px auto 0;padding:0 24px;
+}
+.part .plabel{
+  display:flex;align-items:baseline;gap:18px;
+  border-top:1px solid var(--head);padding-top:18px;
+}
+.part .plabel .en{font-style:italic;font-size:13px;color:var(--mute);letter-spacing:.3em}
+.part .plabel .ja{font-size:clamp(1.5rem,4vw,2rem);font-weight:500;color:var(--head);letter-spacing:.2em;line-height:1.5}
+.part .pnote{margin-top:14px;font-size:14px;color:var(--mute);line-height:1.9}
+.part.hypo .plabel{border-top-color:var(--hypo)}
+.part.hypo .plabel .en,.part.hypo .plabel .ja{color:var(--hypo)}
+.part + .chapter{padding-top:56px}
+.chapter h2 .ja-date{font-size:13px;font-weight:400;color:var(--mute);letter-spacing:.2em;margin-left:14px;vertical-align:middle}
+.changelog{list-style:none;margin:0 auto 64px;border-top:1px solid var(--hairline)}
+.changelog li{display:grid;grid-template-columns:8.2em 1fr;column-gap:20px;padding:12px 0;border-bottom:1px solid var(--hairline);font-size:14px;line-height:1.9}
+.changelog .d{font-family:'EB Garamond',Georgia,serif;font-variant-numeric:tabular-nums;color:var(--mute);letter-spacing:.06em;white-space:nowrap}
+.next{list-style:none;margin:0 auto 64px}
+.next li{padding:8px 0 8px 22px;position:relative;font-size:14.5px;line-height:1.9;border-bottom:1px solid var(--hairline)}
+.next li::before{content:'';position:absolute;left:0;top:1.25em;width:10px;height:1px;background:var(--hypo)}
+@media (max-width:640px){.changelog li{grid-template-columns:1fr;row-gap:2px}.chapter h2 .ja-date{display:block;margin:6px 0 0}}
+
 /* 仮説の章 */
 .hinge{
   max-width:640px;margin:56px auto 0;padding:0 24px;
@@ -263,28 +285,33 @@ footer .dots{margin:0 0 16px}
 
 <header class="cover">
   <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-  <p class="kicker">moy. / origin</p>
+  <p class="kicker">moy. / origin — 連載中</p>
   <h1>モイができるまで</h1>
   <p class="sub">ある企画会社が「会社」になっていく記録と、その先の話</p>
   <div class="meta">
-    <span>執筆時点　2026年9月5日</span>
-    <span class="en">written from the working papers</span>
+    <span>最終更新　2026年9月5日</span>
+    <span class="en">written as it happens</span>
   </div>
 </header>
 
 <div class="legend" aria-label="凡例">
-  <span><span class="tag fact">事実</span>資料に残っていること（序章から第七章まで）</span>
-  <span><span class="tag hypo">仮説</span>まだ起きていないこと（第八章から先）</span>
+  <span><span class="tag fact">事実</span>資料と記録に残っていること（第一部・第二部）</span>
+  <span><span class="tag hypo">仮説</span>まだ起きていないこと（第三部）</span>
 </div>
 
 <section class="preface" aria-labelledby="pf">
   <h2 id="pf">この読み物について</h2>
-  <p>これは、2026年8月から9月にかけて、三人の人間が「moy.（モイ）」という会社を立ち上げようとしている過程を、手元に残っている資料をもとに書き起こしたものである。</p>
-  <p>序章から第七章までは、資料に残っている事実と、そこに書かれた考えをもとにしている。第八章から先は、まだ起きていない。三人が描いた計画の通りに進んだとしたら、という仮定の物語である。仮説の章に出てくる会社や数字は、資料の想定値を借りた例であって、実測ではない。</p>
+  <p>これは、2026年8月から、三人の人間が「moy.（モイ）」という会社を立ち上げようとしている過程を、起きたそばから書き継いでいく読み物である。</p>
+  <p>三部に分かれている。第一部「八月」は、手元に残っている資料をもとに書き起こした。第二部「九月」は、リアルタイムに書く。各章には書いた日付を添え、あとから書き換えたときはその記録を付録に残す。第三部「まだ起きていないこと」は、三人が描いた計画の通りに進んだとしたら、という仮定の物語で、現実が追いつくたびに第二部へ吸収されて短くなっていく。仮説の章に出てくる会社や数字は、資料の想定値を借りた例であって、実測ではない。</p>
   <p>どこまでが事実で、どこからが仮説か。その線を引くことは、この会社が最初に決めた約束のひとつでもある。</p>
 </section>
 
 <main>
+
+<div class="part" id="p1">
+  <div class="plabel"><span class="en">part one</span><span class="ja">第一部　八月</span></div>
+  <p class="pnote">手元に残っている資料をもとに書き起こした。</p>
+</div>
 
 <section class="chapter" id="c0">
   <h2><span class="no">0</span><span>序　もや</span></h2>
@@ -404,18 +431,29 @@ footer .dots{margin:0 0 16px}
   <p>メンバー欄には、三つの色の点と、三人の名前。</p>
 </section>
 
+<div class="part" id="p2">
+  <div class="plabel"><span class="en">part two</span><span class="ja">第二部　九月</span></div>
+  <p class="pnote">起きたそばから書く。ここから先の各章には、書いた日付を添える。</p>
+</div>
+
 <section class="chapter" id="c7">
-  <h2><span class="no">7</span><span>七　ここまでが、事実</span></h2>
-  <p>この読み物を書いている時点は、2026年9月5日である。</p>
-  <p>手元の資料から分かるのは、ここまでだ。三人がいること。会社の定義と営業の型が決まっていること。名前が MOY に決まったこと。サイトが作られたこと。九月十五日という期限があること。</p>
-  <p>分からないこともある。打診のメールが何社に送られ、何社から返事が来たか。商談が何件あったか。三輪の兼業規定がどう判断されたか。契約の名義が誰になったか。そして、一社目が取れたかどうか。</p>
-  <p>手元の資料は「叩き台」ばかりで、決定を記した「議事録」がない。決めるのは三人の会議であり、資料は決定の前に書かれている。だから、ここから先は書けない。</p>
-  <p>書けないが、三人が描いた通りに進んだとしたら、こうなるはずだ、という物語は書ける。</p>
-  <p>ここから先は、仮説である。</p>
+  <h2><span class="no">7</span><span>七　招待状<span class="ja-date">九月五日 記</span></span></h2>
+  <p>八月二十七日の会議資料には、冒頭にこう書いてある。「このページは全部『提案』。決めるのは三人」。その会議で何が決まったかを記した議事録は、手元にない。</p>
+  <p>代わりに、受信箱に痕跡がある。</p>
+  <p>八月二十八日、午前四時二十六分。三輪から Teams の会議招待が届く。件名は「m.o.y. Meeting」。三つの点で区切られた、まだ表記の揺れている名前。宛先は折原と山口。</p>
+  <p>九月二日、夜八時十三分。同じ会議がキャンセルされる。本文は一行だけ。「リスケのため削除します！」</p>
+  <p>翌九月三日、午後一時九分。新しい招待が届く。件名は「moy. Meeting」。点が三つから一つに減り、サイトのワードマークと同じ綴りになっている。</p>
+  <p>九月四日、午前一時四十七分。山口が Google Chat にスペースを作り、折原を招待する。スペースの名前は「moy。」。末尾の点は、日本語の句点である。</p>
+  <p class="line">決定の記録はない。だが名前が定着していく様子だけは、件名の変遷に残っている。<br><em>m.o.y.、moy.、moy。</em></p>
+  <p>三人がそれぞれの手で、同じ名前を打ち始めている。</p>
+  <p>もうひとつ、受信箱から分かることがある。営業手順書が「八月二十六日に打診開始」と定めたメールは、この受信箱からは一通も送られていない。別の名義から送っているのか、まだ送っていないのか、それとも紹介ルートで直接会っているのか。手元の記録からは分からない。</p>
+  <p>分からないことは、まだ多い。会議で九つの決定がどう転んだか。三輪の兼業規定がどう判断されたか。契約の名義が誰になったか。そして、一社目が取れそうかどうか。</p>
+  <p>九月五日。期限まで、あと十日。</p>
 </section>
 
-<div class="hinge" aria-hidden="true">
-  <div class="band"><span class="tag hypo">仮説</span><span>ここから先は、まだ起きていない</span><span class="en" style="margin-left:auto">not yet</span></div>
+<div class="part hypo" id="p3">
+  <div class="plabel"><span class="en">part three</span><span class="ja">第三部　まだ起きていないこと</span></div>
+  <p class="pnote">三人が描いた通りに進んだとしたら、こうなるはずだ、という物語。現実が追いつくたびに、第二部へ吸収される。</p>
 </div>
 
 <section class="chapter hypo" id="c8">
@@ -450,7 +488,7 @@ footer .dots{margin:0 0 16px}
 </section>
 
 <section class="chapter end" id="c10">
-  <h2><span class="no">10</span><span>十　会社になる</span></h2>
+  <h2><span class="no">∞</span><span>終章　会社になる</span></h2>
   <p>会社が「成り立つ」とは、何を指すのだろう。</p>
   <p>登記の日ではない。三人はそれを、十月の成果を見てから決めることにしている。名刺ができた日でも、サイトが公開された日でもない。</p>
   <p>おそらく、循環が一回転した日である。誰かが八万円を払い、三日間の数字を受け取り、「次もお願いします」と言った日。企画に値段がついた日。</p>
@@ -475,12 +513,29 @@ footer .dots{margin:0 0 16px}
     <li><span class="d">2026-08-25</span><span class="t">ターゲットリスト30社、契約・請求体制の確定期日</span></li>
     <li><span class="d">2026-08-26</span><span class="t">打診メール開始予定日</span></li>
     <li><span class="d">2026-08-27</span><span class="t">会議「サイトに確からしさを載せる」。決定9項目、確認4項目</span></li>
-    <li><span class="d">2026-09-02</span><span class="t">サイト v2（moy.）。オープニング「並ぶな、際立て。」</span></li>
-    <li><span class="d">2026-09-05</span><span class="t">この読み物の執筆時点</span></li>
+    <li><span class="d">2026-08-28</span><span class="t">三輪から Teams 会議招待「m.o.y. Meeting」（宛先：折原・山口）</span></li>
+    <li><span class="d">2026-09-02</span><span class="t">サイト v2（moy.）。オープニング「並ぶな、際立て。」。同日夜、会議招待がリスケのためキャンセル</span></li>
+    <li><span class="d">2026-09-03</span><span class="t">会議の再招待「moy. Meeting」</span></li>
+    <li><span class="d">2026-09-04</span><span class="t">山口が Google Chat スペース「moy。」を作成、折原を招待</span></li>
+    <li><span class="d">2026-09-05</span><span class="t">第二部の執筆開始</span></li>
     <li class="kgi"><span class="d future">2026-09-15</span><span class="t">KGIの期日（有償案件1件）</span></li>
     <li><span class="d future">2026-09-16〜18</span><span class="t">総務・人事・経理Week【東京】（本命の展示会）</span></li>
     <li><span class="d future">2026-09-30〜10-02</span><span class="t">産業DX総合展 2026 夏 東京（保険の展示会）</span></li>
   </ol>
+
+  <h2>更新記録<span class="en">changelog</span></h2>
+  <ol class="changelog">
+    <li><span class="d">2026-09-05</span><span>第一稿。序〜六（資料にもとづく事実）、七（執筆時点の整理）、八〜九（仮説）、終章</span></li>
+    <li><span class="d">2026-09-05</span><span>三部構成に組み替え。旧七「ここまでが、事実」を第二部の第一回「七　招待状」に書き換え。受信箱の記録（会議招待・チャット招待）を出典に追加</span></li>
+  </ol>
+
+  <h2>次に書くこと<span class="en">next</span></h2>
+  <ul class="next">
+    <li>会議で何が決まったか（九つの決定、四つの確認の行方）</li>
+    <li>打診の進捗と、一社目の候補</li>
+    <li>九月十五日、期限の日</li>
+    <li>九月十六日から三日間、会場で起きたこと（一社目が取れていれば）</li>
+  </ul>
 
   <h2>出典<span class="en">sources</span></h2>
   <ul class="sources">
@@ -492,8 +547,9 @@ footer .dots{margin:0 0 16px}
     <li><span class="d">2026-08-17</span>イベント会社 社名企画書 MOY</li>
     <li><span class="d">2026-08-27</span>MOY会議資料 サイトに「確からしさ」を載せる</li>
     <li><span class="d">2026-09-02</span>moy-site v2（コーポレートサイト）</li>
+    <li><span class="d">2026-08-28〜09-04</span>受信箱の記録（Teams 会議招待とキャンセル、Google Chat スペース招待）</li>
   </ul>
-  <p class="note">いずれも折原が叩き台として作成した資料。決定事項ではなく提案として書かれたものを、本文では「決めた」「書かれている」と区別して扱った。</p>
+  <p class="note">資料はいずれも折原が叩き台として作成したもの。決定事項ではなく提案として書かれたものを、本文では「決めた」「書かれている」と区別して扱った。受信箱の記録は折原宛のメールから。</p>
 </section>
 
 <footer>
