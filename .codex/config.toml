@@ -1,0 +1,17 @@
+# Project-level Codex CLI configuration.
+# Loaded by Codex only after this repository is marked as trusted
+# (Codex asks on first run, or run `codex` here and accept the prompt).
+#
+# GPT-6 Astra requires Codex CLI >= 0.153.1.
+# Auth and network settings are intentionally NOT here: Codex ignores
+# provider/auth keys in project config. Provide OPENAI_API_KEY or run
+# `codex login` on the host instead.
+
+model = "gpt-6-astra"
+
+# Supported reasoning levels for gpt-6-astra:
+#   low | medium | high | xhigh | max | ultra
+model_reasoning_effort = "high"
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
