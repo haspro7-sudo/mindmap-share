@@ -14,9 +14,16 @@ Tokyo fix (仲値) is set at 09:55 JST = 02:55 server (US winter) / 03:55 server
 (US summer).  With H1 bars the position opened at the open of the H1 bar starting
 at `entry_hour` local and is closed at the open of the H1 bar starting at
 `exit_hour` local (i.e. exit_hour=10 JST closes 5 minutes after the fix).
-Optional `exit_early_min` adds an extra exit decision `exit_early_min` minutes
-before exit_hour; it only has an effect with minute-bar execution (with H1
-execution it maps onto the same exit bar and changes nothing).
+Optional `exit_early_min` / `entry_early_min` add an extra exit / entry decision that
+many minutes before exit_hour / entry_hour; they only have an effect with minute-bar
+execution (with H1 execution they map onto the regular bar and change nothing).
+
+Selected configuration of the research (scripts/research_seasonality.py, chosen on
+IS 2005-2014 only; verdict "marginal", see reports/seasonality.md):
+    SeasonalWindow(tz="JST", entry_hour=10, exit_hour=15, ccy="JPY", ccy_dir=+1,
+                   days="gotobi", stop_atr=0.5, atr_n=14, entry_early_min=5)
+    on USDJPY with minute-bar execution = sell USDJPY at the 09:55 JST Tokyo fix on
+    gotobi days, stop 0.5 x D1 ATR(14), close at 15:00 JST.
 
 Decisions are made on CLOSED bars only: the decision row of bar t (open time t,
 close time t+1h) is executed by the engine at the open of the next bar, so an

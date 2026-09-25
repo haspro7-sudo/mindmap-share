@@ -112,7 +112,8 @@ def policy_rate(ccy: str, year: int) -> float:
 
 @dataclass(frozen=True)
 class CostModel:
-    """Titan FX Zero Blade style costs.  multiplier scales spread+slippage+commission."""
+    """Titan FX Zero Blade style costs.  multiplier scales spread, slippage, commission
+    and the broker's swap markup (not the interest-rate differential itself)."""
     commission_jpy_per_lot_rt: float = 720.0     # FX, JPY account (USD 3.5/side on USD accounts)
     swap_markup_pct: float = 2.5                 # broker markup on each side of the carry
     multiplier: float = 1.0                      # (calibrated on a July 2026 USDJPY swap quote)
@@ -140,9 +141,9 @@ class CostModel:
     def swap_rate_annual(self, inst: Instrument, direction: int, year: int) -> float:
         """Annual carry (fraction) earned (+) or paid (-) for a position of `direction`."""
         if self.carry_mode == "futures":
-            return -self.swap_markup_pct / 100.0
+            return -self.swap_markup_pct * self.multiplier / 100.0
         diff = (policy_rate(inst.base, year) - policy_rate(inst.quote, year)) / 100.0
-        return direction * diff - self.swap_markup_pct / 100.0
+        return direction * diff - self.swap_markup_pct * self.multiplier / 100.0
 
 
 def quote_to_jpy_symbol(quote: str) -> str | None:

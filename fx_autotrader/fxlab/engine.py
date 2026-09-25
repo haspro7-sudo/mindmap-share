@@ -651,14 +651,18 @@ def _daily_equity(tk: pd.DataFrame, daily_close: dict[str, pd.Series], conv: Con
     realized = np.zeros(len(days))
     unreal = np.zeros(len(days))
     if len(tk) and len(days):
-        xi = np.searchsorted(days.values, tk.exit_time.dt.normalize().values, side="left")
-        np.add.at(realized, np.clip(xi, 0, len(days) - 1), tk.pnl_jpy.to_numpy())
+        xi = np.clip(np.searchsorted(days.values, tk.exit_time.dt.normalize().values,
+                                     side="left"), 0, len(days) - 1)
+        np.add.at(realized, xi, tk.pnl_jpy.to_numpy())
         for sym, g in tk.groupby("symbol"):
             ins = INSTRUMENTS[sym]
             cl = daily_close[sym].reindex(days, method="ffill").to_numpy()
             q = conv.rate(ins.quote, days + pd.Timedelta(hours=23, minutes=59))
             e0 = np.searchsorted(days.values, g.entry_time.dt.normalize().values, side="left")
-            e1 = np.searchsorted(days.values, g.exit_time.dt.normalize().values, side="left")
+            # open P&L is marked up to (not including) the day the trade is realized,
+            # so a trade closed at/after the last day is never counted twice
+            e1 = np.clip(np.searchsorted(days.values, g.exit_time.dt.normalize().values,
+                                         side="left"), 0, len(days) - 1)
             for a, b, dr, px, lt in zip(e0, e1, g.dir.to_numpy(), g.entry_eff.to_numpy(),
                                         g.lots.to_numpy()):
                 if b > a:

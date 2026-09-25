@@ -14,7 +14,14 @@ Stages (hypotheses fixed from the literature BEFORE looking at the data):
       Breedon & Ranaldo 2013)
   1c  London 16:00 WM/R fix reversal (month-end and every day)
   1d  weekend: Monday gap fade
-  2+  refinement of the surviving hypothesis (see STAGES)
+  2a  one-at-a-time variations of the Tokyo post-fix reversal (+ 09:55 pre-fix exit)
+  2b  one-at-a-time variations of the European-morning EUR selling
+  3   minute-bar timing at the 09:55 JST fix (pre-declared adoption rule)
+  4   IS neighbours of the selected configuration (robustness, not re-selection)
+final: selected config on IS / OOS / cost x2 (+ H1-execution variant), per-year,
+outlier dependence, DSR sensitivity, neighbour OOS, look-ahead truncation test, and
+writes reports/equity/seasonality.parquet + reports/trades/seasonality.parquet.
+FRED periods are not applicable (close-only daily data has no Tokyo intraday times).
 """
 from __future__ import annotations
 

@@ -89,7 +89,7 @@ def per_symbol_R(res) -> pd.DataFrame:
     t = res.taken
     if len(t) == 0:
         return pd.DataFrame()
-    g = t.groupby("symbol").R
+    g = t.groupby("symbol")["R_net" if "R_net" in t else "R"]
     return pd.DataFrame({"n": g.size(), "avg_R": g.mean(), "sum_R": g.sum(),
                          "win": g.apply(lambda r: (r > 0).mean())}).sort_values("sum_R")
 

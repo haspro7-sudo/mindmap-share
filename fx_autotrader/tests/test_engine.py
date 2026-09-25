@@ -261,3 +261,16 @@ def test_fred_synthetic_bars_are_not_optimistic_for_stops():
     true_R = R(simulate_symbol(dec, "D1", d1))
     syn_R = R(simulate_symbol(dec, "D1", synthetic_ohlc_from_closes(d1.close)))
     assert syn_R <= true_R + 0.1
+
+
+def test_equity_final_equals_initial_plus_pnl_with_forced_end_close():
+    idx = pd.date_range("2014-12-22", periods=24 * 12, freq="1h")
+    bars = pd.DataFrame({"open": 150.0, "high": 150.5, "low": 149.5,
+                         "close": np.linspace(150, 156, len(idx))}, index=idx)
+    d1 = bars.close.resample("1D").last()
+    t = pd.DataFrame({"entry_time": [idx[5]], "exit_time": [idx[-1]], "entry_i": [5],
+                      "exit_i": [len(idx) - 1], "dir": [1], "entry_mid": [150.0],
+                      "exit_mid": [156.0], "stop_dist": [1.0], "reason": ["signal"]})
+    cfg = PortfolioConfig(costs=CostModel(use_swap=False))
+    res = run_portfolio({"USDJPY": t}, _conv(idx), {"USDJPY": d1}, cfg, end="2015-01-01")
+    assert res.equity.iloc[-1] == pytest.approx(cfg.initial_jpy + res.taken.pnl_jpy.sum())
