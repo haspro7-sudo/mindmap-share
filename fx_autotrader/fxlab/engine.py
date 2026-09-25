@@ -412,6 +412,7 @@ class PortfolioConfig:
     max_open_risk: float = 0.08          # sum of initial risk of open trades / balance
     max_trades_per_symbol: int = 1
     withdrawals: Callable | None = None  # f(balance, peak, date) -> jpy to withdraw (tax etc.)
+    book_risk: dict = field(default_factory=dict)  # "tag" -> risk multiplier for "tag|SYMBOL" books
 
 
 class ConversionTable:
@@ -564,6 +565,8 @@ def run_portfolio(trades: dict[str, pd.DataFrame], conv: ConversionTable,
             if per_book.get(bk, 0) >= cfg.max_trades_per_symbol:
                 skip_reason[tid] = "symbol_busy"; continue
             rf = cfg.risk.risk(balance, peak)
+            if cfg.book_risk and "|" in bk:
+                rf *= cfg.book_risk.get(bk.split("|")[0], 1.0)
             open_risk = sum(risk_jpy[k] for k in open_ids)
             budget = min(balance * rf, balance * cfg.max_open_risk - open_risk)
             if budget <= 0:

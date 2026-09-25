@@ -167,7 +167,10 @@ def lookahead_check() -> int:
     cfgs = [dict(signal="mom", lookback=63), dict(signal="vmom", lookback=252),
             dict(signal="rev", lookback=5, rebalance="W"), dict(signal="value"),
             dict(signal="carry"), dict(signal="combo", components=("carry", "mom", "value"),
-                                       k=2)]
+                                       k=2),
+            dict(signal="combo", components=("mom21", "mom63", "mom126", "mom252"), k=2,
+                 rebalance="W", exit_mode="buffer"),
+            dict(signal="mom", lookback=126, k=2, rebalance="W", exit_mode="sign")]
     bad = 0
     for T in ["2007-03-14", "2011-08-05", "2014-06-30"]:
         for c in cfgs:
@@ -245,19 +248,46 @@ def top_configs(S: Search, n: int, pool: list[dict] | None = None) -> list[dict]
     return out
 
 
-def stage_c(S: Search, cands: list[dict]) -> list[dict]:
-    """Exit / stop / breadth refinements of the stage A+B leaders."""
+def stage_c(S: Search, cands: list[dict], stage: str = "C", extra_opts=()) -> list[dict]:
+    """Exit / stop / breadth refinements of the stage leaders."""
     grid = []
     for c in cands:
         st = c["stop_atr"]
-        for p in ({"stop_atr": round(st * 0.6, 1)}, {"stop_atr": round(st * 1.6, 1)},
-                  {"exit_mode": "sign"}, {"reenter": True}, {"k": 3 if c["k"] < 3 else 2},
-                  {"trail_atr": st}):
+        opts = [{"stop_atr": round(st * 0.6, 1)}, {"stop_atr": round(st * 1.6, 1)},
+                {"exit_mode": "sign"}, {"reenter": True}, {"k": 3 if c["k"] < 3 else 2},
+                {"trail_atr": st}] + list(extra_opts)
+        for p in opts:
             q = dict(c)
             q.update(p)
-            grid.append(q)
+            if key_of(q) != key_of(c):
+                grid.append(q)
     for p in grid:
-        S.trial(p, "C")
+        S.trial(p, stage)
+    return grid
+
+
+MOM_ENS = ["mom21", "mom63", "mom126", "mom252"]
+
+
+def stage_e(S: Search) -> list[dict]:
+    """Round 2 (designed after round 1 showed a sharp lookback optimum): rankings that
+    are robust by construction - lookback ensemble, vol-adjusted weekly momentum,
+    carry + momentum weekly, and a rank-buffer exit to cut churn."""
+    grid = []
+    for reb in ("W", "M"):
+        for k in (1, 2):
+            grid.append(dict(signal="combo", components=MOM_ENS, rebalance=reb, k=k))
+    for L in (63, 126, 252):
+        grid.append(dict(signal="vmom", lookback=L, rebalance="W", k=2))
+    for L in (63, 126):
+        grid.append(dict(signal="combo", components=["carry", "mom"], lookback=L,
+                         rebalance="W", k=2))
+    grid.append(dict(signal="mom", lookback=63, rebalance="W", k=2, exit_mode="buffer"))
+    grid.append(dict(signal="mom", lookback=126, rebalance="W", k=2, exit_mode="buffer"))
+    grid.append(dict(signal="combo", components=MOM_ENS, rebalance="W", k=2,
+                     exit_mode="buffer"))
+    for p in grid:
+        S.trial(p, "E")
     return grid
 
 
@@ -277,6 +307,14 @@ def neighbours(c: dict) -> list[dict]:
         L = c["lookback"]
         add(lookback=int(round(L * 0.67)))
         add(lookback=int(round(L * 1.5)))
+    comps = list(c["components"]) if c["signal"] == "combo" else []
+    if any(x.rstrip("0123456789") != x for x in comps):
+        for f in (0.67, 1.5):
+            nc = []
+            for x in comps:
+                b = x.rstrip("0123456789")
+                nc.append(f"{b}{int(round(int(x[len(b):]) * f))}" if b != x else x)
+            add(components=nc)
     sig_uses_V = c["signal"] == "value" or (c["signal"] == "combo" and "value" in c["components"])
     if sig_uses_V:
         add(value_n=int(round(c["value_n"] * 0.7)))
@@ -292,11 +330,11 @@ def neighbours(c: dict) -> list[dict]:
     return out
 
 
-def stage_d(S: Search, cands: list[dict]) -> pd.DataFrame:
+def stage_d(S: Search, cands: list[dict], stage: str = "D") -> pd.DataFrame:
     rows = []
     for c in cands:
-        m0 = S.trial(c, "D")
-        nb = [S.trial(q, "D") for q in neighbours(c)]
+        m0 = S.trial(c, stage)
+        nb = [S.trial(q, stage) for q in neighbours(c)]
         sh = [x.get("sharpe", 0.0) for x in nb]
         rows.append({"config": label(c), "is_sharpe": m0.get("sharpe"),
                      "is_trades": m0.get("trades"),
@@ -348,7 +386,22 @@ def main():
     gc = stage_c(S, lead)
     cands = top_configs(S, 3, ga + gb + gc)
     print("Stage D: plateau test of", [label(x) for x in cands])
-    plateau = stage_d(S, cands)
+    plateau1 = stage_d(S, cands)
+    # ---- round 2 (IS only): robust-by-construction variants
+    print("Stage E: ensembles / weekly vol-adjusted / carry+mom weekly / buffer exit")
+    ge = stage_e(S)
+    lead2 = top_configs(S, 3, ge)
+    print("Stage C2: refinements of", [label(x) for x in lead2])
+    gc2 = stage_c(S, lead2, "C2", extra_opts=({"exit_mode": "buffer"},))
+    tested = {key_of(p) for p in cands}
+    cands2 = [p for p in top_configs(S, 6, ge + gc2) if key_of(p) not in tested][:3]
+    print("Stage D2: plateau test of", [label(x) for x in cands2])
+    plateau2 = stage_d(S, cands2, "D2")
+    plateau = pd.concat([plateau1.assign(round=1), plateau2.assign(round=2)])
+    # selection rule (fixed before any OOS run): best robust score among candidates
+    # whose every IS neighbour has Sharpe > 0; if none qualifies, best robust score
+    plateau["plateau_ok"] = plateau.nb_min_sharpe > 0
+    plateau = plateau.sort_values(["plateau_ok", "robust_score"], ascending=False)
     n_trials = S.n_trials
     best = plateau.iloc[0]["_p"]
     print(f"\nTrials logged: {n_trials}")
@@ -361,8 +414,8 @@ def main():
         allrows.append({"config": label(S.params[k]), **{x: m.get(x) for x in KEYS}})
     allis = pd.DataFrame(allrows).sort_values("sharpe", ascending=False)
     stageA = pd.DataFrame([{"config": label(p), **{x: S.done[key_of(p)].get(x) for x in KEYS}}
-                           for p in ga + gb])
-    print("\nIS results, stage A+B (all single-factor and composite rankings):")
+                           for p in ga + gb + ge])
+    print("\nIS results, stages A+B+E (all single-factor, composite and ensemble rankings):")
     print(stageA.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     print("\nIS top 15 of all trials:")
     print(allis.head(15).to_string(index=False, float_format=lambda v: f"{v:.3f}"))

@@ -471,6 +471,43 @@ def final():
     print("exit reasons:", tk.reason.value_counts().to_dict(),
           " entry JST times:", pd.Series(jst.strftime("%H:%M")).value_counts().head(3).to_dict())
 
+    # ---- dependence on a few large trades (OOS is carried by 3 macro-event days)
+    print("\noutlier dependence (net R after dropping the k largest winners):")
+    orow = []
+    for per in ("IS", "OOS"):
+        x = tk[tk.per == per].sort_values("R_net", ascending=False)
+        for k in (0, 1, 3, 5):
+            r, g = x.R_net.iloc[k:], x.gross_R.iloc[k:]
+            orow.append({"per": per, "drop_top": k, "n": len(r), "net_R": r.mean(),
+                         "net_t": r.mean() / (r.std() / np.sqrt(len(r))),
+                         "gross_R": g.mean(), "gross_t": g.mean() / (g.std() / np.sqrt(len(g))),
+                         "median_net_R": x.R_net.median()})
+    with pd.option_context("display.width", 250, "display.float_format", "{:.4f}".format):
+        print(pd.DataFrame(orow).to_string(index=False))
+    top = tk[tk.per == "OOS"].nlargest(3, "R_net")
+    print("largest OOS trades:", [(str(a.date()), round(b, 2)) for a, b in
+                                  zip(top.entry_time, top.R_net)])
+
+    # ---- deflated Sharpe sensitivity: harness assumption (trial-SR dispersion 0.5)
+    # vs. the raw dispersion of this family's trial Sharpes (inflated by cost-dominated
+    # always-in-market variants, so a very conservative bound)
+    from scipy import stats as st
+    from fxlab.metrics import ANN, deflated_sharpe
+    recs = [json.loads(x) for x in open(LOG.path)]
+    shs = {}
+    for r in recs:
+        if r["period"] == "is" and r["params"].get("engine_rev") == ENGINE_REV:
+            shs[_norm(r["params"], ("stage", "engine_rev"))] = r["metrics"]["sharpe"]
+    sh = np.array(list(shs.values()))
+    rr = res["is"].equity.pct_change().dropna()
+    dsr_emp = deflated_sharpe(ev["is"]["sharpe"], len(rr), n_trials, float(st.skew(rr)),
+                              float(st.kurtosis(rr, fisher=False)),
+                              (sh.std(ddof=1) / np.sqrt(ANN)) ** 2)
+    print(f"\nDSR sensitivity: trial Sharpe mean {sh.mean():.3f}, sd {sh.std(ddof=1):.3f} "
+          f"(n={len(sh)}); DSR with sd=0.5 (harness) {dsr:.4f}, with empirical sd {dsr_emp:.4f}; "
+          f"Bonferroni z for {n_trials} trials at 5%: {st.norm.ppf(1 - 0.05 / n_trials):.2f} "
+          f"vs IS t(R) {ev['is']['t_stat_R']:.2f}")
+
     # ---- neighbours: IS (logged in stage 4) and OOS (reported, never used to select)
     print("\nneighbour robustness (1% risk):")
     nrows = []
