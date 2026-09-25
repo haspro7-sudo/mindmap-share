@@ -571,6 +571,7 @@ def run_portfolio(trades: dict[str, pd.DataFrame], conv: ConversionTable,
             budget = min(balance * rf, balance * cfg.max_open_risk - open_risk)
             if budget <= 0:
                 skip_reason[tid] = "risk_cap"; continue
+            capped = budget < balance * rf
             per_unit = (allt.stop_dist.iat[tid] + 2 * hs[tid] + entry_extra[tid]) * q_entry[tid]
             units = budget / per_unit
             lt = np.floor(units / ins.contract / ins.lot_step + 1e-9) * ins.lot_step
@@ -580,7 +581,7 @@ def run_portfolio(trades: dict[str, pd.DataFrame], conv: ConversionTable,
                                   / ins.lot_step) * ins.lot_step)
             lt = min(lt, ins.max_lot * 10)  # split into <=10 orders of max_lot
             if lt < ins.min_lot - 1e-12:
-                skip_reason[tid] = "below_min_lot"; continue
+                skip_reason[tid] = "risk_cap" if capped else "below_min_lot"; continue
             lots[tid] = lt
             taken[tid] = True
             risk_jpy[tid] = lt * ins.contract * per_unit

@@ -105,7 +105,8 @@ def _autumnal(y: int) -> date:
 
 @lru_cache(maxsize=None)
 def jp_public_holidays(y: int) -> frozenset:
-    """Japanese national holidays of year y (valid 2000-2030)."""
+    """Japanese national holidays of year y (verified 2004-2030 against python-holidays and
+    jpholiday; 2000-2003 differ because of older Happy-Monday / substitute rules)."""
     h = {date(y, 1, 1), _nth_monday(y, 1, 2), date(y, 2, 11), _vernal(y), date(y, 4, 29),
          date(y, 5, 3), date(y, 5, 4), date(y, 5, 5), _autumnal(y), date(y, 11, 3),
          date(y, 11, 23)}
