@@ -293,6 +293,9 @@ class SeasonalWindow(Strategy):
             # a few minutes earlier uses no additional information.  With H1 execution
             # the copy maps onto the regular entry bar (no effect).
             e = d[entry].copy()
+            # the early copy REPLACES the hh:00 entry (one trade per day, like the EA):
+            # no second entry at hh:00 after a stop-out inside the first minutes
+            d.loc[entry, ["long_entry", "short_entry"]] = False
             e.index = e.index - pd.Timedelta(minutes=self.entry_early_min)
             e["exit_long"] = False
             e["exit_short"] = False

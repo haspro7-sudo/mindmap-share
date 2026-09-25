@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| TitanPortfolioEA.mq5  v1.10                                      |
+//| TitanPortfolioEA.mq5  v1.20                                      |
 //| Staged-risk portfolio EA for Titan FX MT5 (JPY account, Blade)   |
 //|   1) GOTOBI   : USDJPY short at the 09:55 JST Tokyo fix on       |
 //|                 Japanese gotobi days, flat at 15:00 JST (LIVE)   |
@@ -12,7 +12,7 @@
 //| from the moment it is opened.  No martingale/grid/averaging.     |
 //+------------------------------------------------------------------+
 #property copyright "fx_autotrader"
-#property version   "1.10"
+#property version   "1.20"
 #property description "Gotobi (+ optional D1 mean reversion / carry) with staged risk for Titan FX MT5 (JPY, hedging account)."
 
 #include <Trade\Trade.mqh>
@@ -21,12 +21,12 @@
 input group "=== General ==="
 input string InpSymbolSuffix    = "";        // e.g. "-m" on Micro accounts; "" on Standard/Blade
 input long   InpMagicBase       = 26092600;  // magics: base+1 gotobi, base+2 meanrev, base+3 carry
-input int    InpServerDST       = 0;         // tester clock rule: 0 = NY+7h (US DST), 1 = EU DST, 2 = fixed GMT+2, 3 = fixed GMT+3
+input int    InpServerDST       = 0;         // clock rule: 0 = NY+7h (US DST, Titan FX), 1 = EU DST, 2 = fixed GMT+2, 3 = fixed GMT+3
 input bool   InpLogCsv          = true;
 
 input group "=== Books (risk per trade in % of balance) ==="
 input bool   InpGotobiOn        = true;
-input double InpGotobiRiskPct   = 0.5;       // stage 1: 0.5 ; stage 2: 1.0 ; hard ceiling while gotobi trades alone: 1.25
+input double InpGotobiRiskPct   = 0.5;       // stage 1: 0.5 ; stage 2: 1.0 ; ceiling while gotobi trades alone: 1.25
 input bool   InpMeanRevOn       = false;     // demo account only
 input double InpMeanRevRiskPct  = 0.25;
 input bool   InpCarryOn         = false;     // enable only when a pair qualifies AND balance >= 1,000,000 JPY
@@ -92,7 +92,8 @@ struct D1State
   {
    string   sym;
    datetime last_bar;
-   string   gv;        // global variable that persists last_bar across restarts
+   string   gv;        // persists last_bar across restarts
+   datetime retry_at;  // earliest time a failed decision may be re-run
   };
 
 CTrade    g_trade;
@@ -101,17 +102,22 @@ D1State   g_carry[];
 string    g_gotobi_sym = "";
 double    g_stage_bal[];
 double    g_stage_mult[];
-string    g_gv_balpeak, g_gv_eqpeak, g_gv_halt, g_gv_day, g_gv_daybal, g_gv_gotobi_day, g_gv_ratewarn;
+string    g_prefix = "";                     // "TPEA_<login>_<magic>_" (empty until logged in)
+string    g_gv_balpeak, g_gv_eqpeak, g_gv_halt, g_gv_day, g_gv_daybal, g_gv_gotobi_day, g_gv_ratewarn, g_gv_flowtk;
+string    g_gv_lock = "";
+bool      g_ready = false;
 int       g_csv = INVALID_HANDLE;
 datetime  g_extra_hol[];
 bool      g_tester = false;
-// gotobi mechanism monitor (per JST day)
 datetime  g_mech_day = 0;
 double    g_mech_mid0955 = 0.0;
 bool      g_mech_done = false;
 datetime  g_clock_warn_day = 0;
-string    g_last_skip = "";
-datetime  g_last_skip_t = 0;
+string    g_last_skip = "", g_last_err = "";
+datetime  g_last_skip_t = 0, g_last_err_t = 0;
+datetime  g_halt_retry = 0, g_gv_flushed = 0, g_flow_unsync = 0, g_flow_checked = 0;
+bool      g_flow_warned = false;
+uint      g_send_rc = 0;                     // retcode of the last request OpenMarket actually sent (0 = none sent)
 
 long MagicGotobi()  { return InpMagicBase + 1; }
 long MagicMeanRev() { return InpMagicBase + 2; }
@@ -128,9 +134,22 @@ void Log(const string what, const string sym, const string detail)
       if(key == g_last_skip && Now() - g_last_skip_t < 300) return;
       g_last_skip = key; g_last_skip_t = Now();
      }
+   else if(StringFind(what, "ERR_") == 0)
+     {
+      string key = what + "|" + sym + "|" + detail;
+      if(key == g_last_err && Now() - g_last_err_t < 300) return;      // repeated failure: once per 5 min
+      g_last_err = key; g_last_err_t = Now();
+      if(!g_tester && what == "ERR_CLOSE") SendNotification("TitanPortfolioEA " + what + " " + sym + " " + detail);
+     }
    string line = StringFormat("%s,%s,%s,%s", TimeToString(Now(), TIME_DATE | TIME_SECONDS), what, sym, detail);
    Print(line);
    if(InpLogCsv && g_csv != INVALID_HANDLE) { FileWrite(g_csv, line); FileFlush(g_csv); }
+  }
+
+void Notify(const string msg)
+  {
+   Log("NOTIFY", "", msg);
+   if(!g_tester) { Alert(msg); SendNotification(msg); }
   }
 
 double GvGet(const string name, const double def)
@@ -139,6 +158,8 @@ double GvGet(const string name, const double def)
    GlobalVariableSet(name, def);
    return def;
   }
+
+void GvFlush() { if(!g_tester) GlobalVariablesFlush(); }
 
 double PipSize(const string sym)
   {
@@ -183,8 +204,8 @@ datetime LastSunday(const int y, const int m)
    return last - Dow(last) * 86400;
   }
 
-// server clock offset from UTC by rule (2 or 3).  The switch happens on a Sunday while
-// the market is closed, so a date-based test is exact for every trading minute.
+// server clock offset from UTC by rule (2 or 3).  The switch is on a Sunday while the
+// market is closed, so a date-based test is exact for every trading minute.
 int RuleOffset(const datetime server)
   {
    MqlDateTime s; TimeToStruct(server, s);
@@ -200,7 +221,6 @@ int RuleOffset(const datetime server)
    return summer ? 3 : 2;
   }
 
-// live broker offset (2 or 3), 0 if unavailable/implausible
 int LiveOffset()
   {
    if(g_tester) return 0;
@@ -477,7 +497,7 @@ ulong FindPosition(const string sym, const long magic)
    return 0;
   }
 
-// initial JPY risk stored in the comment ("... r=<jpy>"), for all our positions or one magic
+// initial JPY risk stored in the comment ("... r=<jpy>"); falls back to |open - SL|
 double OpenRiskJpy(const long only_magic = 0)
   {
    double total = 0.0;
@@ -489,13 +509,14 @@ double OpenRiskJpy(const long only_magic = 0)
       if(!IsOurMagic(mg) || (only_magic != 0 && mg != only_magic)) continue;
       string c = PositionGetString(POSITION_COMMENT);
       int p = StringFind(c, "r=");
-      if(p >= 0) total += StringToDouble(StringSubstr(c, p + 2));
-      else
+      double r = p >= 0 ? StringToDouble(StringSubstr(c, p + 2)) : 0.0;
+      if(r <= 0.0)
         {
          string sym = PositionGetString(POSITION_SYMBOL);
-         total += LossPerLot(sym, MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - PositionGetDouble(POSITION_SL)))
-                  * PositionGetDouble(POSITION_VOLUME);
+         r = LossPerLot(sym, MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - PositionGetDouble(POSITION_SL)))
+             * PositionGetDouble(POSITION_VOLUME);
         }
+      total += r;
      }
    return total;
   }
@@ -504,7 +525,7 @@ bool EntryAllowed(const string sym, const double max_spread_pips)
   {
    if(GvGet(g_gv_halt, 0.0) > 0.0) return false;
    if(CountOurPositions() >= InpMaxPositions) { Log("SKIP", sym, "max positions"); return false; }
-   double daybal = GvGet(g_gv_daybal, AccountInfoDouble(ACCOUNT_BALANCE));
+   double daybal = GvGet(g_gv_daybal, AccountInfoDouble(ACCOUNT_EQUITY));
    if(AccountInfoDouble(ACCOUNT_EQUITY) < daybal * (1.0 - InpDailyLossPct / 100.0)) { Log("SKIP", sym, "daily loss limit"); return false; }
    double sp = SpreadPips(sym);
    if(sp > max_spread_pips) { Log("SKIP", sym, StringFormat("spread %.2f pips > %.2f", sp, max_spread_pips)); return false; }
@@ -548,6 +569,7 @@ double LotsFor(const string sym, const double stop_dist, const double book_risk_
 bool OpenMarket(const string sym, const int dir, const double stop_dist, const double book_risk_pct,
                 const long magic, const string tag, const double max_spread, const double book_cap_pct)
   {
+   g_send_rc = 0;
    if(!EntryAllowed(sym, max_spread)) return false;
    double risk_jpy = 0.0;
    string reason;
@@ -555,28 +577,40 @@ bool OpenMarket(const string sym, const int dir, const double stop_dist, const d
    if(lots <= 0) { Log("SKIP", sym, tag + " " + reason); return false; }
    int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    double bid = SymbolInfoDouble(sym, SYMBOL_BID), ask = SymbolInfoDouble(sym, SYMBOL_ASK);
-   double px = dir > 0 ? ask : bid;
-   double sl = NormalizeDouble(px - dir * stop_dist, digits);
+   // a buy stop triggers on Bid, a sell stop on Ask: the stop sits stop_dist from the entry MID
+   // (Python parity); the loss at the stop is stop_dist + spread, exactly what LotsFor sized for
+   double sl = NormalizeDouble(dir > 0 ? bid - stop_dist : ask + stop_dist, digits);
    string cmt = StringFormat("%s r=%.0f", tag, risk_jpy);
    g_trade.SetExpertMagicNumber(magic);
    g_trade.SetTypeFillingBySymbol(sym);
    bool ok = dir > 0 ? g_trade.Buy(lots, sym, 0.0, sl, 0.0, cmt) : g_trade.Sell(lots, sym, 0.0, sl, 0.0, cmt);
+   g_send_rc = g_trade.ResultRetcode();
+   ok = ok && (g_send_rc == TRADE_RETCODE_DONE || g_send_rc == TRADE_RETCODE_DONE_PARTIAL);
    string fill = "";
    ulong deal = g_trade.ResultDeal();
    if(ok && deal > 0 && HistoryDealSelect(deal))
       fill = StringFormat(" fill=%s fill_ms=%I64d", DoubleToString(HistoryDealGetDouble(deal, DEAL_PRICE), digits),
                           HistoryDealGetInteger(deal, DEAL_TIME_MSC));
-   Log(ok ? "OPEN" : "ERR_OPEN", sym, StringFormat("%s dir=%d lots=%.2f bid=%s ask=%s sl=%s risk=%.0f rc=%d%s", tag, dir, lots,
-       DoubleToString(bid, digits), DoubleToString(ask, digits), DoubleToString(sl, digits), risk_jpy,
-       (int)g_trade.ResultRetcode(), fill));
+   Log(ok ? "OPEN" : "ERR_OPEN", sym, StringFormat("%s dir=%d lots=%.2f bid=%s ask=%s sl=%s risk=%.0f rc=%u%s", tag, dir, lots,
+       DoubleToString(bid, digits), DoubleToString(ask, digits), DoubleToString(sl, digits), risk_jpy, g_send_rc, fill));
    return ok;
+  }
+
+// retcodes after which the server certainly did NOT execute the order (safe to resend)
+bool SafeToRetry(const uint rc)
+  {
+   return rc == 0 || rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_REJECT || rc == TRADE_RETCODE_PRICE_CHANGED
+          || rc == TRADE_RETCODE_PRICE_OFF || rc == TRADE_RETCODE_TOO_MANY_REQUESTS || rc == TRADE_RETCODE_LOCKED
+          || rc == TRADE_RETCODE_CLIENT_DISABLES_AT;
   }
 
 bool ClosePos(const ulong ticket, const string sym, const string why)
   {
    g_trade.SetTypeFillingBySymbol(sym);
+   g_trade.LogLevel(LOG_LEVEL_NO);
    bool ok = g_trade.PositionClose(ticket, InpDeviationPts);
-   Log(ok ? "CLOSE" : "ERR_CLOSE", sym, why + StringFormat(" rc=%d", (int)g_trade.ResultRetcode()));
+   g_trade.LogLevel(LOG_LEVEL_ERRORS);
+   Log(ok ? "CLOSE" : "ERR_CLOSE", sym, why + StringFormat(" rc=%u %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
    return ok;
   }
 
@@ -590,43 +624,114 @@ void CloseAll(const string why)
      }
   }
 
+// while halted: keep flattening until none of our positions is left (only symbols with fresh quotes)
+void HaltFlatten()
+  {
+   datetime now = Now();
+   if(now - g_halt_retry < 5) return;
+   g_halt_retry = now;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !PositionSelectByTicket(t) || !IsOurMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+      string sym = PositionGetString(POSITION_SYMBOL);
+      if(!g_tester && now - (datetime)SymbolInfoInteger(sym, SYMBOL_TIME) > 60) continue;   // market closed: wait
+      ClosePos(t, sym, "HALT retry");
+     }
+  }
+
+// Deposits / withdrawals from the deal history are applied once to the peaks and the daily
+// reference (plan.py rule: deposit -> peak += amount; withdrawal -> peak scaled by the balance
+// ratio, tax is not a trading drawdown).  Returns false while the history does not reconcile
+// with the account (a deal is in flight): then peaks and the halt test are left alone.
+bool ReconcileCashFlows(const double bal, const double eq)
+  {
+   if(g_tester) return true;
+   if(!HistorySelect(0, TimeCurrent() + 86400)) return false;
+   double last = GvGet(g_gv_flowtk, -1.0);
+   double run = 0.0, newest = MathMax(last, 0.0), other = eq - bal;
+   double bpk = GvGet(g_gv_balpeak, bal), epk = GvGet(g_gv_eqpeak, eq), dref = GvGet(g_gv_daybal, eq);
+   bool applied = false;
+   int n = HistoryDealsTotal();
+   for(int i = 0; i < n; i++)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0) return false;
+      long   t = HistoryDealGetInteger(d, DEAL_TYPE);
+      double a = HistoryDealGetDouble(d, DEAL_PROFIT);
+      if(t == DEAL_TYPE_BALANCE || t == DEAL_TYPE_CREDIT)
+        {
+         if(last >= 0.0 && (double)d > last && a != 0.0)
+           {
+            double b0 = run, e0 = run + other;
+            if(a > 0.0) { if(t == DEAL_TYPE_BALANCE) bpk += a; epk += a; dref += a; }
+            else
+              {
+               if(t == DEAL_TYPE_BALANCE) bpk = (b0 + a > 0.0 && b0 > 0.0) ? bpk * (b0 + a) / b0 : bal;
+               epk  = (e0 + a > 0.0 && e0 > 0.0) ? epk * (e0 + a) / e0 : eq;
+               dref = (e0 + a > 0.0 && e0 > 0.0) ? dref * (e0 + a) / e0 : eq;
+              }
+            applied = true;
+            Log("CASHFLOW", "", StringFormat("%s %+.0f JPY (balance before %.0f): peaks and daily reference adjusted",
+                t == DEAL_TYPE_CREDIT ? "credit" : "balance", a, b0));
+           }
+         newest = MathMax(newest, (double)d);
+        }
+      if(t != DEAL_TYPE_CREDIT)
+         run += a + HistoryDealGetDouble(d, DEAL_SWAP) + HistoryDealGetDouble(d, DEAL_COMMISSION) + HistoryDealGetDouble(d, DEAL_FEE);
+     }
+   if(MathAbs(run - bal) >= 1.0) return false;            // history and balance disagree: in flight
+   if(last < 0.0) { GlobalVariableSet(g_gv_flowtk, newest); GvFlush(); return true; }   // first run: baseline
+   if(applied)
+     {
+      GlobalVariableSet(g_gv_balpeak, MathMax(bpk, 1.0));
+      GlobalVariableSet(g_gv_eqpeak, MathMax(epk, 1.0));
+      GlobalVariableSet(g_gv_daybal, MathMax(dref, 1.0));
+      GlobalVariableSet(g_gv_flowtk, newest);
+      GvFlush();
+     }
+   return true;
+  }
+
 void UpdateAccountState()
   {
    double bal = AccountInfoDouble(ACCOUNT_BALANCE), eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(bal <= 0.0 || eq <= 0.0) return;                    // never act on unsynchronised account data
+   if(!g_tester && Now() - g_flow_checked >= 5)
+     {
+      g_flow_checked = Now();
+      if(!ReconcileCashFlows(bal, eq))
+        {
+         if(g_flow_unsync == 0) g_flow_unsync = Now();
+         if(Now() - g_flow_unsync < 30) return;           // deal in flight: leave peaks / halt alone
+         if(!g_flow_warned) { g_flow_warned = true; Log("WARN", "", "deal history does not reconcile with the balance - cash-flow adjustment off"); }
+        }
+      else { g_flow_unsync = 0; g_flow_warned = false; }
+     }
    double bpeak = GvGet(g_gv_balpeak, bal);
-   if(bal > bpeak) GlobalVariableSet(g_gv_balpeak, bal);
+   if(bal > bpeak) { GlobalVariableSet(g_gv_balpeak, bal); GvFlush(); }
    double epeak = GvGet(g_gv_eqpeak, eq);
    if(eq > epeak) { epeak = eq; GlobalVariableSet(g_gv_eqpeak, eq); }
    MqlDateTime t; TimeToStruct(Now(), t);
    double today = t.year * 10000.0 + t.mon * 100.0 + t.day;
-   if(GvGet(g_gv_day, 0.0) != today) { GlobalVariableSet(g_gv_day, today); GlobalVariableSet(g_gv_daybal, eq); }
+   if(GvGet(g_gv_day, 0.0) != today) { GlobalVariableSet(g_gv_day, today); GlobalVariableSet(g_gv_daybal, eq); GvFlush(); }
    if(GvGet(g_gv_halt, 0.0) == 0.0 && eq < epeak * (1.0 - InpHaltDDPct / 100.0))
      {
       GlobalVariableSet(g_gv_halt, 1.0);
+      GlobalVariableSet(g_gv_eqpeak, eq);                 // re-based: deleting the halt flag resumes against a fresh peak
+      GvFlush();
       CloseAll("HALT equity drawdown limit");
-      Alert("TitanPortfolioEA halted (equity drawdown limit). Review, then delete global variable ", g_gv_halt, " to resume.");
+      Notify(StringFormat("TitanPortfolioEA HALTED: equity %.0f is %.1f%% below its peak %.0f. Positions closed. "
+                          "Review (docs/STAGED_PLAN.md), then delete global variable %s (F3) to resume.",
+                          eq, 100.0 * (1.0 - eq / epeak), epeak, g_gv_halt));
      }
-  }
-
-// deposits / withdrawals must not look like trading gains / drawdowns
-void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)
-  {
-   if(trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0) return;
-   if(!HistoryDealSelect(trans.deal)) return;
-   ENUM_DEAL_TYPE dt = (ENUM_DEAL_TYPE)HistoryDealGetInteger(trans.deal, DEAL_TYPE);
-   if(dt != DEAL_TYPE_BALANCE && dt != DEAL_TYPE_CREDIT) return;
-   double amt = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
-   if(amt == 0.0) return;
-   string names[3]; names[0] = g_gv_balpeak; names[1] = g_gv_eqpeak; names[2] = g_gv_daybal;
-   for(int i = 0; i < 3; i++)
-      if(GlobalVariableCheck(names[i])) GlobalVariableSet(names[i], MathMax(GlobalVariableGet(names[i]) + amt, 1.0));
-   Log("CASHFLOW", "", StringFormat("%.0f JPY (peaks and daily reference adjusted)", amt));
+   if(!g_tester && Now() - g_gv_flushed >= 60) { g_gv_flushed = Now(); GvFlush(); }
   }
 
 //==================================================================== GOTOBI book
 void ProcessGotobi()
   {
-   if(!InpGotobiOn || g_gotobi_sym == "") return;
+   if(g_gotobi_sym == "") return;
    string sym = g_gotobi_sym;
    datetime now = Now();
    bool clock_ok;
@@ -637,7 +742,7 @@ void ProcessGotobi()
    // mechanism monitor: sell-direction mid move 09:55:00 -> 10:05:00 on every gotobi day
    if(g_mech_day != jday) { g_mech_day = jday; g_mech_mid0955 = 0.0; g_mech_done = false; }
    double mid = 0.5 * (SymbolInfoDouble(sym, SYMBOL_BID) + SymbolInfoDouble(sym, SYMBOL_ASK));
-   if(!g_mech_done && jsec >= InpGotobiEntrySec && jsec < InpGotobiEntrySec + 600 && g_mech_mid0955 == 0.0 && IsGotobi(jday))
+   if(!g_mech_done && g_mech_mid0955 == 0.0 && jsec >= InpGotobiEntrySec && jsec < InpGotobiEntrySec + 600 && IsGotobi(jday))
       g_mech_mid0955 = mid;
    if(!g_mech_done && g_mech_mid0955 > 0 && jsec >= InpGotobiEntrySec + 600)
      {
@@ -649,35 +754,48 @@ void ProcessGotobi()
    ulong tk = FindPosition(sym, MagicGotobi());
    if(tk != 0)
      {
-      datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
       bool dummy;
+      datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
       bool other_day = DayStart(ServerToJst(opened, dummy)) != jday;
-      if(jsec >= InpGotobiExitSec || other_day) ClosePos(tk, sym, "GTB 15:00 JST exit");
+      if(jsec >= InpGotobiExitSec || other_day) ClosePos(tk, sym, "GTB 15:00 JST exit");   // also when the book is off
       return;
      }
+   if(!InpGotobiOn) return;                                          // book off: exits only
    if(jsec < InpGotobiEntrySec || jsec >= InpGotobiEntrySec + InpGotobiWindowSec) return;
+   if(!g_tester)                                                     // act on quotes stamped inside the window by the SERVER clock
+     {
+      bool tok;
+      datetime tj = ServerToJst((datetime)SymbolInfoInteger(sym, SYMBOL_TIME), tok);
+      if(tj < jday + InpGotobiEntrySec || tj >= jday + InpGotobiEntrySec + InpGotobiWindowSec) return;
+     }
    double dayid = (double)jday;
-   if(GvGet(g_gv_gotobi_day, 0.0) == dayid) return;               // one trade per JST day
+   if(GvGet(g_gv_gotobi_day, 0.0) == dayid) return;                  // one trade per JST day
    MqlDateTime js; TimeToStruct(jday, js);
-   if(!IsGotobi(jday) || (InpGotobiSkipDec25 && js.mon == 12 && js.day == 25))
-     { GlobalVariableSet(g_gv_gotobi_day, dayid); return; }
-   if(!clock_ok) { GlobalVariableSet(g_gv_gotobi_day, dayid); return; }   // clock mismatch: skip the day
+   if(!IsGotobi(jday) || (InpGotobiSkipDec25 && js.mon == 12 && js.day == 25) || !clock_ok)
+     { GlobalVariableSet(g_gv_gotobi_day, dayid); GvFlush(); return; }
    MqlDateTime ss; TimeToStruct(now, ss);
-   if(ss.hour < 1) return;                                          // never in the rollover hour
+   if(ss.hour < 1) return;                                           // never in the rollover hour
+   if(!g_tester && TerminalInfoInteger(TERMINAL_CONNECTED) == 0) return;
    MqlRates r[]; ArraySetAsSeries(r, true);
    if(CopyRates(sym, PERIOD_D1, 0, 20, r) < 17) return;
    double atr = AtrSma(r, 1, 14);
    if(atr <= 0) return;
-   // retried every timer event inside the one-minute window (e.g. while the spread is too wide)
-   if(OpenMarket(sym, -1, InpGotobiStopAtr * atr, InpGotobiRiskPct, MagicGotobi(), "GTB", InpGotobiMaxSpread, 0.0))
+   bool done = OpenMarket(sym, -1, InpGotobiStopAtr * atr, InpGotobiRiskPct, MagicGotobi(), "GTB", InpGotobiMaxSpread, 0.0);
+   // retry inside the window only if nothing was sent (e.g. spread) or the server certainly did not execute
+   if(done || !SafeToRetry(g_send_rc))
+     {
       GlobalVariableSet(g_gv_gotobi_day, dayid);
+      GvFlush();
+      if(!done) Log("GTB_STOP", sym, StringFormat("no retry today after rc=%u", g_send_rc));
+     }
   }
 
 //==================================================================== D1 books
 bool NewD1Ready(D1State &st, datetime &bar0)
   {
    bar0 = iTime(st.sym, PERIOD_D1, 0);
-   if(bar0 == 0 || bar0 == st.last_bar) return false;
+   if(bar0 == 0 || bar0 <= st.last_bar) return false;               // unsynced / already processed
+   if(Now() < st.retry_at) return false;
    MqlDateTime s; TimeToStruct(Now(), s);
    return s.hour >= 1;                                               // decisions at/after 01:00 server
   }
@@ -686,6 +804,13 @@ void MarkDone(D1State &st, const datetime bar0)
   {
    st.last_bar = bar0;
    GlobalVariableSet(st.gv, (double)bar0);
+   GvFlush();
+  }
+
+bool PastEntryDeadline()                                             // failed entries are retried until 02:00 server
+  {
+   MqlDateTime s; TimeToStruct(Now(), s);
+   return s.hour >= 2;
   }
 
 void ProcessMeanRev(D1State &st)
@@ -695,8 +820,7 @@ void ProcessMeanRev(D1State &st)
    string sym = st.sym;
    MqlRates r[]; ArraySetAsSeries(r, true);
    int total = CopyRates(sym, PERIOD_D1, 0, 1100, r);
-   if(total < 1000) { Log("SKIP", sym, "MR needs >= 1000 D1 bars"); return; }
-   MarkDone(st, bar0);
+   if(total < 1000) { Log("SKIP", sym, "MR needs >= 1000 D1 bars"); st.retry_at = Now() + 60; return; }
    double c1 = r[1].close, c2 = r[2].close;
    double m1 = Sma(r, 1, InpMrBbN), m2 = Sma(r, 2, InpMrBbN);
    double sd1 = StdPop(r, 1, InpMrBbN), sd2 = StdPop(r, 2, InpMrBbN);
@@ -719,12 +843,15 @@ void ProcessMeanRev(D1State &st)
       int held = iBarShift(sym, PERIOD_D1, (datetime)PositionGetInteger(POSITION_TIME), false);
       bool rev = (dir > 0 && S) || (dir < 0 && L);
       bool ex = (dir > 0 && xl) || (dir < 0 && xs) || rev || (InpMrMaxHold > 0 && held >= InpMrMaxHold);
-      if(!ex) return;
-      if(!ClosePos(tk, sym, rev ? "MR reverse" : "MR exit")) return;
+      if(!ex) { MarkDone(st, bar0); return; }
+      if(!ClosePos(tk, sym, rev ? "MR reverse" : "MR exit")) { st.retry_at = Now() + 15; return; }   // exits: retried until done
      }
-   if(stop <= 0) return;
-   if(L && !S) OpenMarket(sym, 1, stop, InpMeanRevRiskPct, MagicMeanRev(), "MR", InpMaxSpreadPips, 0.0);
-   else if(S && !L) OpenMarket(sym, -1, stop, InpMeanRevRiskPct, MagicMeanRev(), "MR", InpMaxSpreadPips, 0.0);
+   int nd = (L && !S) ? 1 : ((S && !L) ? -1 : 0);
+   if(InpMeanRevOn && stop > 0 && nd != 0 &&
+      !OpenMarket(sym, nd, stop, InpMeanRevRiskPct, MagicMeanRev(), "MR", InpMaxSpreadPips, 0.0) &&
+      SafeToRetry(g_send_rc) && !PastEntryDeadline())
+     { st.retry_at = Now() + 15; return; }
+   MarkDone(st, bar0);
   }
 
 // rate of `ccy` for calendar `year` from InpRates; false if missing
@@ -772,22 +899,19 @@ void ProcessCarry(D1State &st)
    string sym = st.sym;
    MqlRates r[]; ArraySetAsSeries(r, true);
    int total = CopyRates(sym, PERIOD_D1, 0, 700, r);
-   if(total < InpCarryVolSlow + 60) { Log("SKIP", sym, "CARRY needs more D1 history"); return; }
-   MarkDone(st, bar0);
+   if(total < InpCarryVolSlow + 60) { Log("SKIP", sym, "CARRY needs more D1 history"); st.retry_at = Now() + 60; return; }
    MqlDateTime s1; TimeToStruct(r[1].time, s1);
    MqlDateTime s2; TimeToStruct(r[2].time, s2);
    bool ok1, ok2;
    int cd = CarryDir(sym, s1.year, ok1);
    int cd_prev = CarryDir(sym, s2.year, ok2);
-   if(!ok1)
+   if(InpCarryOn && !ok1)
      {
       double wday = (double)DayStart(Now());
       if(GvGet(g_gv_ratewarn, 0.0) != wday)
         {
          GlobalVariableSet(g_gv_ratewarn, wday);
-         string msg = StringFormat("TitanPortfolioEA: InpRates has no row for %d - carry book flat until it is added", s1.year - 1);
-         Alert(msg);
-         SendNotification(msg);
+         Notify(StringFormat("TitanPortfolioEA: InpRates has no row for %d - carry book flat until it is added", s1.year - 1));
         }
      }
    if(!ok2) cd_prev = cd;                                            // missing Y-2 row: no artificial year flip
@@ -798,6 +922,7 @@ void ProcessCarry(D1State &st)
    double vr = vs > 0 ? vf / vs : 99.0;
    double atr = AtrSma(r, 1, InpCarryAtrN);
    ulong tk = FindPosition(sym, MagicCarry());
+   bool trail_failed = false;
    if(tk != 0 && PositionSelectByTicket(tk))
      {
       int dir = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? 1 : -1;
@@ -805,23 +930,32 @@ void ProcessCarry(D1State &st)
       if(InpCarryTrailAtr > 0)
         {
          MqlRates h[];
-         int n = CopyRates(sym, PERIOD_H1, (datetime)PositionGetInteger(POSITION_TIME), Now(), h);
-         double hh = -DBL_MAX, ll = DBL_MAX;
+         datetime t_open = (datetime)PositionGetInteger(POSITION_TIME);
+         datetime t_bar = t_open - (t_open % 3600);                 // include the entry H1 bar (kernel parity)
+         int n = CopyRates(sym, PERIOD_H1, t_bar, Now(), h);
+         double hh = PositionGetDouble(POSITION_PRICE_OPEN), ll = hh;
          for(int i = 0; i < n; i++) { hh = MathMax(hh, h[i].high); ll = MathMin(ll, h[i].low); }
          double sl = PositionGetDouble(POSITION_SL);
-         double ns = NormalizeDouble(dir > 0 ? hh - InpCarryTrailAtr * atr : ll + InpCarryTrailAtr * atr, digits);
-         if(n > 0 && ((dir > 0 && ns > sl) || (dir < 0 && (sl == 0 || ns < sl))))
+         double spr = SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID);
+         // bars are Bid prices; a short stop triggers on Ask -> add the spread for mid parity
+         double ns = NormalizeDouble(dir > 0 ? hh - InpCarryTrailAtr * atr : ll + spr + InpCarryTrailAtr * atr, digits);
+         if((dir > 0 && ns > sl) || (dir < 0 && (sl == 0 || ns < sl)))
            {
             double bid = SymbolInfoDouble(sym, SYMBOL_BID), ask = SymbolInfoDouble(sym, SYMBOL_ASK);
             if((dir > 0 && bid <= ns) || (dir < 0 && ask >= ns))
               {
-               if(!ClosePos(tk, sym, "CARRY trail beyond price")) return;
+               if(!ClosePos(tk, sym, "CARRY trail beyond price")) { st.retry_at = Now() + 15; return; }
                tk = 0;
               }
             else
               {
                g_trade.SetExpertMagicNumber(MagicCarry());
                if(g_trade.PositionModify(tk, ns, 0.0)) Log("TRAIL", sym, DoubleToString(ns, digits));
+               else
+                 {
+                  trail_failed = true;                               // exits must still be evaluated
+                  Log("ERR_TRAIL", sym, StringFormat("%s rc=%u", DoubleToString(ns, digits), g_trade.ResultRetcode()));
+                 }
               }
            }
         }
@@ -829,12 +963,20 @@ void ProcessCarry(D1State &st)
         {
          bool brk = dir > 0 ? trend <= 0 : trend >= 0;
          bool ex = brk || vr >= InpCarryVolExit || cd == 0 || cd != cd_prev || cd != dir;
-         if(!ex) return;
-         if(!ClosePos(tk, sym, "CARRY exit")) return;
+         if(!ex)
+           {
+            if(trail_failed && !PastEntryDeadline()) { st.retry_at = Now() + 15; return; }
+            MarkDone(st, bar0);
+            return;
+           }
+         if(!ClosePos(tk, sym, "CARRY exit")) { st.retry_at = Now() + 15; return; }
         }
      }
-   if(cd != 0 && trend == cd && vr < InpCarryVolEntry && atr > 0)
-      OpenMarket(sym, cd, InpCarryStopAtr * atr, InpCarryRiskPct, MagicCarry(), "CRY", InpMaxSpreadPips, InpCarryBookCapPct);
+   if(InpCarryOn && cd != 0 && trend == cd && vr < InpCarryVolEntry && atr > 0 &&
+      !OpenMarket(sym, cd, InpCarryStopAtr * atr, InpCarryRiskPct, MagicCarry(), "CRY", InpMaxSpreadPips, InpCarryBookCapPct) &&
+      SafeToRetry(g_send_rc) && !PastEntryDeadline())
+     { st.retry_at = Now() + 15; return; }
+   MarkDone(st, bar0);
   }
 
 //==================================================================== init / events
@@ -853,10 +995,15 @@ void LoadSymbols(const string csv, D1State &arr[], const string book)
       int k = ArraySize(arr);
       ArrayResize(arr, k + 1);
       arr[k].sym = s;
-      arr[k].gv = "TPEA_" + IntegerToString(InpMagicBase) + "_" + book + "_" + s;
-      // resume from the last processed bar; on the very first start do not act on the open bar
+      arr[k].gv = g_prefix + book + "_" + s;
+      arr[k].retry_at = 0;
       if(GlobalVariableCheck(arr[k].gv) && !g_tester) arr[k].last_bar = (datetime)GlobalVariableGet(arr[k].gv);
-      else arr[k].last_bar = iTime(s, PERIOD_D1, 0);
+      else
+        {
+         // first start: never act on the D1 bar that is already open (D1 bars open at 00:00 server)
+         datetime t0 = iTime(s, PERIOD_D1, 0), d0 = DayStart(Now());
+         arr[k].last_bar = t0 > d0 ? t0 : d0;
+        }
      }
   }
 
@@ -895,48 +1042,77 @@ bool ValidateRates()
    return true;
   }
 
-int OnInit()
+bool AccountReady()
   {
-   g_tester = (bool)MQLInfoInteger(MQL_TESTER);
+   if(g_tester) return true;
+   return TerminalInfoInteger(TERMINAL_CONNECTED) != 0 && AccountInfoInteger(ACCOUNT_LOGIN) != 0
+          && AccountInfoDouble(ACCOUNT_BALANCE) > 0.0 && AccountInfoDouble(ACCOUNT_EQUITY) > 0.0;
+  }
+
+double LockId() { return (double)(ChartID() & 0x7FFFFFFF) + 1.0; }
+
+// runs once, from the first timer event after the terminal is logged in
+bool LateInit()
+  {
    if((ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
      {
       Print("TitanPortfolioEA requires a HEDGING account (books may hold opposite positions on one symbol).");
-      return INIT_FAILED;
+      ExpertRemove();
+      return false;
      }
-   if(InpCarryOn && !ValidateRates()) return INIT_PARAMETERS_INCORRECT;
+   // state names are tied to the account login, so demo state never leaks into a live account
+   g_prefix = "TPEA_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + IntegerToString(InpMagicBase) + "_";
+   g_gv_balpeak = g_prefix + "balpeak"; g_gv_eqpeak = g_prefix + "eqpeak"; g_gv_halt = g_prefix + "halt";
+   g_gv_day = g_prefix + "day"; g_gv_daybal = g_prefix + "daybal"; g_gv_gotobi_day = g_prefix + "gotobi_day";
+   g_gv_ratewarn = g_prefix + "ratewarn"; g_gv_flowtk = g_prefix + "flowtk";
+   if(g_tester) GlobalVariablesDeleteAll(g_prefix);
    g_trade.SetDeviationInPoints(InpDeviationPts);
    g_trade.SetMarginMode();
-   string p = "TPEA_" + IntegerToString(InpMagicBase) + "_";
-   g_gv_balpeak = p + "balpeak"; g_gv_eqpeak = p + "eqpeak"; g_gv_halt = p + "halt"; g_gv_day = p + "day";
-   g_gv_daybal = p + "daybal"; g_gv_gotobi_day = p + "gotobi_day"; g_gv_ratewarn = p + "ratewarn";
-   if(g_tester)
-     {
-      string names[7] = {g_gv_balpeak, g_gv_eqpeak, g_gv_halt, g_gv_day, g_gv_daybal, g_gv_gotobi_day, g_gv_ratewarn};
-      for(int i = 0; i < 7; i++) GlobalVariableDel(names[i]);
-     }
    ParseStages();
    LoadExtraHolidays();
    if(AccountInfoString(ACCOUNT_CURRENCY) != "JPY")
       Print("warning: account currency is ", AccountInfoString(ACCOUNT_CURRENCY), " - risk is still % of balance");
-   if(InpGotobiOn)
-     {
-      g_gotobi_sym = InpGotobiSymbol + InpSymbolSuffix;
-      if(!SymbolSelect(g_gotobi_sym, true)) { Print("gotobi symbol not available: ", g_gotobi_sym); g_gotobi_sym = ""; }
-     }
-   if(InpMeanRevOn) LoadSymbols(InpMrSymbols, g_mr, "mr");
-   if(InpCarryOn) LoadSymbols(InpCarrySymbols, g_carry, "carry");
+   // symbols are always resolved, so positions of a switched-off book are still managed (exits only)
+   g_gotobi_sym = InpGotobiSymbol + InpSymbolSuffix;
+   if(!SymbolSelect(g_gotobi_sym, true)) { Print("gotobi symbol not available: ", g_gotobi_sym); g_gotobi_sym = ""; }
+   LoadSymbols(InpMrSymbols, g_mr, "mr");
+   LoadSymbols(InpCarrySymbols, g_carry, "carry");
    if(InpLogCsv)
      {
       g_csv = FileOpen("TitanPortfolioEA_" + IntegerToString(InpMagicBase) + (g_tester ? "_tester" : "") + ".csv",
                        FILE_WRITE | FILE_READ | FILE_CSV | FILE_ANSI | FILE_SHARE_READ, ',');
       if(g_csv != INVALID_HANDLE) FileSeek(g_csv, 0, SEEK_END);
+      else Print("TitanPortfolioEA: CSV log not opened (another instance with the same InpMagicBase?), error ", GetLastError());
      }
    datetime now = Now();
    bool ok;
    datetime jst = ServerToJst(now, ok);
-   Log("INIT", "", StringFormat("v1.10 server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
-       TimeToString(now), RuleOffset(now), LiveOffset(), TimeToString(jst), (int)IsGotobi(DayStart(jst)),
-       AccountInfoDouble(ACCOUNT_BALANCE), InpGotobiOn ? "G" : "", InpMeanRevOn ? "M" : "", InpCarryOn ? "C" : ""));
+   Log("INIT", "", StringFormat("v1.20 login=%I64d server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
+       AccountInfoInteger(ACCOUNT_LOGIN), TimeToString(now), RuleOffset(now), LiveOffset(), TimeToString(jst),
+       (int)IsGotobi(DayStart(jst)), AccountInfoDouble(ACCOUNT_BALANCE),
+       InpGotobiOn ? "G" : "", InpMeanRevOn ? "M" : "", InpCarryOn ? "C" : ""));
+   return true;
+  }
+
+int OnInit()
+  {
+   g_tester = (bool)MQLInfoInteger(MQL_TESTER);
+   // globals survive REASON_PARAMETERS / REASON_CHARTCHANGE re-inits: reset them
+   ArrayResize(g_mr, 0); ArrayResize(g_carry, 0);
+   g_gotobi_sym = ""; g_prefix = ""; g_ready = false; g_csv = INVALID_HANDLE;
+   if(InpCarryOn && !ValidateRates()) return INIT_PARAMETERS_INCORRECT;
+   // single instance per terminal and magic (a second chart would double the gotobi risk)
+   g_gv_lock = "TPEA_" + IntegerToString(InpMagicBase) + "_lock";
+   if(!g_tester)
+     {
+      if(!GlobalVariableCheck(g_gv_lock)) GlobalVariableTemp(g_gv_lock);
+      if(GlobalVariableGet(g_gv_lock) != LockId() && !GlobalVariableSetOnCondition(g_gv_lock, LockId(), 0.0))
+        {
+         Print("TitanPortfolioEA (InpMagicBase=", InpMagicBase, ") is already running on another chart of this terminal. ",
+               "If not (stale lock after a crash), delete global variable ", g_gv_lock, " (F3) and re-attach.");
+         return INIT_FAILED;
+        }
+     }
    EventSetMillisecondTimer(250);
    return INIT_SUCCEEDED;
   }
@@ -944,16 +1120,23 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
-   if(g_csv != INVALID_HANDLE) FileClose(g_csv);
+   if(!g_tester && g_gv_lock != "" && GlobalVariableCheck(g_gv_lock) && GlobalVariableGet(g_gv_lock) == LockId())
+      GlobalVariableSet(g_gv_lock, 0.0);
+   GvFlush();
+   if(g_csv != INVALID_HANDLE) { FileClose(g_csv); g_csv = INVALID_HANDLE; }
   }
 
 void OnTimer()
   {
+   if(!AccountReady()) return;                                       // not logged in / disconnected
+   if(!g_ready) { if(!LateInit()) return; g_ready = true; }
    UpdateAccountState();
-   if(GvGet(g_gv_halt, 0.0) > 0.0) return;
+   if(GvGet(g_gv_halt, 0.0) > 0.0) { HaltFlatten(); return; }        // halted: stay flat, retry failed closes
    ProcessGotobi();
-   for(int i = 0; i < ArraySize(g_mr); i++) ProcessMeanRev(g_mr[i]);
-   for(int i = 0; i < ArraySize(g_carry); i++) ProcessCarry(g_carry[i]);
+   for(int i = 0; i < ArraySize(g_mr); i++)
+      if(InpMeanRevOn || FindPosition(g_mr[i].sym, MagicMeanRev()) != 0) ProcessMeanRev(g_mr[i]);
+   for(int i = 0; i < ArraySize(g_carry); i++)
+      if(InpCarryOn || FindPosition(g_carry[i].sym, MagicCarry()) != 0) ProcessCarry(g_carry[i]);
   }
 
 void OnTick() { }
