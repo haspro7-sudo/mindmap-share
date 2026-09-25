@@ -1,3 +1,5 @@
+> **注意（最終版での追記）**: このレポートの数値の一部は、エンジン監査による修正（スワップのマークアップ 2.5%、手数料・スワップ込みの純R、01:00約定、IS末の強制決済など）の**前**に計算されたものです。最終的な判定と数値は `docs/RESULTS.md` を正としてください。
+
 # volatility_breakout: ボラティリティ収縮 → 拡大ブレイクアウト（D1 / H4）検証レポート
 
 再現: `python scripts/research_volatility_breakout.py` で最終結果を出力します（最終表、R分解、IS の診断、年別、銘柄別、近傍、未来参照テスト）。同時に `reports/equity/volatility_breakout.parquet`（2005-01〜2020-05 の日次資産、1%リスク）と `reports/trades/volatility_breakout.parquet`（約定した2,587トレード）を書き出します。所要約2分（M1データ読込を含む）。

@@ -1,3 +1,5 @@
+> **注意（最終版での追記）**: このレポートの数値の一部は、エンジン監査による修正（スワップのマークアップ 2.5%、手数料・スワップ込みの純R、01:00約定、IS末の強制決済など）の**前**に計算されたものです。最終的な判定と数値は `docs/RESULTS.md` を正としてください。
+
 # carry_trend - キャリー＋トレンド保護（高金利通貨を買い、トレンドと変動率で身を守る）研究レポート
 
 生成: `python scripts/research_carry_trend.py`（この表の数値はすべてスクリプト出力と同一。試行ログを再利用して最終表を出力し、`reports/equity/carry_trend.parquet` と `reports/trades/carry_trend.parquet` を書き出す。`--fresh` で IS 探索をやり直す）

@@ -1,3 +1,5 @@
+> **注意（最終版での追記）**: このレポートの数値の一部は、エンジン監査による修正（スワップのマークアップ 2.5%、手数料・スワップ込みの純R、01:00約定、IS末の強制決済など）の**前**に計算されたものです。最終的な判定と数値は `docs/RESULTS.md` を正としてください。
+
 # trend_pullback_h4: H4トレンド押し目戦略の検証レポート
 
 再現: `python scripts/research_trend_pullback_h4.py`（最終表・近傍・銘柄別・年別を出力し、`reports/equity/trend_pullback_h4.parquet` と `reports/trades/trend_pullback_h4.parquet` を書き出します。所要約1.5分）。

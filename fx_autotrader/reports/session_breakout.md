@@ -1,3 +1,5 @@
+> **注意（最終版での追記）**: このレポートの数値の一部は、エンジン監査による修正（スワップのマークアップ 2.5%、手数料・スワップ込みの純R、01:00約定、IS末の強制決済など）の**前**に計算されたものです。最終的な判定と数値は `docs/RESULTS.md` を正としてください。
+
 # session_breakout: 東京レンジ／ロンドンレンジ・ブレイクアウト（H1）の検証レポート
 
 再現: `python scripts/research_session_breakout.py` で最終結果を出力します（最終表、M1約定での再計算、R分解、銘柄別、年別、近傍、診断、未来参照テスト）。同時に `reports/equity/session_breakout.parquet` と `reports/trades/session_breakout.parquet` を書き出します。所要約4分。

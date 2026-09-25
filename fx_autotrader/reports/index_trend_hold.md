@@ -1,3 +1,5 @@
+> **注意（最終版での追記）**: このレポートの数値の一部は、エンジン監査による修正（スワップのマークアップ 2.5%、手数料・スワップ込みの純R、01:00約定、IS末の強制決済など）の**前**に計算されたものです。最終的な判定と数値は `docs/RESULTS.md` を正としてください。
+
 # index_trend_hold: 株価指数CFD・金のトレンドフィルター付き長期保有
 
 再現: `python scripts/research_index_trend_hold.py`（ログ済みのIS試行を再利用して最終表を表示。`--fresh` で探索からやり直し、`--save` で equity/trades parquet を保存）

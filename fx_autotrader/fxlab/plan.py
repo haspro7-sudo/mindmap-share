@@ -65,7 +65,14 @@ class PlanConfig:
     initial: float = 500_000
     target: float = 100_000_000
     stages: list[Stage] = field(default_factory=lambda: [Stage("S", 0, 1.0)])
-    dd_throttle: list[tuple[float, float]] = field(default_factory=lambda: [(0.15, 0.5), (0.25, 0.25)])
+    # risk multiple by elapsed year, e.g. [(0, 0.5), (2, 1.0), (4, 1.25)]; overrides `stages`
+    risk_by_year: list[tuple[float, float]] = field(default_factory=list)
+    # drawdown rules in multiples of the CURRENT per-trade risk (EA: 8x -> halve, 12x -> halt)
+    throttle_x: float = 0.0          # 0 = off
+    throttle_mult: float = 0.5
+    halt_x: float = 0.0              # 0 = off; a halt stops trading for the rest of the path
+    ref_risk: float = 0.01           # per-trade risk of the return series (1% per trade)
+    dd_throttle: list[tuple[float, float]] = field(default_factory=list)   # absolute DD levels
     ruin_level: float = 0.3          # falling below 30% of the starting capital = ruin
     years: int = 30
     tax: bool = True
@@ -78,10 +85,12 @@ class PlanConfig:
 
 @nb.njit(cache=True)
 def _mc_kernel(r, starts, block, T, dpy, initial, target, ruin, st_start, st_mult,
-               dd_lvl, dd_mult, tax_on, tax_x, tax_y, deposit):
+               yr_start, yr_mult, dd_lvl, dd_mult, thr_x, thr_mult, halt_x, ref_risk,
+               tax_on, tax_x, tax_y, deposit):
     n_paths = starts.shape[0]
     hit = np.full(n_paths, -1)
     ruined = np.zeros(n_paths, np.bool_)
+    halted = np.zeros(n_paths, np.bool_)
     final = np.zeros(n_paths)
     max_dd = np.zeros(n_paths)
     taxes = np.zeros(n_paths)
@@ -94,22 +103,36 @@ def _mc_kernel(r, starts, block, T, dpy, initial, target, ruin, st_start, st_mul
         dep_y = 0.0
         pending = 0.0
         mdd = 0.0
+        stopped = False
         ybal[p, 0] = bal
         for t in range(T):
             ret = r[starts[p, t // block] + (t % block)]
-            mult = st_mult[0]
-            for k in range(st_start.shape[0]):
-                if bal >= st_start[k]:
-                    mult = st_mult[k]
+            if yr_start.shape[0] > 0:
+                mult = yr_mult[0]
+                for k in range(yr_start.shape[0]):
+                    if t >= yr_start[k] * dpy:
+                        mult = yr_mult[k]
+            else:
+                mult = st_mult[0]
+                for k in range(st_start.shape[0]):
+                    if bal >= st_start[k]:
+                        mult = st_mult[k]
             dd = 1.0 - bal / peak
             thr = 1.0
             for k in range(dd_lvl.shape[0]):
                 if dd >= dd_lvl[k]:
                     thr = dd_mult[k]
-            bal *= 1.0 + mult * thr * ret
+            unit = mult * ref_risk                       # current per-trade risk (fraction)
+            if thr_x > 0.0 and dd >= thr_x * unit:
+                thr = min(thr, thr_mult)
+            if halt_x > 0.0 and dd >= halt_x * unit:
+                stopped = True
+            if not stopped:
+                bal *= 1.0 + mult * thr * ret
             if deposit > 0.0 and t % 21 == 20:
                 bal += deposit
                 dep_y += deposit
+                peak += deposit                          # deposits are not trading gains
             if bal > peak:
                 peak = bal
             dd = 1.0 - bal / peak
@@ -126,21 +149,23 @@ def _mc_kernel(r, starts, block, T, dpy, initial, target, ruin, st_start, st_mul
                 ybal[p, y + 1] = bal
             if pending > 0.0 and t % dpy == 50:          # pay last year's tax in March
                 pay = min(pending, bal)
-                peak = peak * (bal - pay) / bal if bal > 0 else peak   # tax is not a drawdown
+                if bal > 0:
+                    peak = peak * (bal - pay) / bal      # tax is not a trading drawdown
                 bal -= pay
                 taxes[p] += pay
                 ystart -= pay
                 pending = 0.0
             if bal >= target and hit[p] < 0:
                 hit[p] = t
-            if bal <= initial * ruin:
+            if bal <= initial * ruin and deposit == 0.0:
                 ruined[p] = True
                 for yy in range(t // dpy + 1, years + 1):
                     ybal[p, yy] = bal
                 break
         final[p] = bal
         max_dd[p] = mdd
-    return hit, ruined, final, max_dd, taxes, ybal
+        halted[p] = stopped
+    return hit, ruined, halted, final, max_dd, taxes, ybal
 
 
 def simulate(daily_ret, cfg: PlanConfig, n_paths: int = 4000, seed: int = 7) -> dict:
@@ -152,13 +177,17 @@ def simulate(daily_ret, cfg: PlanConfig, n_paths: int = 4000, seed: int = 7) -> 
     nblk = int(np.ceil(T / cfg.block))
     starts = rng.integers(0, len(r) - cfg.block, size=(n_paths, nblk))
     st = sorted(cfg.stages, key=lambda s: s.start_jpy)
+    ry = sorted(cfg.risk_by_year)
     dd = sorted(cfg.dd_throttle)
     tx, ty = _tax_table(cfg.other_income, cfg.separate_tax)
-    hit, ruined, final, mdd, taxes, ybal = _mc_kernel(
+    hit, ruined, halted, final, mdd, taxes, ybal = _mc_kernel(
         r, starts, cfg.block, T, cfg.days_per_year, float(cfg.initial), float(cfg.target),
         float(cfg.ruin_level), np.array([s.start_jpy for s in st], float),
-        np.array([s.risk_mult for s in st], float), np.array([d for d, _ in dd], float),
-        np.array([m for _, m in dd], float), bool(cfg.tax), tx, ty, float(cfg.monthly_deposit))
+        np.array([s.risk_mult for s in st], float), np.array([y for y, _ in ry], float),
+        np.array([m for _, m in ry], float), np.array([d for d, _ in dd], float),
+        np.array([m for _, m in dd], float), float(cfg.throttle_x), float(cfg.throttle_mult),
+        float(cfg.halt_x), float(cfg.ref_risk), bool(cfg.tax), tx, ty,
+        float(cfg.monthly_deposit))
     ytt = np.where(hit >= 0, (hit + 1) / cfg.days_per_year, np.nan)
     reached = hit >= 0
 
@@ -172,6 +201,7 @@ def simulate(daily_ret, cfg: PlanConfig, n_paths: int = 4000, seed: int = 7) -> 
         "years_to_target_median": pct(50) if reached.mean() >= 0.5 else float("nan"),
         "years_to_target_p25": pct(25) if reached.mean() >= 0.25 else float("nan"),
         "p_ruin": float(ruined.mean()),
+        "p_halt": float(halted.mean()),
         "final_median": float(np.median(final)),
         "max_dd_median": float(np.median(mdd)),
         "max_dd_p90": float(np.percentile(mdd, 90)),
