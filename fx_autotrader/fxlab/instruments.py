@@ -57,6 +57,23 @@ INSTRUMENTS: dict[str, Instrument] = {i.symbol: i for i in [
     # Gold: 1 lot = 100 oz, "pip" = 0.01 USD, spread ~ 12-20 cents on Blade
     _I("XAUUSD", "XAU", "USD", 0.01, 100, 18.0, 5.0, max_lot=50.0, commission_jpy_rt=72.0,
        stop_slip_pips=7.5),
+    # Stock-index CFDs (Titan FX names).  pip = 1 index point, contract = 1 unit per lot
+    # (check the real contract size / min lot in the MT5 specification before trading).
+    # base = pseudo-currency whose "rate" is the index dividend yield (see _RATES).
+    _I("US500", "SPX", "USD", 1.0, 1, 0.6, 0.3, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=0.5),
+    _I("NAS100", "NDX", "USD", 1.0, 1, 1.5, 0.5, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=1.5),
+    _I("US2000", "RTY", "USD", 1.0, 1, 0.5, 0.3, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=0.5),
+    _I("JPN225", "NKY", "JPY", 1.0, 1, 10.0, 3.0, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=10.0),
+    _I("UK100", "UKX", "GBP", 1.0, 1, 1.5, 0.5, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=1.5),
+    _I("FRA40", "CAC", "EUR", 1.0, 1, 1.5, 0.5, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=1.5),
+    _I("AUS200", "ASX", "AUD", 1.0, 1, 2.0, 1.0, lot_step=0.1, min_lot=0.1,
+       commission_jpy_rt=72.0, stop_slip_pips=2.0),
     # FRED-only pairs (daily out-of-sample checks)
     _I("NZDUSD", "NZD", "USD", 0.0001, 100_000, 0.8, 0.3),
     _I("USDCHF", "USD", "CHF", 0.0001, 100_000, 0.6, 0.3),
@@ -75,6 +92,14 @@ _RATES = {
     "NZD": [6.9, 7.2, 7.9, 7.5, 2.8, 2.7, 2.5, 2.5, 2.5, 3.2, 3.0, 2.1, 1.8, 1.8, 1.3, 0.3, 0.4, 2.9, 5.4, 5.3, 3.6, 2.8],
     "CHF": [0.8, 1.4, 2.4, 2.1, 0.3, 0.3, 0.1, 0.0, 0.0, 0.0, -0.7, -0.7, -0.7, -0.7, -0.7, -0.7, -0.7, 0.2, 1.6, 1.3, 0.2, 0.0],
     "XAU": [0.0] * 22,
+    # index dividend yields (%), used as the "base rate" of index CFDs
+    "SPX": [1.8, 1.8, 1.9, 2.4, 2.2, 1.9, 2.0, 2.1, 2.0, 1.9, 2.1, 2.1, 1.9, 2.0, 1.9, 1.7, 1.3, 1.6, 1.5, 1.3, 1.2, 1.2],
+    "NDX": [0.5, 0.6, 0.7, 1.0, 1.0, 0.9, 1.0, 1.1, 1.1, 1.1, 1.2, 1.2, 1.0, 1.0, 0.9, 0.7, 0.6, 0.8, 0.8, 0.7, 0.7, 0.7],
+    "RTY": [1.2, 1.2, 1.3, 1.7, 1.5, 1.2, 1.4, 1.5, 1.3, 1.3, 1.5, 1.5, 1.3, 1.4, 1.4, 1.2, 1.0, 1.4, 1.4, 1.3, 1.3, 1.3],
+    "NKY": [1.0, 1.1, 1.3, 2.0, 1.6, 1.8, 2.0, 2.0, 1.6, 1.6, 1.6, 1.8, 1.7, 2.0, 2.0, 1.8, 1.7, 2.0, 1.9, 1.7, 1.7, 1.7],
+    "UKX": [3.2, 3.1, 3.3, 4.5, 3.9, 3.3, 3.6, 3.7, 3.4, 3.5, 3.9, 3.8, 3.7, 4.2, 4.4, 3.6, 3.5, 3.7, 3.8, 3.8, 3.6, 3.5],
+    "CAC": [2.8, 2.9, 3.2, 4.5, 3.8, 3.4, 4.0, 3.8, 3.2, 3.2, 3.2, 3.4, 3.1, 3.4, 3.2, 2.2, 2.3, 2.9, 3.0, 3.1, 3.1, 3.1],
+    "ASX": [4.0, 4.0, 4.0, 5.3, 4.4, 4.2, 4.8, 4.9, 4.3, 4.4, 4.6, 4.4, 4.2, 4.4, 4.2, 3.4, 3.3, 4.1, 4.0, 3.7, 3.6, 3.6],
 }
 _RATE_YEARS = list(range(2005, 2027))
 
@@ -93,6 +118,7 @@ class CostModel:
     multiplier: float = 1.0                      # (calibrated on a July 2026 USDJPY swap quote)
     stop_slip_scale: float = 1.0                 # scales Instrument.stop_slip_pips
     use_swap: bool = True
+    carry_mode: str = "spot"                     # "futures": prices already contain carry
 
     def stressed(self, m: float) -> "CostModel":
         return replace(self, multiplier=m)
@@ -113,6 +139,8 @@ class CostModel:
 
     def swap_rate_annual(self, inst: Instrument, direction: int, year: int) -> float:
         """Annual carry (fraction) earned (+) or paid (-) for a position of `direction`."""
+        if self.carry_mode == "futures":
+            return -self.swap_markup_pct / 100.0
         diff = (policy_rate(inst.base, year) - policy_rate(inst.quote, year)) / 100.0
         return direction * diff - self.swap_markup_pct / 100.0
 

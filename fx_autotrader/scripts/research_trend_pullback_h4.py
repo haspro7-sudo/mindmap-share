@@ -186,8 +186,10 @@ STAGES = {"1": stage1, "2a": stage2a, "2b": stage2b, "2c": stage2c, "3": stage3}
 # --------------------------------------------------------------------- selection
 # Selected on IS only (see reports/trend_pullback_h4.md, section "選定"):
 #   best IS Sharpe overall was base+carry (0.326) on maj_jpy9, but its advantage over the
-#   simpler base config (0.301) is far inside the Sharpe standard error (~0.3 over 10y) and
-#   it is WORSE than base on all three other universes (stage 3) -> keep the simpler base.
+#   simpler base config (0.301) is far inside the Sharpe standard error (~0.3 over 10y); on
+#   the other three universes (stage 3) its Sharpe is 0.133/0.074/-0.125 vs base
+#   0.187/0.065/0.081 and its t-stat of R is far lower on all three (0.62/0.14/-0.14 vs
+#   2.17/1.51/1.57) -> the carry gain is not robust; keep the simpler base.
 SELECTED = dict(BASE_2B)
 SELECTED_UNIVERSE = "maj_jpy9"
 

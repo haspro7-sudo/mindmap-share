@@ -29,6 +29,10 @@ FX_MAJORS = ["USDJPY", "EURUSD", "GBPUSD", "AUDUSD", "USDCAD"]
 FX_CROSSES = ["EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "EURGBP", "EURAUD", "GBPAUD",
               "EURCAD", "AUDCAD", "GBPCAD"]
 ALL_OANDA = FX_MAJORS + FX_CROSSES + ["XAUUSD"]
+INDICES = ["US500", "NAS100", "US2000", "JPN225", "UK100", "FRA40", "AUS200"]
+ALL_OANDA_PLUS = ALL_OANDA + INDICES
+# symbols with pysystemtrade futures history (daily; pre-sample and 2020-05..2024-03 checks)
+PST_SYMBOLS = ["US500", "NAS100", "UK100", "FRA40", "JPN225", "XAUUSD", "US2000"]
 # pairs available in FRED for daily checks (XAUUSD not available)
 FRED_PAIRS = ["USDJPY", "EURUSD", "GBPUSD", "AUDUSD", "USDCAD", "EURJPY", "GBPJPY", "AUDJPY",
               "CADJPY", "EURGBP", "EURAUD", "GBPAUD", "EURCAD", "AUDCAD", "GBPCAD", "NZDUSD",
@@ -50,7 +54,9 @@ def _short(s: dict) -> dict:
 def evaluate(strategy, symbols, periods=("is",), cost_mult=1.0, risk=0.01, cfg=None,
              fred_symbols=None) -> dict:
     """Evaluate a strategy on the named periods.  periods subset of
-    {"is", "oos", "fred_pre", "fred_oos", "full"}."""
+    {"is", "oos", "full", "fred_pre", "fred_oos", "pst_pre", "pst_oos"}.
+    fred_* use FX pairs from FRED (1976-2004 / 2020-05..2026-09); pst_* use
+    back-adjusted futures for indices and gold (start..2004 / 2020-05..2024-03)."""
     cfg = cfg or research_config(risk=risk, cost_mult=cost_mult)
     cache: dict = {}
     out = {}
@@ -60,8 +66,17 @@ def evaluate(strategy, symbols, periods=("is",), cost_mult=1.0, risk=0.01, cfg=N
         if p in spans:
             a, b = spans[p]
             res, s = B.backtest(strategy, symbols, a, b, cfg, trades_cache=cache)
+        elif p.startswith("pst"):
+            ps = [x for x in symbols if x in PST_SYMBOLS]
+            if not ps:
+                continue
+            a, b = ((None, B.PST_PRE_END) if p == "pst_pre"
+                    else (B.PST_OOS_START, B.PST_OOS_END))
+            res, s = B.backtest(strategy, ps, a, b, cfg, source="pst")
         else:
             fs = fred_symbols or [x for x in symbols if x in FRED_PAIRS]
+            if not fs:
+                continue
             a, b = ((B.FRED_PRE_START, B.FRED_PRE_END) if p == "fred_pre"
                     else (B.FRED_OOS_START, B.FRED_OOS_END))
             res, s = B.backtest(strategy, fs, a, b, cfg, source="fred")

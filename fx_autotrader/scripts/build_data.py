@@ -28,4 +28,4 @@ def main(pairs):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or D.ALL_PAIRS)
+    main(sys.argv[1:] or D.ALL_SYMBOLS)

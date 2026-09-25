@@ -29,6 +29,12 @@ FRED_CSV = Path(os.environ.get(
 
 RAW_PAIRS = ["EURUSD", "GBPUSD", "AUDUSD", "USDCAD", "EURJPY", "AUDJPY", "XAUUSD"]
 
+# Stock-index CFDs (Titan FX style names -> OANDA directory names)
+INDEX_OANDA = {"US500": "SPX500_USD", "NAS100": "NAS100_USD", "JPN225": "JP225_USD",
+               "UK100": "UK100_GBP", "FRA40": "FR40_EUR", "AUS200": "AU200_AUD",
+               "US2000": "US2000_USD"}
+INDICES = list(INDEX_OANDA)
+
 # Synthetic crosses built minute-by-minute from the raw OANDA pairs.
 #   ("mul", a, b) -> a * b ;  ("div", a, b) -> a / b
 SYNTHETIC = {
@@ -43,11 +49,14 @@ SYNTHETIC = {
     "GBPCAD": ("mul", "GBPUSD", "USDCAD"),
 }
 ALL_PAIRS = RAW_PAIRS + list(SYNTHETIC)
+ALL_SYMBOLS = ALL_PAIRS + INDICES
 
 SERVER_OFFSET = pd.Timedelta(hours=7)  # server time = New York + 7h
 
 
 def _oanda_name(pair: str) -> str:
+    if pair in INDEX_OANDA:
+        return INDEX_OANDA[pair]
     return pair[:3] + "_" + pair[3:]
 
 
@@ -157,6 +166,50 @@ def load_fred_daily() -> pd.DataFrame:
     out["AUDCAD"] = out["AUDUSD"] * out["USDCAD"]
     out["GBPCAD"] = out["GBPUSD"] * out["USDCAD"]
     return out.sort_index()
+
+
+PST_DIR = Path(os.environ.get(
+    "FXLAB_PST_DIR", "/home/user/robcarver17/pysystemtrade/data/futures/adjusted_prices_csv"))
+# symbol -> pysystemtrade back-adjusted futures series (daily-ish, 1975..2024-03)
+PST_MAP = {"US500": "SP500", "NAS100": "NASDAQ", "UK100": "FTSE100", "FRA40": "CAC",
+           "JPN225": "NIKKEI", "XAUUSD": "GOLD", "GER40": "DAX", "US2000": "RUSSELL"}
+
+
+def _pst_daily_last(path: Path, col: int) -> pd.Series:
+    df = pd.read_csv(path)
+    t = pd.to_datetime(df.iloc[:, 0])
+    x = pd.Series(pd.to_numeric(df.iloc[:, col], errors="coerce").to_numpy(float),
+                  index=t).sort_index().dropna()
+    x = x.groupby(x.index.normalize()).last()
+    return x[x.index.dayofweek < 5]
+
+
+def load_pst_daily(symbol: str) -> pd.Series:
+    """Daily total-return series of the rolled future (pysystemtrade), ratio-adjusted.
+
+    Back-adjusted (additive) futures prices keep point changes but distort early
+    price LEVELS (e.g. S&P 500 shows 682 in 1982 instead of ~120), which breaks any
+    percentage-based logic and notional-based costs.  We rebuild a multiplicative
+    series: r_t = (A_t - A_{t-1}) / P_{t-1} with A = back-adjusted and P = the traded
+    contract's actual price, anchored to the latest actual price.  The returns contain
+    the futures carry (dividends minus financing), so backtests on this source must
+    use carry_mode="futures"."""
+    name = PST_MAP[symbol]
+    adj = _pst_daily_last(PST_DIR / f"{name}.csv", 1)
+    mp_path = PST_DIR.parent / "multiple_prices_csv" / f"{name}.csv"
+    if not mp_path.exists():
+        return adj
+    px = _pst_daily_last(mp_path, 3)   # PRICE column
+    j = pd.concat([adj, px], axis=1, keys=["a", "p"], sort=True).dropna()
+    r = j["a"].diff() / j["p"].shift(1)
+    r = r.fillna(0.0).clip(-0.5, 0.5)
+    level = (1.0 + r).cumprod()
+    level = level / level.iloc[-1] * j["p"].iloc[-1]
+    return level
+
+
+def pst_as_bars(symbol: str, wick_k: float = 1.0) -> pd.DataFrame:
+    return synthetic_ohlc_from_closes(load_pst_daily(symbol), wick_k)
 
 
 FRED_WICK_K = 1.0

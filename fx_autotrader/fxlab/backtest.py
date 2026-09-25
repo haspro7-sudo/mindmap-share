@@ -30,6 +30,8 @@ IS_START, IS_END = "2005-01-01", "2015-01-01"        # in-sample (OANDA)
 OOS_START, OOS_END = "2015-01-01", "2020-05-15"      # out-of-sample 1 (OANDA)
 FRED_OOS_START, FRED_OOS_END = "2020-05-15", "2026-12-31"  # out-of-sample 2 (FRED daily)
 FRED_PRE_START, FRED_PRE_END = "1976-01-01", "2005-01-01"  # pre-sample (FRED daily)
+PST_PRE_END = "2005-01-01"                                  # futures pre-sample (1975/1982 ..)
+PST_OOS_START, PST_OOS_END = "2020-05-15", "2024-03-29"     # futures out-of-sample 2
 
 
 @lru_cache(maxsize=None)
@@ -40,6 +42,10 @@ def _bars(source: str, symbol: str, tf: str) -> pd.DataFrame:
         if tf != "D1":
             raise ValueError("FRED data is daily only")
         return D.fred_as_bars(symbol)
+    if source == "pst":
+        if tf != "D1":
+            raise ValueError("pysystemtrade data is daily only")
+        return D.pst_as_bars(symbol)
     raise ValueError(source)
 
 
@@ -70,6 +76,8 @@ def _uses_stop_orders(dec: pd.DataFrame) -> bool:
 
 
 def conversion_table(source: str = "oanda") -> ConversionTable:
+    if source == "pst":
+        source = "fred"   # FX conversion for futures-based runs comes from FRED
     tf = "H1" if source == "oanda" else "D1"
     syms = CONV_SYMBOLS + (FRED_EXTRA_CONV if source == "fred" else [])
     closes = {}
@@ -98,6 +106,9 @@ def symbol_trades(strategy, symbol: str, source: str = "oanda", exec_tf: str | N
 def backtest(strategy, symbols, start=None, end=None, cfg: PortfolioConfig | None = None,
              source: str = "oanda", exec_tf: str | None = None, trades_cache: dict | None = None):
     cfg = cfg or PortfolioConfig()
+    if source == "pst" and cfg.costs.carry_mode != "futures":
+        from dataclasses import replace as _replace
+        cfg = _replace(cfg, costs=_replace(cfg.costs, carry_mode="futures"))
     trades = {}
     for s in symbols:
         if trades_cache is not None and s in trades_cache:
