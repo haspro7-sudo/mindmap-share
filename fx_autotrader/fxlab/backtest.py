@@ -56,6 +56,19 @@ class SymbolContext:
         return _bars(self.source, self.symbol, tf)
 
 
+@lru_cache(maxsize=4)
+def m1_server_bars(symbol: str) -> pd.DataFrame:
+    """OANDA M1 bars on the server-time clock (for resolving events inside H1 bars)."""
+    m1 = D.load_m1(symbol)[["high", "low"]]
+    idx = D.to_server_time(m1.index)
+    df = m1.set_axis(idx)
+    return df[~df.index.duplicated(keep="first")]
+
+
+def _uses_stop_orders(dec: pd.DataFrame) -> bool:
+    return any(c in dec and dec[c].notna().any() for c in ("long_stop_px", "short_stop_px"))
+
+
 def conversion_table(source: str = "oanda") -> ConversionTable:
     tf = "H1" if source == "oanda" else "D1"
     syms = CONV_SYMBOLS + (FRED_EXTRA_CONV if source == "fred" else [])
@@ -73,7 +86,13 @@ def symbol_trades(strategy, symbol: str, source: str = "oanda", exec_tf: str | N
     if exec_tf is None:
         exec_tf = "H1" if source == "oanda" else "D1"
     exec_bars = ctx.bars(exec_tf)
-    return simulate_symbol(dec, strategy.tf, exec_bars)
+    fine = None
+    if source == "oanda" and exec_tf != "M1" and _uses_stop_orders(dec):
+        try:
+            fine = m1_server_bars(symbol)
+        except FileNotFoundError:
+            fine = None
+    return simulate_symbol(dec, strategy.tf, exec_bars, fine_bars=fine)
 
 
 def backtest(strategy, symbols, start=None, end=None, cfg: PortfolioConfig | None = None,

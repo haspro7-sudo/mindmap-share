@@ -4,8 +4,10 @@ All costs are expressed so they can be applied to *mid* prices (the research dat
 are OANDA mid quotes):
 
   * spread_pips      typical raw spread on a Titan FX Zero Blade account
-  * commission_jpy   Blade commission per 1.00 lot, round turn, for a JPY account
-  * slip_pips        extra adverse slippage per fill on market / stop orders
+  * commission       Blade commission per 1.00 lot, round turn, JPY account:
+                     720 JPY for FX, 72 JPY for metals/CFDs (docs/TITANFX_CONDITIONS.md)
+  * slip_pips        adverse slippage per fill on market orders
+  * stop_slip_pips   additional slippage when a stop order (stop-loss or stop-entry) fills
 
 Numbers are deliberately on the conservative side of Titan FX's published
 averages (see docs/TITANFX_CONDITIONS.md) and can be overridden per backtest with
@@ -31,7 +33,8 @@ class Instrument:
     lot_step: float = 0.01
     min_lot: float = 0.01
     max_lot: float = 100.0
-    commission: bool = True   # Blade charges commission on FX; metals are spread-only
+    commission_jpy_rt: float | None = None  # None -> CostModel default (FX)
+    stop_slip_pips: float = 0.3
 
 
 _I = Instrument
@@ -52,7 +55,8 @@ INSTRUMENTS: dict[str, Instrument] = {i.symbol: i for i in [
     _I("AUDCAD", "AUD", "CAD", 0.0001, 100_000, 1.2, 0.4),
     _I("GBPCAD", "GBP", "CAD", 0.0001, 100_000, 2.0, 0.5),
     # Gold: 1 lot = 100 oz, "pip" = 0.01 USD, spread ~ 12-20 cents on Blade
-    _I("XAUUSD", "XAU", "USD", 0.01, 100, 18.0, 5.0, commission=False),
+    _I("XAUUSD", "XAU", "USD", 0.01, 100, 18.0, 5.0, max_lot=50.0, commission_jpy_rt=72.0,
+       stop_slip_pips=7.5),
     # FRED-only pairs (daily out-of-sample checks)
     _I("NZDUSD", "NZD", "USD", 0.0001, 100_000, 0.8, 0.3),
     _I("USDCHF", "USD", "CHF", 0.0001, 100_000, 0.6, 0.3),
@@ -84,10 +88,10 @@ def policy_rate(ccy: str, year: int) -> float:
 @dataclass(frozen=True)
 class CostModel:
     """Titan FX Zero Blade style costs.  multiplier scales spread+slippage+commission."""
-    commission_jpy_per_lot_rt: float = 700.0     # ~3.5 USD per side per lot
-    swap_markup_pct: float = 1.5                 # broker markup on each side of the carry
-    multiplier: float = 1.0
-    stop_extra_slip_pips: float = 0.3            # extra slippage when a stop is hit
+    commission_jpy_per_lot_rt: float = 720.0     # FX, JPY account (USD 3.5/side on USD accounts)
+    swap_markup_pct: float = 2.5                 # broker markup on each side of the carry
+    multiplier: float = 1.0                      # (calibrated on a July 2026 USDJPY swap quote)
+    stop_slip_scale: float = 1.0                 # scales Instrument.stop_slip_pips
     use_swap: bool = True
 
     def stressed(self, m: float) -> "CostModel":
@@ -96,6 +100,16 @@ class CostModel:
     def half_spread_plus_slip(self, inst: Instrument) -> float:
         """Adverse price move per fill (price units)."""
         return (inst.spread_pips / 2.0 + inst.slip_pips) * inst.pip * self.multiplier
+
+    def stop_slip(self, inst: Instrument) -> float:
+        """Extra adverse move when a stop order fills (price units)."""
+        return inst.stop_slip_pips * inst.pip * self.stop_slip_scale * self.multiplier
+
+    def commission_for(self, inst: Instrument) -> float:
+        """JPY per 1.00 lot round turn."""
+        c = inst.commission_jpy_rt if inst.commission_jpy_rt is not None \
+            else self.commission_jpy_per_lot_rt
+        return c * self.multiplier
 
     def swap_rate_annual(self, inst: Instrument, direction: int, year: int) -> float:
         """Annual carry (fraction) earned (+) or paid (-) for a position of `direction`."""

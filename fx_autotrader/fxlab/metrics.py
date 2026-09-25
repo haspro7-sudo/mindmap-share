@@ -21,8 +21,8 @@ def equity_stats(eq: pd.Series) -> dict:
     ret = ret[np.isfinite(ret)]
     sd = ret.std()
     sharpe = ret.mean() / sd * math.sqrt(ANN) if sd > 0 else 0.0
-    dn = ret[ret < 0].std()
-    sortino = ret.mean() / dn * math.sqrt(ANN) if dn and dn > 0 else 0.0
+    dn = math.sqrt(float((np.minimum(ret, 0.0) ** 2).mean()))
+    sortino = ret.mean() / dn * math.sqrt(ANN) if dn > 0 else 0.0
     peak = eq.cummax()
     dd = eq / peak - 1
     maxdd = -dd.min()
@@ -56,7 +56,9 @@ def equity_stats(eq: pd.Series) -> dict:
 def trade_stats(tr: pd.DataFrame) -> dict:
     if tr is None or len(tr) == 0:
         return {"trades": 0}
-    R = tr["R"].to_numpy()
+    # net R (spread, slippage, commission, swap; per unit of budgeted risk) when the
+    # portfolio replay produced it, otherwise the raw price R of simulate_symbol
+    R = (tr["R_net"] if "R_net" in tr else tr["R"]).to_numpy(dtype=float)
     wins = R[R > 0]
     losses = R[R <= 0]
     years = max((tr.exit_time.max() - tr.entry_time.min()).days / 365.25, 1e-9)
@@ -72,6 +74,7 @@ def trade_stats(tr: pd.DataFrame) -> dict:
         "avg_hold_days": float(hold.mean()),
         "long_share": float((tr.dir > 0).mean()),
     }
+    out["gross_avg_R"] = float(tr["R"].mean()) if "R" in tr else float("nan")
     if "pnl_jpy" in tr:
         out["net_pnl_jpy"] = float(tr.pnl_jpy.sum())
         out["swap_jpy"] = float(tr.swap_jpy.sum())

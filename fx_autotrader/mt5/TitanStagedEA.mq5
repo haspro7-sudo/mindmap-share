@@ -31,7 +31,7 @@ input double InpMarginUsePct   = 50.0;        // max margin use (% of equity)
 input group "=== Execution ==="
 input double InpMaxSpreadPips  = 3.0;         // skip entries when spread is wider (gold uses x20)
 input int    InpDeviationPts   = 30;          // max slippage (points) for market orders
-input int    InpExecDelayMin   = 60;          // act this many minutes after a new signal bar (avoid rollover spreads)
+input bool   InpAvoidRollover  = true;        // no orders in the server 00:00 hour (rollover spreads, gold closed); act at 01:00
 input int    InpTimerSec       = 10;
 input bool   InpLogCsv         = true;
 
@@ -367,7 +367,11 @@ void ProcessSymbol(SymState &s)
    string sym = s.name;
    datetime bar0 = iTime(sym, InpSignalTF, 0);
    if(bar0 == 0 || bar0 == s.last_bar) return;
-   if(TimeCurrent() < bar0 + InpExecDelayMin * 60) return;   // wait out the rollover spread
+   if(InpAvoidRollover)
+     {
+      MqlDateTime now; TimeToStruct(TimeCurrent(), now);
+      if(now.hour == 0) return;                                // same rule as fxlab map_decisions
+     }
    Decision d;
    if(!ComputeDecision(sym, d)) return;
    s.last_bar = bar0;
@@ -381,6 +385,7 @@ void ProcessSymbol(SymState &s)
       int dir = (type == POSITION_TYPE_BUY) ? 1 : -1;
       double sl = PositionGetDouble(POSITION_SL);
       datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
+      bool closed = false;
       // trailing stop (only tightens)
       if(d.trail_dist > 0.0)
         {
@@ -392,21 +397,32 @@ void ProcessSymbol(SymState &s)
            {
             double bid = SymbolInfoDouble(sym, SYMBOL_BID), ask = SymbolInfoDouble(sym, SYMBOL_ASK);
             bool beyond = dir > 0 ? bid <= ns : ask >= ns;
-            if(beyond) { g_trade.PositionClose(ticket, InpDeviationPts); Log("CLOSE", sym, "trail beyond price"); return; }
-            if(g_trade.PositionModify(ticket, ns, PositionGetDouble(POSITION_TP))) Log("TRAIL", sym, DoubleToString(ns, digits));
+            if(beyond)
+              {
+               if(!g_trade.PositionClose(ticket, InpDeviationPts)) { Log("ERR_CLOSE", sym, "trail"); return; }
+               Log("CLOSE", sym, "trail beyond price");
+               closed = true;
+              }
+            else if(g_trade.PositionModify(ticket, ns, PositionGetDouble(POSITION_TP))) Log("TRAIL", sym, DoubleToString(ns, digits));
            }
         }
-      int held = iBarShift(sym, InpSignalTF, opened, false);   // signal bars since entry
-      bool rev = (dir > 0 && d.short_entry && d.short_stop_px == 0.0) || (dir < 0 && d.long_entry && d.long_stop_px == 0.0);
-      bool ex  = (dir > 0 && d.exit_long) || (dir < 0 && d.exit_short) || rev ||
-                 (d.max_hold > 0 && held >= d.max_hold);
-      if(ex)
+      if(!closed)
         {
+         int held = iBarShift(sym, InpSignalTF, opened, false);   // signal bars since entry
+         bool rev = (dir > 0 && d.short_entry && d.short_stop_px == 0.0) || (dir < 0 && d.long_entry && d.long_stop_px == 0.0);
+         bool ex  = (dir > 0 && d.exit_long) || (dir < 0 && d.exit_short) || rev ||
+                    (d.max_hold > 0 && held >= d.max_hold);
+         if(!ex) return;                                          // still in a position: no entry
          g_trade.SetTypeFillingBySymbol(sym);
-         bool ok = g_trade.PositionClose(ticket, InpDeviationPts);
-         Log(ok ? "CLOSE" : "ERR_CLOSE", sym, rev ? "reverse" : "signal/time");
+         if(!g_trade.PositionClose(ticket, InpDeviationPts))
+           {
+            Log("ERR_CLOSE", sym, IntegerToString(g_trade.ResultRetcode()));
+            return;
+           }
+         Log("CLOSE", sym, rev ? "reverse" : "signal/time");
         }
-      return;   // like the backtest: no new entry on the bar a position was closed
+      // fall through: like the backtest kernel, a new entry (stop-and-reverse or
+      // re-entry while the entry signal holds) may open on the bar a position closed
      }
    // flat: entries
    bool mkt_long  = d.long_entry  && d.long_stop_px == 0.0;

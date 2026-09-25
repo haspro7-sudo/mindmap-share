@@ -159,19 +159,32 @@ def load_fred_daily() -> pd.DataFrame:
     return out.sort_index()
 
 
-def fred_as_bars(pair: str, start=None, end=None) -> pd.DataFrame:
-    """FRED close-only series shaped like OHLC bars (open=prev close, high/low=max/min).
+FRED_WICK_K = 1.0
 
-    High/low are unknown for FRED data, so intrabar stop logic sees only the
-    close-to-close path.  Use it for daily-strategy out-of-sample checks only.
+
+def fred_as_bars(pair: str, start=None, end=None, wick_k: float = FRED_WICK_K) -> pd.DataFrame:
+    """FRED close-only series shaped like OHLC bars.
+
+    FRED has no intraday high/low.  Using only the close-to-close path would let
+    stops survive intraday spikes (an optimistic bias found by the engine audit), so
+    a pessimistic synthetic range is added from past data only:
+        high = max(open, close) + k * m,  low = min(open, close) - k * m
+    where m = 20-day EWM of |close - previous close|, lagged one day, and k = 1.0
+    (calibrated on 2005-2020 OANDA daily bars: with k~1 stop/trail strategies score
+    the same mean R on synthetic bars as on the true OHLC; see tests).
     """
     s = load_fred_daily()[pair].dropna()
     if start is not None:
         s = s[s.index >= pd.Timestamp(start)]
     if end is not None:
         s = s[s.index <= pd.Timestamp(end)]
+    return synthetic_ohlc_from_closes(s, wick_k)
+
+
+def synthetic_ohlc_from_closes(s: pd.Series, wick_k: float = FRED_WICK_K) -> pd.DataFrame:
     o = s.shift(1).fillna(s)
-    df = pd.DataFrame({"open": o, "high": np.maximum(o, s), "low": np.minimum(o, s),
-                       "close": s, "volume": 0.0})
+    m = (s - o).abs().ewm(span=20, adjust=False).mean().shift(1).bfill()
+    df = pd.DataFrame({"open": o, "high": np.maximum(o, s) + wick_k * m,
+                       "low": np.minimum(o, s) - wick_k * m, "close": s, "volume": 0.0})
     df.index.name = "time"
     return df

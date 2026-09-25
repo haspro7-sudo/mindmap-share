@@ -153,3 +153,111 @@ def test_same_bar_entry_and_exit_releases_symbol():
     cfg = PortfolioConfig(costs=CostModel(use_swap=False))
     res = run_portfolio({"USDJPY": trades}, _conv(idx), {"USDJPY": bars.close}, cfg)
     assert res.trades.taken.all()
+
+
+# ---------------------------------------------------------------- audit regressions
+def test_rollover_hour_execution_waits_for_0100():
+    h1 = pd.date_range("2020-01-06", "2020-01-08", freq="1h", inclusive="left")
+    d1 = pd.DatetimeIndex(["2020-01-06"])
+    dec = map_decisions(d1, "D1", h1, avoid_rollover=True)
+    assert np.where(dec == 0)[0].tolist() == [25]      # 2020-01-07 01:00, not 00:00
+
+
+def test_oco_both_levels_in_one_bar_resolved_with_fine_data():
+    idx = pd.date_range("2020-01-06 02:00", periods=3, freq="1h")
+    bars = pd.DataFrame({"open": [100.0, 100.0, 100.5], "high": [100.05, 101.5, 100.6],
+                         "low": [99.95, 99.5, 100.4], "close": [100.0, 100.5, 100.5]}, index=idx)
+    # inside bar 1: price first drops to 99.5 (short fills at 99.7), then rallies to 101.5
+    fidx = pd.date_range(idx[1], periods=60, freq="1min")
+    path = np.concatenate([np.linspace(100, 99.5, 20), np.linspace(99.5, 101.5, 30),
+                           np.linspace(101.5, 100.5, 10)])
+    fine = pd.DataFrame({"high": path + 0.01, "low": path - 0.01}, index=fidx)
+    dec = _dec(idx, long_entry=[True, False, False], short_entry=[True, False, False],
+               stop_dist=1.0, tp_dist=1.0, long_stop_px=100.3, short_stop_px=99.7)
+    tr = simulate_symbol(dec, "H1", bars, fine_bars=fine, avoid_rollover=False)
+    t = tr.iloc[0]
+    assert t.dir == -1 and t.reason == "stop"          # the short filled first and was stopped
+    # without fine data the engine must not pick the leg that looks better at the close
+    tr2 = simulate_symbol(dec, "H1", bars, avoid_rollover=False)
+    assert tr2.iloc[0].dir == -1
+
+
+def test_stop_entry_fill_ignores_lows_printed_before_the_fill():
+    idx = pd.date_range("2020-01-06 02:00", periods=3, freq="1h")
+    bars = pd.DataFrame({"open": [100.0, 100.0, 101.0], "high": [100.05, 101.2, 101.1],
+                         "low": [99.95, 99.0, 100.9], "close": [100.0, 101.0, 101.0]}, index=idx)
+    fidx = pd.date_range(idx[1], periods=60, freq="1min")
+    path = np.concatenate([np.linspace(100, 99.0, 20), np.linspace(99.0, 101.2, 40)])
+    fine = pd.DataFrame({"high": path + 0.005, "low": path - 0.005}, index=fidx)
+    dec = _dec(idx, long_entry=[True, False, False], stop_dist=0.8, long_stop_px=100.5)
+    tr = simulate_symbol(dec, "H1", bars, fine_bars=fine, avoid_rollover=False)
+    assert tr.iloc[0].reason != "stop"                 # the 99.0 low came before the fill
+    tr_whole = simulate_symbol(dec, "H1", bars, avoid_rollover=False)
+    assert tr_whole.iloc[0].reason == "stop"           # pessimistic fallback without M1
+
+
+def test_open_entry_is_sized_before_intrabar_exit_of_other_symbol():
+    idx = pd.date_range("2020-01-06 02:00", periods=6, freq="1h")
+    bars = pd.DataFrame({"open": 150.0, "high": 150.5, "low": 149.5, "close": 150.0}, index=idx)
+    a = pd.DataFrame({"entry_time": [idx[0]], "exit_time": [idx[3]], "entry_i": [0], "exit_i": [3],
+                      "dir": [1], "entry_mid": [150.0], "exit_mid": [149.0], "stop_dist": [1.0],
+                      "reason": ["stop"], "stop_entry": [False], "entry_at_open": [True],
+                      "exit_at_open": [False]})
+    b = a.copy()
+    b[["entry_time", "exit_time", "entry_i", "exit_i"]] = [idx[3], idx[5], 3, 5]
+    b["exit_mid"] = 150.5
+    b["reason"] = "signal"
+    cfg = PortfolioConfig(costs=CostModel(use_swap=False), max_open_trades=1)
+    res = run_portfolio({"USDJPY": a, "EURJPY": b}, _conv(idx),
+                        {"USDJPY": bars.close, "EURJPY": bars.close}, cfg)
+    # A is still open at the 05:00 open (its stop fills later in that bar) -> B skipped
+    assert res.trades.set_index("symbol").loc["EURJPY", "taken"] == False  # noqa: E712
+
+
+def test_trades_open_at_end_are_closed_at_end():
+    idx = pd.date_range("2014-12-29", periods=24 * 10, freq="1h")
+    bars = pd.DataFrame({"open": 150.0, "high": 150.5, "low": 149.5,
+                         "close": np.linspace(150, 160, len(idx))}, index=idx)
+    d1 = bars.close.resample("1D").last()
+    t = pd.DataFrame({"entry_time": [idx[5]], "exit_time": [idx[-1]], "entry_i": [5],
+                      "exit_i": [len(idx) - 1], "dir": [1], "entry_mid": [150.0],
+                      "exit_mid": [160.0], "stop_dist": [1.0], "reason": ["signal"]})
+    cfg = PortfolioConfig(costs=CostModel(use_swap=False))
+    res = run_portfolio({"USDJPY": t}, _conv(idx), {"USDJPY": d1}, cfg, end="2015-01-01")
+    tr = res.trades.iloc[0]
+    assert tr.exit_time == pd.Timestamp("2015-01-01") and tr.reason == "end"
+    assert tr.exit_mid == pytest.approx(d1[d1.index < "2015-01-01"].iloc[-1])
+    assert res.equity.index[-1] < pd.Timestamp("2015-01-01")
+
+
+def test_net_R_includes_commission_and_swap():
+    from fxlab.metrics import trade_stats
+    idx = pd.date_range("2020-01-06", periods=24 * 20, freq="1h")
+    bars = pd.DataFrame({"open": 150.0, "high": 150.5, "low": 149.5, "close": 150.0}, index=idx)
+    t = pd.DataFrame({"entry_time": [idx[1]], "exit_time": [idx[-1]], "entry_i": [1],
+                      "exit_i": [len(idx) - 1], "dir": [-1], "entry_mid": [150.0],
+                      "exit_mid": [149.99], "stop_dist": [1.0], "reason": ["signal"]})
+    res = run_portfolio({"USDJPY": t}, _conv(idx), {"USDJPY": bars.close.resample("1D").last()},
+                        PortfolioConfig())
+    s = trade_stats(res.taken)
+    assert res.taken.R.iloc[0] < 0.01 and s["avg_R"] < res.taken.R.iloc[0]
+    assert s["avg_R"] == pytest.approx(res.taken.pnl_jpy.iloc[0] / res.taken.risk_jpy.iloc[0])
+
+
+def test_fred_synthetic_bars_are_not_optimistic_for_stops():
+    from fxlab.backtest import _bars
+    from fxlab.data import synthetic_ohlc_from_closes
+    from fxlab import indicators as I
+    try:
+        d1 = _bars("oanda", "EURUSD", "D1")
+    except FileNotFoundError:
+        pytest.skip("no data")
+    a = I.atr(d1, 20)
+    f, s = I.ema(d1.close, 20), I.ema(d1.close, 100)
+    dec = pd.DataFrame({"long_entry": (f > s) & (f.shift() <= s.shift()),
+                        "short_entry": (f < s) & (f.shift() >= s.shift()),
+                        "stop_dist": 2 * a, "trail_dist": 3 * a}, index=d1.index)
+    R = lambda tr: (tr.dir * (tr.exit_mid - tr.entry_mid) / tr.stop_dist).mean()  # noqa: E731
+    true_R = R(simulate_symbol(dec, "D1", d1))
+    syn_R = R(simulate_symbol(dec, "D1", synthetic_ohlc_from_closes(d1.close)))
+    assert syn_R <= true_R + 0.1
