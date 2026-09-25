@@ -27,7 +27,7 @@ def income_tax(taxable: float) -> float:
     return 0.0
 
 
-def tax_on_fx_profit(profit: float, other_income: float = 0.0, deduction: float = 480_000,
+def tax_on_fx_profit(profit: float, other_income: float = 0.0, deduction: float = 620_000,
                      separate: bool = False) -> float:
     """Incremental tax caused by `profit` of FX income in one year.
 
