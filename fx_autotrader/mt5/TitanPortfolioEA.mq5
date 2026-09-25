@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| TitanPortfolioEA.mq5  v1.20                                      |
+//| TitanPortfolioEA.mq5  v1.21                                      |
 //| Staged-risk portfolio EA for Titan FX MT5 (JPY account, Blade)   |
 //|   1) GOTOBI   : USDJPY short at the 09:55 JST Tokyo fix on       |
 //|                 Japanese gotobi days, flat at 15:00 JST (LIVE)   |
@@ -12,7 +12,7 @@
 //| from the moment it is opened.  No martingale/grid/averaging.     |
 //+------------------------------------------------------------------+
 #property copyright "fx_autotrader"
-#property version   "1.20"
+#property version   "1.21"
 #property description "Gotobi (+ optional D1 mean reversion / carry) with staged risk for Titan FX MT5 (JPY, hedging account)."
 
 #include <Trade\Trade.mqh>
@@ -113,10 +113,16 @@ datetime  g_mech_day = 0;
 double    g_mech_mid0955 = 0.0;
 bool      g_mech_done = false;
 datetime  g_clock_warn_day = 0;
-string    g_last_skip = "", g_last_err = "";
-datetime  g_last_skip_t = 0, g_last_err_t = 0;
+string    g_last_skip = "";
+datetime  g_last_skip_t = 0;
+string    g_err_key[];                       // per-key de-duplication of ERR_* lines
+datetime  g_err_t[];
+datetime  g_last_push = 0;
 datetime  g_halt_retry = 0, g_gv_flushed = 0, g_flow_unsync = 0, g_flow_checked = 0;
 bool      g_flow_warned = false;
+double    g_rec_bal = -1.0, g_rec_cred = -1.0;  // balance / credit at the last successful reconcile
+long      g_clock_skew = 0;                  // TimeTradeServer() (PC clock) minus server quote time
+datetime  g_skew_tc = 0, g_skew_warn_day = 0;
 uint      g_send_rc = 0;                     // retcode of the last request OpenMarket actually sent (0 = none sent)
 
 long MagicGotobi()  { return InpMagicBase + 1; }
@@ -124,7 +130,26 @@ long MagicMeanRev() { return InpMagicBase + 2; }
 long MagicCarry()   { return InpMagicBase + 3; }
 
 //==================================================================== logging / utils
-datetime Now() { return g_tester ? TimeCurrent() : TimeTradeServer(); }
+datetime Now() { return g_tester ? TimeCurrent() : (datetime)((long)TimeTradeServer() - g_clock_skew); }
+
+// measure the PC clock error against server quote times (called every timer event)
+void UpdateClockSkew()
+  {
+   if(g_tester) return;
+   datetime tc = TimeCurrent();
+   if(tc == g_skew_tc) return;                       // no new quote second since the last timer event
+   bool first = (g_skew_tc == 0);
+   g_skew_tc = tc;
+   if(first) return;                                 // the first reading may be an old quote
+   long sk = (long)TimeTradeServer() - (long)tc;     // clock error + 0..1 s of quote latency
+   if(sk > -3600 && sk < 3600) g_clock_skew = sk > 2 || sk < -2 ? sk : 0;
+   datetime d = DayStart(tc);
+   if((sk > 30 || sk < -30) && g_skew_warn_day != d)
+     {
+      g_skew_warn_day = d;
+      Print(StringFormat("CLOCK: PC clock differs from server quotes by %I64d s - corrected (sync the VPS clock with NTP)", sk));
+     }
+  }
 
 void Log(const string what, const string sym, const string detail)
   {
@@ -137,9 +162,21 @@ void Log(const string what, const string sym, const string detail)
    else if(StringFind(what, "ERR_") == 0)
      {
       string key = what + "|" + sym + "|" + detail;
-      if(key == g_last_err && Now() - g_last_err_t < 300) return;      // repeated failure: once per 5 min
-      g_last_err = key; g_last_err_t = Now();
-      if(!g_tester && what == "ERR_CLOSE") SendNotification("TitanPortfolioEA " + what + " " + sym + " " + detail);
+      datetime now = Now();
+      int n = 0, k = -1;
+      for(int i = 0; i < ArraySize(g_err_key); i++)                  // keep entries younger than 5 min
+         if(now - g_err_t[i] < 300)
+           {
+            g_err_key[n] = g_err_key[i]; g_err_t[n] = g_err_t[i];
+            if(g_err_key[n] == key) k = n;
+            n++;
+           }
+      ArrayResize(g_err_key, n); ArrayResize(g_err_t, n);
+      if(k >= 0) return;                                             // same failure logged < 5 min ago
+      ArrayResize(g_err_key, n + 1); ArrayResize(g_err_t, n + 1);
+      g_err_key[n] = key; g_err_t[n] = now;
+      if(!g_tester && what == "ERR_CLOSE" && TimeLocal() - g_last_push >= 10)   // MT5 allows <= 10 pushes/min
+        { g_last_push = TimeLocal(); SendNotification("TitanPortfolioEA " + what + " " + sym + " " + detail); }
      }
    string line = StringFormat("%s,%s,%s,%s", TimeToString(Now(), TIME_DATE | TIME_SECONDS), what, sym, detail);
    Print(line);
@@ -149,7 +186,7 @@ void Log(const string what, const string sym, const string detail)
 void Notify(const string msg)
   {
    Log("NOTIFY", "", msg);
-   if(!g_tester) { Alert(msg); SendNotification(msg); }
+   if(!g_tester) { Alert(msg); g_last_push = TimeLocal(); SendNotification(msg); }
   }
 
 double GvGet(const string name, const double def)
@@ -641,17 +678,22 @@ void HaltFlatten()
   }
 
 // Deposits / withdrawals from the deal history are applied once to the peaks and the daily
-// reference (plan.py rule: deposit -> peak += amount; withdrawal -> peak scaled by the balance
-// ratio, tax is not a trading drawdown).  Returns false while the history does not reconcile
-// with the account (a deal is in flight): then peaks and the halt test are left alone.
-bool ReconcileCashFlows(const double bal, const double eq)
+// reference (plan.py rule: deposit -> peak += amount; withdrawal -> peak scaled by the ratio of
+// the balance after/before, tax is not a trading drawdown).  Returns false while the history does
+// not reconcile with the account (a deal is in flight): peaks and the halt test then wait.
+// rebase=true (after a fallback period in which raw peaks already absorbed deposits): deposits are
+// not added again, withdrawals are still scaled.
+bool ReconcileCashFlows(const double bal, const double eq, const bool rebase)
   {
    if(g_tester) return true;
-   if(!HistorySelect(0, TimeCurrent() + 86400)) return false;
+   if(!HistorySelect(0, D'3000.12.31 23:59:59')) return false;     // independent of the last quote time
    double last = GvGet(g_gv_flowtk, -1.0);
-   double run = 0.0, newest = MathMax(last, 0.0), other = eq - bal;
+   double cred = AccountInfoDouble(ACCOUNT_CREDIT);
+   double flt = eq - bal - cred;                                    // floating P/L only
+   double run = 0.0, crun = 0.0, newest = MathMax(last, 0.0);
    double bpk = GvGet(g_gv_balpeak, bal), epk = GvGet(g_gv_eqpeak, eq), dref = GvGet(g_gv_daybal, eq);
    bool applied = false;
+   string msgs = "";
    int n = HistoryDealsTotal();
    for(int i = 0; i < n; i++)
      {
@@ -661,9 +703,9 @@ bool ReconcileCashFlows(const double bal, const double eq)
       double a = HistoryDealGetDouble(d, DEAL_PROFIT);
       if(t == DEAL_TYPE_BALANCE || t == DEAL_TYPE_CREDIT)
         {
-         if(last >= 0.0 && (double)d > last && a != 0.0)
+         if(last >= 0.0 && (double)d > last && a != 0.0 && !(rebase && a > 0.0))
            {
-            double b0 = run, e0 = run + other;
+            double b0 = run, e0 = run + crun + flt;                 // balance / equity just before this deal
             if(a > 0.0) { if(t == DEAL_TYPE_BALANCE) bpk += a; epk += a; dref += a; }
             else
               {
@@ -672,15 +714,15 @@ bool ReconcileCashFlows(const double bal, const double eq)
                dref = (e0 + a > 0.0 && e0 > 0.0) ? dref * (e0 + a) / e0 : eq;
               }
             applied = true;
-            Log("CASHFLOW", "", StringFormat("%s %+.0f JPY (balance before %.0f): peaks and daily reference adjusted",
-                t == DEAL_TYPE_CREDIT ? "credit" : "balance", a, b0));
+            msgs += StringFormat("%s %+.0f JPY (balance before %.0f); ", t == DEAL_TYPE_CREDIT ? "credit" : "balance", a, b0);
            }
          newest = MathMax(newest, (double)d);
+         if(t == DEAL_TYPE_CREDIT) crun += a;
         }
       if(t != DEAL_TYPE_CREDIT)
          run += a + HistoryDealGetDouble(d, DEAL_SWAP) + HistoryDealGetDouble(d, DEAL_COMMISSION) + HistoryDealGetDouble(d, DEAL_FEE);
      }
-   if(MathAbs(run - bal) >= 1.0) return false;            // history and balance disagree: in flight
+   if(MathAbs(run - bal) >= 1.0 || MathAbs(crun - cred) >= 1.0) return false;   // in flight
    if(last < 0.0) { GlobalVariableSet(g_gv_flowtk, newest); GvFlush(); return true; }   // first run: baseline
    if(applied)
      {
@@ -689,7 +731,9 @@ bool ReconcileCashFlows(const double bal, const double eq)
       GlobalVariableSet(g_gv_daybal, MathMax(dref, 1.0));
       GlobalVariableSet(g_gv_flowtk, newest);
       GvFlush();
+      Log("CASHFLOW", "", msgs + "peaks and daily reference adjusted");
      }
+   else if(newest > last) { GlobalVariableSet(g_gv_flowtk, newest); GvFlush(); }
    return true;
   }
 
@@ -697,16 +741,25 @@ void UpdateAccountState()
   {
    double bal = AccountInfoDouble(ACCOUNT_BALANCE), eq = AccountInfoDouble(ACCOUNT_EQUITY);
    if(bal <= 0.0 || eq <= 0.0) return;                    // never act on unsynchronised account data
-   if(!g_tester && Now() - g_flow_checked >= 5)
+   if(!g_tester)
      {
-      g_flow_checked = Now();
-      if(!ReconcileCashFlows(bal, eq))
+      // any deposit / withdrawal / credit moves balance or credit: reconcile BEFORE the peaks move
+      double cred = AccountInfoDouble(ACCOUNT_CREDIT);
+      bool moved = bal != g_rec_bal || cred != g_rec_cred;
+      if(moved || Now() - g_flow_checked >= 5)
         {
-         if(g_flow_unsync == 0) g_flow_unsync = Now();
-         if(Now() - g_flow_unsync < 30) return;           // deal in flight: leave peaks / halt alone
-         if(!g_flow_warned) { g_flow_warned = true; Log("WARN", "", "deal history does not reconcile with the balance - cash-flow adjustment off"); }
+         g_flow_checked = Now();
+         if(ReconcileCashFlows(bal, eq, g_flow_warned))
+           { g_rec_bal = bal; g_rec_cred = cred; g_flow_unsync = 0; g_flow_warned = false; }
+         else
+           {
+            if(g_flow_unsync == 0) g_flow_unsync = Now();
+            if(Now() - g_flow_unsync < 30) return;           // in flight: peaks / halt untouched
+            if(!g_flow_warned) { g_flow_warned = true; Log("WARN", "", "deal history does not reconcile with the balance - raw peaks used until it does"); }
+            g_rec_bal = bal; g_rec_cred = cred;
+           }
         }
-      else { g_flow_unsync = 0; g_flow_warned = false; }
+      else if(g_flow_unsync != 0 && !g_flow_warned) return;  // still waiting for an in-flight deal
      }
    double bpeak = GvGet(g_gv_balpeak, bal);
    if(bal > bpeak) { GlobalVariableSet(g_gv_balpeak, bal); GvFlush(); }
@@ -720,10 +773,10 @@ void UpdateAccountState()
       GlobalVariableSet(g_gv_halt, 1.0);
       GlobalVariableSet(g_gv_eqpeak, eq);                 // re-based: deleting the halt flag resumes against a fresh peak
       GvFlush();
-      CloseAll("HALT equity drawdown limit");
-      Notify(StringFormat("TitanPortfolioEA HALTED: equity %.0f is %.1f%% below its peak %.0f. Positions closed. "
+      Notify(StringFormat("TitanPortfolioEA HALTED: equity %.0f is %.1f%% below its peak %.0f. Closing all positions. "
                           "Review (docs/STAGED_PLAN.md), then delete global variable %s (F3) to resume.",
                           eq, 100.0 * (1.0 - eq / epeak), epeak, g_gv_halt));
+      CloseAll("HALT equity drawdown limit");
      }
    if(!g_tester && Now() - g_gv_flushed >= 60) { g_gv_flushed = Now(); GvFlush(); }
   }
@@ -1087,7 +1140,7 @@ bool LateInit()
    datetime now = Now();
    bool ok;
    datetime jst = ServerToJst(now, ok);
-   Log("INIT", "", StringFormat("v1.20 login=%I64d server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
+   Log("INIT", "", StringFormat("v1.21 login=%I64d server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
        AccountInfoInteger(ACCOUNT_LOGIN), TimeToString(now), RuleOffset(now), LiveOffset(), TimeToString(jst),
        (int)IsGotobi(DayStart(jst)), AccountInfoDouble(ACCOUNT_BALANCE),
        InpGotobiOn ? "G" : "", InpMeanRevOn ? "M" : "", InpCarryOn ? "C" : ""));
@@ -1100,6 +1153,8 @@ int OnInit()
    // globals survive REASON_PARAMETERS / REASON_CHARTCHANGE re-inits: reset them
    ArrayResize(g_mr, 0); ArrayResize(g_carry, 0);
    g_gotobi_sym = ""; g_prefix = ""; g_ready = false; g_csv = INVALID_HANDLE;
+   ArrayResize(g_err_key, 0); ArrayResize(g_err_t, 0);
+   g_flow_unsync = 0; g_flow_checked = 0; g_flow_warned = false; g_rec_bal = -1.0; g_rec_cred = -1.0;
    if(InpCarryOn && !ValidateRates()) return INIT_PARAMETERS_INCORRECT;
    // single instance per terminal and magic (a second chart would double the gotobi risk)
    g_gv_lock = "TPEA_" + IntegerToString(InpMagicBase) + "_lock";
@@ -1128,6 +1183,7 @@ void OnDeinit(const int reason)
 
 void OnTimer()
   {
+   UpdateClockSkew();
    if(!AccountReady()) return;                                       // not logged in / disconnected
    if(!g_ready) { if(!LateInit()) return; g_ready = true; }
    UpdateAccountState();
@@ -1137,6 +1193,26 @@ void OnTimer()
       if(InpMeanRevOn || FindPosition(g_mr[i].sym, MagicMeanRev()) != 0) ProcessMeanRev(g_mr[i]);
    for(int i = 0; i < ArraySize(g_carry); i++)
       if(InpCarryOn || FindPosition(g_carry[i].sym, MagicCarry()) != 0) ProcessCarry(g_carry[i]);
+  }
+
+// every closing deal of our books (EA exits AND server-side stop-outs) is logged with its net P&L
+void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)
+  {
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0 || !g_ready) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   long mg = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+   if(!IsOurMagic(mg)) return;
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
+   double net = HistoryDealGetDouble(trans.deal, DEAL_PROFIT) + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
+                + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION) + HistoryDealGetDouble(trans.deal, DEAL_FEE);
+   long rsn = HistoryDealGetInteger(trans.deal, DEAL_REASON);
+   string reason = rsn == DEAL_REASON_SL ? "SL" : (rsn == DEAL_REASON_SO ? "STOPOUT" : (rsn == DEAL_REASON_EXPERT ? "EXPERT" : "OTHER"));
+   string tag = mg == MagicGotobi() ? "GTB" : (mg == MagicMeanRev() ? "MR" : "CRY");
+   string sym = HistoryDealGetString(trans.deal, DEAL_SYMBOL);
+   int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   Log("EXIT", sym, StringFormat("%s magic=%I64d net=%.0f price=%s reason=%s", tag, mg, net,
+       DoubleToString(HistoryDealGetDouble(trans.deal, DEAL_PRICE), digits), reason));
   }
 
 void OnTick() { }

@@ -290,8 +290,9 @@ class SeasonalWindow(Strategy):
         if self.entry_early_min > 0:
             # copy of each entry row acting entry_early_min before entry_hour:00.  The
             # entry decision uses only the calendar and the last CLOSED D1 ATR, so acting
-            # a few minutes earlier uses no additional information.  With H1 execution
-            # the copy maps onto the regular entry bar (no effect).
+            # a few minutes earlier uses no additional information.  REQUIRES minute-bar
+            # execution: under H1 execution the copy and the (cleared) hh:00 row map to the
+            # same bar, the later row wins and no entry is taken - use entry_early_min=0.
             e = d[entry].copy()
             # the early copy REPLACES the hh:00 entry (one trade per day, like the EA):
             # no second entry at hh:00 after a stop-out inside the first minutes

@@ -421,7 +421,8 @@ def final():
 
     ev = evaluate_any(strat, syms, ("is", "oos", "full"), exec_=SEL_EXEC)
     ev2 = evaluate_any(strat, syms, ("is", "oos"), cost_mult=2.0, exec_=SEL_EXEC)
-    h1 = evaluate_any(strat, syms, ("is", "oos"), exec_="H1")        # 10:00 JST entry
+    h1 = evaluate_any(make(SEL_KIND, {**SELECTED, "entry_early_min": 0}), syms, ("is", "oos"),
+                      exec_="H1")                                     # 10:00 JST entry
     res = {k: ev[k].pop("_result") for k in ev}
     res2 = {k: ev2[k].pop("_result") for k in ev2}
     for k in h1:
