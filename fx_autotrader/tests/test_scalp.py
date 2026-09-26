@@ -226,3 +226,41 @@ def test_kernel_matches_bar_by_bar_reference():
         assert (m1.index.get_indexer(tr.exit_time) == xi).all()
         assert (tr["dir"].to_numpy() == d).all() and (tr.reason.astype(str).to_numpy() == why).all()
         assert np.allclose(tr.entry_px, epx, atol=1e-12) and np.allclose(tr.exit_px, xpx, atol=1e-12)
+
+
+def test_btc_proportional_costs_and_financing():
+    # 3 days of flat 50,000 USD bars; a long held across two server midnights by time stop
+    idx = pd.date_range("2021-03-01 22:00", periods=3 * 24 * 60, freq="1min")
+    m1 = pd.DataFrame({"open": 50_000.0, "high": 50_000.0, "low": 50_000.0, "close": 50_000.0},
+                      index=idx)
+    sig = pd.DataFrame({"dir": [1], "tp": [np.nan], "sl": [1000.0], "hold": [26 * 60]},
+                       index=[idx[0]])
+    tr = scalp.simulate(m1, sig, "BTCUSD")
+    inst = scalp.INSTRUMENTS["BTCUSD"]
+    px = 50_000.0 * 1e-4
+    # spread (4 bps) + slip on entry and exit (1 bp each) = 6 bps of 50,000 = 30 USD
+    exp_gross = -(inst.spread_pips + 2 * inst.slip_pips) * px
+    assert abs(tr.gross_pips[0] - exp_gross) < 1e-6
+    nights = (tr.exit_time[0].normalize() - tr.entry_time[0].normalize()).days
+    assert nights == 2
+    entry = 50_000.0 + 0.5 * inst.spread_pips * px + inst.slip_pips * px
+    exp_net = exp_gross - (inst.commission_bps_rt + inst.carry_bps_per_day * nights) * 1e-4 * entry
+    assert abs(tr.net_pips[0] - exp_net) < 1e-6
+    # no FX rollover multiplier for crypto: the half spread is the same at server 00:00
+    hs = scalp.half_spread_series(idx, "BTCUSD", prices=m1["open"].to_numpy())
+    assert np.allclose(hs, 0.5 * inst.spread_pips * px)
+    assert scalp.commission_pips("BTCUSD") == 0.0
+
+
+def test_resample_and_signals_at_close_enter_on_next_bar():
+    idx = pd.date_range("2016-03-01 10:00", periods=120, freq="1min").delete([59])  # 10:59 missing
+    px = np.linspace(1.10, 1.11, len(idx))
+    m1 = pd.DataFrame({"open": px, "high": px + 1e-4, "low": px - 1e-4, "close": px}, index=idx)
+    h1 = scalp.resample(m1, "1h")
+    assert list(h1.index) == [pd.Timestamp("2016-03-01 10:00"), pd.Timestamp("2016-03-01 11:00")]
+    assert h1.last_m1.iloc[0] == pd.Timestamp("2016-03-01 10:58")      # last existing minute
+    assert h1.close.iloc[0] == m1.close.loc["2016-03-01 10:58"]
+    frame = pd.DataFrame({"dir": [1], "tp": [np.nan], "sl": [50.0], "hold": [30]},
+                         index=[h1.index[0]])
+    tr = scalp.simulate(m1, scalp.signals_at_close(h1, frame), "EURUSD")
+    assert tr.entry_time[0] == pd.Timestamp("2016-03-01 11:00")            # next bar open

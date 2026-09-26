@@ -76,11 +76,32 @@ def m1_path(pair: str) -> Path:
     return M1_DIR / f"{pair}_M1.parquet"
 
 
+BTC_DIR = Path(os.environ.get("FXLAB_BTC_DIR", "/home/user/fxdata/btc"))
+
+
+def load_bitstamp_btc_m1() -> pd.DataFrame:
+    """Bitstamp BTC/USD 1-minute bars (github.com/ff137/bitstamp-btcusd-minute-data):
+    the 2012-2025 bulk file plus the daily-updated file.  The source fills missing minutes
+    with flat zero-volume candles; those are dropped so gaps look like OANDA's."""
+    files = [BTC_DIR / "btcusd_bitstamp_1min_2012-2025.csv.gz",
+             BTC_DIR / "btcusd_bitstamp_1min_latest.csv"]
+    frames = [pd.read_csv(f) for f in files if f.exists()]
+    if not frames:
+        raise FileNotFoundError(f"no Bitstamp BTC csv under {BTC_DIR}")
+    df = pd.concat(frames, ignore_index=True)
+    df = df[df["volume"] > 0]
+    df["time"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+    df = df.drop_duplicates("time").sort_values("time").set_index("time")
+    return df[["open", "high", "low", "close", "volume"]].astype("float64")
+
+
 def load_m1(pair: str) -> pd.DataFrame:
     p = m1_path(pair)
     if p.exists():
         return pd.read_parquet(p)
-    if pair in SYNTHETIC:
+    if pair == "BTCUSD":
+        df = load_bitstamp_btc_m1()
+    elif pair in SYNTHETIC:
         df = build_synthetic_m1(pair)
     else:
         df = load_oanda_m1_csv(pair)

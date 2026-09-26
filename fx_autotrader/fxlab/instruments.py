@@ -35,6 +35,13 @@ class Instrument:
     max_lot: float = 100.0
     commission_jpy_rt: float | None = None  # None -> CostModel default (FX)
     stop_slip_pips: float = 0.3
+    # Crypto CFDs: spread/slip/stop-slip are in basis points of price instead of pips,
+    # commission in bps of notional per round trip, and a financing charge per server
+    # day held (both directions).  Only fxlab.scalp understands these instruments.
+    cost_in_bps: bool = False
+    hour_spread_mult: bool = True          # apply the FX rollover/Asia spread multipliers
+    commission_bps_rt: float = 0.0
+    carry_bps_per_day: float = 0.0
 
 
 _I = Instrument
@@ -74,6 +81,12 @@ INSTRUMENTS: dict[str, Instrument] = {i.symbol: i for i in [
        commission_jpy_rt=72.0, stop_slip_pips=1.5),
     _I("AUS200", "ASX", "AUD", 1.0, 1, 2.0, 1.0, lot_step=0.1, min_lot=0.1,
        commission_jpy_rt=72.0, stop_slip_pips=2.0),
+    # Bitcoin CFD (Bitstamp BTC/USD M1 data; fxlab.scalp only).  pip = 1 USD, 1 lot = 1 BTC.
+    # Costs in bps of price: spread 4, slip 1 per fill, extra 2 on stops, no commission,
+    # financing 5 bps per day held (~18%/yr).  Check the live Titan FX quote/swap table.
+    _I("BTCUSD", "BTC", "USD", 1.0, 1, 4.0, 1.0, min_lot=0.01, max_lot=10.0,
+       commission_jpy_rt=0.0, stop_slip_pips=2.0, cost_in_bps=True, hour_spread_mult=False,
+       carry_bps_per_day=5.0),
     # FRED-only pairs (daily out-of-sample checks)
     _I("NZDUSD", "NZD", "USD", 0.0001, 100_000, 0.8, 0.3),
     _I("USDCHF", "USD", "CHF", 0.0001, 100_000, 0.6, 0.3),
