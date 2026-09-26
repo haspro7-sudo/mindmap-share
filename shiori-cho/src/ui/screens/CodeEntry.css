@@ -308,3 +308,11 @@
   align-items: center;
   min-height: var(--tap);
 }
+
+.ce-load-error {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.ce-load-error-text {
+  flex: 1 1 12em;
+}

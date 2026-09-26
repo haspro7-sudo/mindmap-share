@@ -9,6 +9,7 @@ import {
   MSG_SESSION_OPEN_SAME,
   SESSION_NOTE_MAX_CHARS,
   clampSessionMinutes,
+  deleteSession,
   editSession,
   endSession,
   normalizeSessionNote,
@@ -17,6 +18,7 @@ import {
 
 const T0 = 1_790_000_000_000;
 const MIN = 60_000;
+const DAY_MS = 86_400_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function work(id: string, over: Partial<WorkRecord> = {}): WorkRecord {
@@ -347,12 +349,33 @@ describe('editSession', () => {
     expect((await repo.listSessions())[0]?.checkpointId).toBeUndefined();
   });
 
-  it('does not change the work record', async () => {
+  it('changes nothing else of the work record when the end time stays', async () => {
     const repo = seeded();
     const s = await ended(repo);
     const before = await repo.getWork('w1');
-    await editSession(repo, { ...s, checkpointId: 'ch2', endedAt: T0 + 90 * MIN });
+    await editSession(repo, { ...s, checkpointId: 'ch2', minutes: 12, whereNote: '別のメモ' }, T0 + 99 * MIN);
     expect(await repo.getWork('w1')).toEqual(before);
+  });
+
+  it('recomputes lastPlayedAt from the work\'s sessions when an end time moves', async () => {
+    const repo = seeded();
+    const s = await ended(repo); // ends at T0 + 30 min
+    expect((await repo.getWork('w1'))?.lastPlayedAt).toBe(T0 + 30 * MIN);
+    await editSession(repo, { ...s, endedAt: T0 + 10 * MIN }, T0 + 99 * MIN);
+    const w = await repo.getWork('w1');
+    expect(w?.lastPlayedAt).toBe(T0 + 10 * MIN);
+    expect(w?.updatedAt).toBe(T0 + 99 * MIN);
+    // a record added by hand that ended later becomes the last play
+    await editSession(repo, { id: 'manual-1', workId: 'w1', startedAt: T0 + 40 * MIN, endedAt: T0 + 60 * MIN }, T0 + 100 * MIN);
+    expect((await repo.getWork('w1'))?.lastPlayedAt).toBe(T0 + 60 * MIN);
+  });
+
+  it('moving a session to another work updates both works', async () => {
+    const repo = seeded();
+    const s = await ended(repo);
+    await editSession(repo, { ...s, workId: 'w2' }, T0 + 99 * MIN);
+    expect((await repo.getWork('w1'))?.lastPlayedAt).toBeUndefined();
+    expect((await repo.getWork('w2'))?.lastPlayedAt).toBe(T0 + 30 * MIN);
   });
 
   it('rejects bad times and minutes', async () => {
@@ -390,5 +413,48 @@ describe('editSession', () => {
     expect(await repo.listSessions('w2')).toEqual([
       { id: 'manual-1', workId: 'w2', startedAt: T0, endedAt: T0 + 20 * MIN, minutes: 20 },
     ]);
+  });
+});
+
+describe('deleteSession', () => {
+  async function play(repo: ShioriRepo, start: number, end: number): Promise<Session> {
+    const s = await startSession(repo, 'w1', start);
+    return endSession(repo, s.id, {}, end);
+  }
+
+  it('deletes the session and moves lastPlayedAt back to the latest remaining one', async () => {
+    const repo = seeded();
+    await play(repo, T0, T0 + 30 * MIN);
+    const accidental = await play(repo, T0 + DAY_MS, T0 + DAY_MS + MIN);
+    expect((await repo.getWork('w1'))?.lastPlayedAt).toBe(T0 + DAY_MS + MIN);
+
+    await deleteSession(repo, accidental.id, T0 + DAY_MS + 2 * MIN);
+    expect((await repo.listSessions('w1')).map((s) => s.id)).not.toContain(accidental.id);
+    const w = await repo.getWork('w1');
+    expect(w?.lastPlayedAt).toBe(T0 + 30 * MIN);
+    expect(w?.updatedAt).toBe(T0 + DAY_MS + 2 * MIN);
+  });
+
+  it('removes lastPlayedAt when no ended session is left, and ignores unknown ids', async () => {
+    const repo = seeded();
+    const only = await play(repo, T0, T0 + 5 * MIN);
+    await deleteSession(repo, 'no-such-session');
+    expect((await repo.getWork('w1'))?.lastPlayedAt).toBe(T0 + 5 * MIN);
+    await deleteSession(repo, only.id, T0 + 6 * MIN);
+    expect(await repo.getWork('w1')).not.toHaveProperty('lastPlayedAt');
+  });
+
+  it('shares the repository lock with the library services', async () => {
+    const { withRepoLock } = await import('./repoLock');
+    const repo = seeded();
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    const held = withRepoLock(repo, () => new Promise<void>((r) => (release = r)).then(() => void order.push('held')));
+    const started = startSession(repo, 'w1', T0).then(() => void order.push('start'));
+    await Promise.resolve();
+    expect(order).toEqual([]);
+    release();
+    await Promise.all([held, started]);
+    expect(order).toEqual(['held', 'start']);
   });
 });

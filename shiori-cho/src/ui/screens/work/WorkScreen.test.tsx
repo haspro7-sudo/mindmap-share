@@ -13,6 +13,7 @@ import type { ShioriRepo } from '../../../storage/repo';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import { SPOILER_PLACEHOLDER } from '../../components/SpoilerText';
 import { ANSWER_CONFIRM_TITLE } from './GoalSheet';
+import amaotoJson from '../../../demo/amaoto.shiori.json';
 import { WorkScreen } from './WorkScreen';
 import type { WorkSheet } from './WorkScreen';
 
@@ -233,7 +234,7 @@ describe('WorkScreen without a manifest (記録だけ) and notes (F14)', () => {
     const work = await createWork(repo, { title: 'テスト作品', kind: 'game' });
     const { user, rerender } = renderWithProviders(<Harness workId={work.id} />, { repo });
     expect(await screen.findByText('しおりファイルがありません')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'しおりファイルを読み込む' }).getAttribute('href')).toBe('#/add');
+    expect(screen.getByRole('button', { name: 'しおりファイルを読み込む' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'かんたんしおりにする' })).toBeTruthy();
     expect(screen.queryByText('テスト作品')).toBeNull(); // alias only (おしのびモード)
 
@@ -266,6 +267,75 @@ describe('WorkScreen without a manifest (記録だけ) and notes (F14)', () => {
   });
 });
 
+describe('WorkScreen: しおりファイルを読み込む attaches to this work', () => {
+  const AMAOTO = JSON.stringify(amaotoJson);
+
+  it('reads a pasted file into the 記録だけ work itself (its sessions stay, no second work)', async () => {
+    const repo = createMemoryRepo();
+    const work = await createWork(repo, { title: '雨音と読書の時間', kind: 'voice' });
+    await repo.putSession({ id: 's1', workId: work.id, startedAt: 1000, endedAt: 61_000, minutes: 1 });
+    const { user } = renderWithProviders(<Harness workId={work.id} />, { repo });
+    await user.click(await screen.findByRole('button', { name: 'しおりファイルを読み込む' }));
+    const sheet = await screen.findByRole('dialog', { name: 'しおりファイルを読み込む' });
+    const area = within(sheet).getByLabelText('または、内容を貼り付ける');
+    await user.click(area);
+    await user.paste(AMAOTO);
+    await user.click(within(sheet).getByRole('button', { name: '内容を確かめる' }));
+    expect(await within(sheet).findByText(/のチェックリストとして読み込みます/)).toBeTruthy();
+    expect(within(sheet).queryByText('雨音と読書の時間')).toBeNull(); // the real title is not shown (おしのびモード)
+    await user.click(within(sheet).getByRole('button', { name: '読み込む' }));
+
+    await waitFor(async () => expect((await repo.getWork(work.id))?.manifestWorkId).toBe('demo-amaoto'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'しおりファイルを読み込む' })).toBeNull());
+    expect(await screen.findByText('しおりファイルを読み込みました')).toBeTruthy();
+    expect(await repo.listWorks()).toHaveLength(1);
+    expect(await repo.listSessions(work.id)).toHaveLength(1);
+    expect(screen.queryByText('しおりファイルがありません')).toBeNull();
+  });
+
+  it('refuses a file that another work on the shelf already uses', async () => {
+    const repo = createMemoryRepo();
+    await importBundledDemos(repo);
+    const work = await createWork(repo, { title: '記録だけ', kind: 'voice' });
+    const { user } = renderWithProviders(<Harness workId={work.id} />, { repo });
+    await user.click(await screen.findByRole('button', { name: 'しおりファイルを読み込む' }));
+    const sheet = await screen.findByRole('dialog', { name: 'しおりファイルを読み込む' });
+    await user.click(within(sheet).getByLabelText('または、内容を貼り付ける'));
+    await user.paste(AMAOTO);
+    await user.click(within(sheet).getByRole('button', { name: '内容を確かめる' }));
+    expect(await within(sheet).findByText(/本棚の別の作品『サンプルB』で使っています/)).toBeTruthy();
+    expect(within(sheet).queryByRole('button', { name: '読み込む' })).toBeNull();
+    expect((await repo.getWork(work.id))?.manifestKey).toBeUndefined();
+  });
+});
+
+describe('WorkScreen: Back closes the page\'s own sheets', () => {
+  it('Back closes 記録を終える without leaving the page; the session stays open', async () => {
+    const repo = createMemoryRepo();
+    const work = await createWork(repo, { title: 'テスト作品', kind: 'game' });
+    await startSession(repo, work.id);
+    window.history.replaceState({ probe: 'page' }, '', `#/w/${work.id}`);
+    const { user } = renderWithProviders(<Harness workId={work.id} />, { repo });
+    await user.click(await screen.findByRole('button', { name: /終える/ }));
+    const sheet = await screen.findByRole('dialog', { name: '記録を終える' });
+    await user.type(within(sheet).getByLabelText('どこまで進んだ？'), '図書館の2階まで');
+    expect((window.history.state as Record<string, unknown>).shioriLayer).toBeDefined();
+
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '記録を終える' })).toBeNull());
+    expect(window.location.hash).toBe(`#/w/${work.id}`);
+    expect((await repo.getOpenSession())?.workId).toBe(work.id);
+
+    // Closing from the page removes the extra entry again
+    await user.click(screen.getByRole('button', { name: /終える/ }));
+    const again = await screen.findByRole('dialog', { name: '記録を終える' });
+    await user.click(within(again).getByRole('button', { name: 'まだ続ける' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '記録を終える' })).toBeNull());
+    await waitFor(() => expect(window.history.state).toEqual({ probe: 'page' }));
+    expect(window.location.hash).toBe(`#/w/${work.id}`);
+  });
+});
+
 describe('WorkScreen NEW badge, コンプ prompt and reading extras', () => {
   it('clears a goal\'s NEW badge when its sheet is viewed', async () => {
     const { repo, hoshiyomi } = await demo();
@@ -295,6 +365,17 @@ describe('WorkScreen NEW badge, コンプ prompt and reading extras', () => {
     await waitFor(async () => expect((await repo.getWork(work.id))?.status).toBe('completed'));
     expect((await repo.getSettings()).completionPromptedWorkIds).toContain(work.id);
     await waitFor(() => expect(screen.queryByText('すべての項目を達成しました')).toBeNull());
+  });
+
+  it('opens extras that earlier redemptions satisfy but that were never opened (e.g. merged data)', async () => {
+    const { repo, hoshiyomi } = await demo();
+    await submitCode(repo, 'ST4-RMA-P1X', { workId: hoshiyomi });
+    const data = await repo.exportAll();
+    await repo.replaceAll({ ...data, sealedOpens: [] }); // as an older merge left it: redeemed, never opened
+    renderWithProviders(<Harness workId={hoshiyomi} />, { repo });
+    await waitFor(async () => expect((await repo.listSealedOpens(hoshiyomi)).map((o) => o.sealedId)).toEqual(['letter-mina']), {
+      timeout: 5000,
+    });
   });
 
   it('reading an opened extra from its sheet marks it seen', async () => {

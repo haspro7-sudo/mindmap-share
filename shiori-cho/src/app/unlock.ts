@@ -146,9 +146,17 @@ function hasCachedMaster(r: Redemption): boolean {
   return r.master !== undefined || r.masterSalt !== undefined;
 }
 
-function withoutCachedMaster(r: Redemption): Redemption {
-  const { master: _master, masterSalt: _masterSalt, ...rest } = r;
-  return rest;
+/**
+ * Drops a redemption's cached master. A cache-only write: it is not counted as a change (the cache is never
+ * exported) and never re-creates a redemption that is gone (e.g. its work was deleted meanwhile).
+ */
+async function dropCachedMaster(repo: ShioriRepo, r: Redemption): Promise<void> {
+  await repo.putRedemptionCache(r.workId, r.goalId, r.canonical, undefined);
+}
+
+/** Stores a (re-)derived master as the redemption's cache (cache-only write, see dropCachedMaster). */
+async function cacheMaster(repo: ShioriRepo, r: Redemption, master: Bytes, salt: string): Promise<void> {
+  await repo.putRedemptionCache(r.workId, r.goalId, r.canonical, { master: b64uEncode(master), masterSalt: salt });
 }
 
 /** HMAC tag check; any failure counts as "no match". */
@@ -205,7 +213,7 @@ export async function collectMastersInLock(
   for (const r of await repo.listRedemptions(workId)) {
     const goal = m.kdf ? findCodeGoal(m, r.goalId) : undefined;
     if (!goal) {
-      if (opts.dropOrphans && hasCachedMaster(r)) await repo.putRedemption(withoutCachedMaster(r));
+      if (opts.dropOrphans && hasCachedMaster(r)) await dropCachedMaster(repo, r);
       continue;
     }
     const cached = await validCachedMaster(r, m, goal);
@@ -215,7 +223,7 @@ export async function collectMastersInLock(
     }
     const key = failureKey(workId, m, goal, r.canonical);
     if (failed.has(key)) {
-      if (hasCachedMaster(r)) await repo.putRedemption(withoutCachedMaster(r));
+      if (hasCachedMaster(r)) await dropCachedMaster(repo, r);
       continue;
     }
     toDerive.push({ r, goal, key });
@@ -226,11 +234,11 @@ export async function collectMastersInLock(
     const { r, goal, key } = toDerive[i]!;
     const master = derived[i];
     if (master && m.kdf && (await tagMatches(master, m, goal))) {
-      await repo.putRedemption({ ...r, master: b64uEncode(master), masterSalt: m.kdf.salt });
+      await cacheMaster(repo, r, master, m.kdf.salt);
       out.set(goal.id, master);
     } else {
       failed.add(key);
-      if (hasCachedMaster(r)) await repo.putRedemption(withoutCachedMaster(r));
+      if (hasCachedMaster(r)) await dropCachedMaster(repo, r);
     }
   }
   return out;
@@ -357,7 +365,8 @@ async function applyMatch(
   if (!already) {
     await repo.putRedemption({ workId: work.id, goalId, canonical, redeemedAt: now, master: masterB64, masterSalt: kdf.salt });
   } else if (existing.master !== masterB64 || existing.masterSalt !== kdf.salt) {
-    await repo.putRedemption({ ...existing, master: masterB64, masterSalt: kdf.salt });
+    // Same code entered again: only the cache is refreshed, which is not a change worth a backup.
+    await cacheMaster(repo, existing, master, kdf.salt);
   }
   await markCodeDone(repo, work.id, goalId, now);
   const secret = await tryOpenSecret(master, m, goal);
@@ -493,7 +502,8 @@ export function handleDeepLink(repo: ShioriRepo, manifestWorkId: string, code: s
  */
 export function decryptGoalSecrets(repo: ShioriRepo, workId: string): Promise<Record<string, GoalSecret>> {
   return withRepoLock(repo, async () => {
-    const out: Record<string, GoalSecret> = {};
+    // No prototype: a goal id such as 'constructor' (valid for ID_RE) must not find Object.prototype members.
+    const out = Object.create(null) as Record<string, GoalSecret>;
     const target = await loadWorkManifest(repo, workId);
     if (!target) return out;
     const m = target.record.manifest;

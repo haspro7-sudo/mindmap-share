@@ -243,6 +243,79 @@ describe('lintProject', () => {
       expect(lint((p) => delete p.kdfSalt)).toEqual([]);
     });
   });
+
+  describe('errors the build would otherwise report without a path', () => {
+    const paths = (issues: ValidationIssue[], code: string) => find(issues, code).map((i) => i.path);
+
+    it('an empty tier before a filled one (only the 答え tier filled)', () => {
+      const issues = lint((p) => {
+        p.goals[0]!.hints = ['', ' ', '天文台の望遠鏡を3回調べる'];
+        p.goals[3]!.hints = ['猫を探そう', '', '']; // trailing empty tiers are dropped by the build: fine
+      });
+      expect(paths(issues, 'hintGap')).toEqual(['goals[0].hints[0]', 'goals[0].hints[1]']);
+      expect(find(issues, 'hintGap').every((i) => i.severity === 'error' && JA.test(i.messageJa))).toBe(true);
+    });
+
+    it('a line break or tab in a hint (hints are single-line)', () => {
+      const issues = lint((p) => {
+        p.goals[0]!.hints = ['夜の図書館へ', '天文台へ行く\n望遠鏡を3回調べる'];
+        p.goals[3]!.hints = ['猫と\t話す'];
+      });
+      expect(paths(issues, 'hintControlChar')).toEqual(['goals[0].hints[1]', 'goals[3].hints[0]']);
+      expect(find(issues, 'hintControlChar')[0]!.messageJa).toContain('改行');
+    });
+
+    it('empty work title, labels and payload titles', () => {
+      const issues = lint((p) => {
+        p.work.title = ' ';
+        p.checkpoints[1]!.label = '';
+        p.groups[1]!.label = '';
+        p.goals[4]!.label = '';
+        p.sealed[1]!.label = '';
+        p.sealed[0]!.payload.title = '';
+      });
+      expect(paths(issues, 'workTitleMissing')).toEqual(['work.title']);
+      expect(paths(issues, 'labelMissing')).toEqual(['checkpoints[1].label', 'groups[1].label', 'goals[4].label', 'sealed[1].label']);
+      expect(paths(issues, 'payloadTitleMissing')).toEqual(['sealed[0].payload.title']);
+    });
+
+    it('a missable warning left empty while the checkpoint is set', () => {
+      expect(paths(lint((p) => (p.goals[1]!.missable = { before: 'ch3', warn: ' ' })), 'missableWarnMissing')).toEqual([
+        'goals[1].missable.warn',
+      ]);
+    });
+
+    it('control and bidi characters in other fields', () => {
+      const issues = lint((p) => {
+        p.goals[0]!.label = 'END\t1';
+        p.goals[0]!.secret!.description = '一行目\n二行目'; // multi-line field: fine
+        p.goals[1]!.secret!.unlockMessage = 'おめでとう\u0007';
+        p.sealed[1]!.payload.body = 'a\u202Eb';
+        p.work.circle = '工房\u2066';
+      });
+      expect(find(issues, 'controlChar').map((i) => i.path)).toEqual(['goals[0].label', 'goals[1].secret.unlockMessage']);
+      expect(find(issues, 'bidiChar').map((i) => i.path)).toEqual(['work.circle', 'sealed[1].payload.body']);
+    });
+
+    it('invalid version, store codes, store link, ids and changelog entries', () => {
+      const issues = lint((p) => {
+        p.work.version = '1.0 beta';
+        p.work.storeCode = 'RJ12';
+        p.sealed[0]!.payload.storeLink = { storeCode: 'rj01234567', caption: '' };
+        p.sealed[1]!.payload.storeLink = { storeCode: 'XX', caption: '次回作' };
+        p.checkpoints[0]!.id = 'Ch 1';
+        p.changelog = [{ version: '', date: '2026-13-01', notes: '初版' }];
+      });
+      expect(paths(issues, 'workVersion')).toEqual(['work.version']);
+      expect(paths(issues, 'storeCodeInvalid')).toEqual(['work.storeCode', 'sealed[1].payload.storeLink.storeCode']);
+      expect(paths(issues, 'storeLinkCaptionMissing')).toEqual(['sealed[0].payload.storeLink.caption']);
+      expect(paths(issues, 'idInvalid')).toEqual(['checkpoints[0].id']);
+      expect(paths(issues, 'changelogVersion')).toEqual(['changelog[0].version']);
+      expect(paths(issues, 'changelogDate')).toEqual(['changelog[0].date']);
+      // an unset link (both fields empty) is fine
+      expect(lint((p) => (p.sealed[0]!.payload.storeLink = { storeCode: '', caption: '' }))).toEqual([]);
+    });
+  });
 });
 
 describe('isAllowedAppUrl', () => {

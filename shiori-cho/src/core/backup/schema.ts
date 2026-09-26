@@ -1,10 +1,11 @@
 /**
  * zod 4 schemas for backup files (docs/SPEC.md §5.5, F15).
  *
- * Parsing a backup is the only check between a file and `replaceAll()`, so the data schema enforces
- * everything the rest of the app relies on: required fields, primitive types, enum values, tier and
- * spoiler ranges, and finite, non-negative timestamps. Manifests are checked with the shiori/1 manifest
- * schema, and store codes and manifest work ids with their contract patterns.
+ * The data schema enforces what each record must satisfy on its own: required fields, primitive types, enum
+ * values, tier and spoiler ranges, and finite, non-negative timestamps. Manifests are checked with the shiori/1
+ * manifest schema, and store codes and manifest work ids with their contract patterns. The rules between records
+ * (validateManifest's cross-checks, true manifest keys, one work per manifestWorkId, one open session, …) are
+ * enforced by normalizeBackupData (integrity.ts), which the restore service runs before `replaceAll()`.
  *
  * Free text the player typed (titles, aliases, notes, session notes, the camouflage text) is only
  * bounded in size. The UI's input rules are not applied again, so a restore never fails because of a

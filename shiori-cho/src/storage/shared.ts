@@ -119,6 +119,23 @@ export function stripRedemption(r: Redemption): Redemption {
   return structuredClone(rest);
 }
 
+/**
+ * The redemption with its cached master set to `cache` (or removed when undefined). Returns `r` itself when
+ * nothing would change, so callers can skip the write. Never touches the other fields.
+ */
+export function withRedemptionCache(
+  r: Redemption,
+  cache: { master: string; masterSalt: string } | undefined,
+): Redemption {
+  if (cache === undefined) {
+    if (r.master === undefined && r.masterSalt === undefined) return r;
+    const { master: _master, masterSalt: _masterSalt, ...rest } = r;
+    return rest;
+  }
+  if (r.master === cache.master && r.masterSalt === cache.masterSalt) return r;
+  return { ...r, master: cache.master, masterSalt: cache.masterSalt };
+}
+
 /** Throws a TypeError unless every named field is a string (usable as an IndexedDB key part). */
 export function assertKeys(value: unknown, fields: readonly string[], what: string): void {
   if (!isRecord(value)) throw new TypeError(`${what}: record must be an object`);

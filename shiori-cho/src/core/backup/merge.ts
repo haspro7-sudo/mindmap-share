@@ -1,12 +1,20 @@
 // Merging a backup into local data (docs/SPEC.md §5.5 merge rules).
 // Pure: the inputs are never mutated, and the result shares no objects with them.
 //
+// Two rules go beyond the §5.5 text:
+// - works: the newer updatedAt wins the record, but the manifest pointer is chosen on its own (manifestSide),
+//   so ending a session on the device with the older file no longer rolls back an update or an attach made on
+//   the other one. Manifest records stay a union here; normalizeBackupData (integrity.ts) then drops the
+//   records no work uses and re-derives the archive flags for the chosen manifests.
+// - sessions: at most one session stays open (closeExtraOpenSessions).
+//
 // Output order: local records keep their order (merged in place) and new incoming records are appended
 // in their own order. On a tie, the local record is kept, which makes mergeBackup(x, x) equal x.
 import type {
   BackupDataV1,
   GoalProgress,
   HintReveal,
+  ManifestRecord,
   MergeStats,
   Note,
   PendingCode,
@@ -55,16 +63,65 @@ function unionBy<T>(
 
 // ───────────────────────── Per-store rules ─────────────────────────
 
-/** works: the newer updatedAt wins as a whole record (including manifestKey); a tie keeps `current`. */
-function newerWork(current: WorkRecord, candidate: WorkRecord): { work: WorkRecord; tookCandidate: boolean } {
-  const tookCandidate = candidate.updatedAt > current.updatedAt;
-  const [winner, other] = tookCandidate ? [candidate, current] : [current, candidate];
+/** key → manifest record, over both sides (keys are content hashes, so the same key means the same manifest). */
+type RecordsByKey = ReadonlyMap<string, ManifestRecord>;
+
+/** The manifest record a work points at, when it exists on either side. */
+function currentRecord(w: WorkRecord, records: RecordsByKey): ManifestRecord | undefined {
+  return w.manifestKey === undefined ? undefined : records.get(w.manifestKey);
+}
+
+/**
+ * Which side's manifest a merged work keeps. It is decided on its own, not by the whole-record updatedAt (any
+ * session or badge change bumps that, and would roll back a manifest update or attach made on the other device):
+ * a side with a manifest beats one without (a file is never taken away); a circle's file beats a player-made
+ * one (attaching the circle's file replaces a かんたんしおり); otherwise the later import wins. Ties keep `fallback`.
+ */
+function manifestSide(a: WorkRecord, b: WorkRecord, fallback: WorkRecord, records: RecordsByKey): WorkRecord {
+  const ra = currentRecord(a, records);
+  const rb = currentRecord(b, records);
+  if (!ra || !rb) return ra ? a : rb ? b : fallback;
+  if (ra.key === rb.key) return fallback;
+  const creatorA = ra.manifest.author.kind === 'creator';
+  const creatorB = rb.manifest.author.kind === 'creator';
+  if (creatorA !== creatorB) return creatorA ? a : b;
+  if (ra.importedAt !== rb.importedAt) return ra.importedAt > rb.importedAt ? a : b;
+  return fallback;
+}
+
+/**
+ * works: the newer updatedAt wins the record's own fields (a tie keeps `current`); the manifest pointer
+ * (manifestKey, manifestWorkId, newGoalIds) comes from the side chosen by manifestSide, and the checkpoint is kept
+ * only if that manifest has it.
+ */
+function newerWork(
+  current: WorkRecord,
+  candidate: WorkRecord,
+  records: RecordsByKey,
+): { work: WorkRecord; tookCandidate: boolean } {
+  const newer = candidate.updatedAt > current.updatedAt;
+  const [winner, other] = newer ? [candidate, current] : [current, candidate];
   // Derived timestamps stay truthful whichever side wins: sessions are unioned, so the last play is the
-  // later of the two, and the work was first added at the earlier of the two.
+  // later of the two, and the work was first added at the earliest of the two.
   const work: WorkRecord = { ...winner, createdAt: Math.min(winner.createdAt, other.createdAt) };
   const lastPlayedAt = maxDefined(winner.lastPlayedAt, other.lastPlayedAt);
   if (lastPlayedAt !== undefined) work.lastPlayedAt = lastPlayedAt;
-  return { work, tookCandidate };
+
+  const source = manifestSide(current, candidate, winner, records);
+  if (source !== winner) {
+    work.manifestKey = source.manifestKey;
+    if (source.manifestWorkId === undefined) delete work.manifestWorkId;
+    else work.manifestWorkId = source.manifestWorkId;
+    work.newGoalIds = [...source.newGoalIds];
+    const checkpoints = currentRecord(source, records)?.manifest.checkpoints ?? [];
+    const has = (id: string | undefined) => id !== undefined && checkpoints.some((c) => c.id === id);
+    if (!has(work.currentCheckpointId)) {
+      if (has(source.currentCheckpointId)) work.currentCheckpointId = source.currentCheckpointId;
+      else delete work.currentCheckpointId;
+    }
+  }
+  const manifestFromCandidate = source === candidate && candidate.manifestKey !== current.manifestKey;
+  return { work, tookCandidate: newer || manifestFromCandidate };
 }
 
 function maxDefined(a: number | undefined, b: number | undefined): number | undefined {
@@ -111,6 +168,22 @@ function preferredSession(current: Session, candidate: Session): Session {
   return newer ? candidate : current;
 }
 
+/**
+ * Only one session may be open app-wide (F13 AC1), but each device can bring one. The session this device has
+ * open stays open (the latest one if there were several); without one, the latest start. Every other open
+ * session is closed at its own start with 0 minutes: no play time is invented, and the player can correct it
+ * in 記録.
+ */
+function closeExtraOpenSessions(records: readonly Session[], localOpenIds: ReadonlySet<string>): Session[] {
+  const open = records.filter((s) => !isEnded(s));
+  if (open.length <= 1) return [...records];
+  const latest = (list: readonly Session[]): Session =>
+    list.reduce((a, b) => (b.startedAt > a.startedAt || (b.startedAt === a.startedAt && b.id > a.id) ? b : a));
+  const mine = open.filter((s) => localOpenIds.has(s.id));
+  const keep = latest(mine.length > 0 ? mine : open);
+  return records.map((s) => (isEnded(s) || s === keep ? s : { ...s, endedAt: s.startedAt, minutes: 0 }));
+}
+
 /** notes: the newer updatedAt wins. */
 function newerNote(current: Note, candidate: Note): Note {
   return candidate.updatedAt > current.updatedAt ? candidate : current;
@@ -154,14 +227,14 @@ interface WorksMerge {
  * works: matched by id. With no id match, an incoming work whose manifestWorkId equals a local work's is
  * merged into that local work, and its id is remapped to the local id.
  */
-function mergeWorks(local: readonly WorkRecord[], incoming: readonly WorkRecord[]): WorksMerge {
+function mergeWorks(local: readonly WorkRecord[], incoming: readonly WorkRecord[], records: RecordsByKey): WorksMerge {
   const works: WorkRecord[] = [];
   const byId = new Map<string, number>();
   const byManifestWorkId = new Map<string, number>();
   for (const w of local) {
     const at = byId.get(w.id);
     if (at !== undefined) {
-      works[at] = newerWork(works[at]!, w).work;
+      works[at] = newerWork(works[at]!, w, records).work;
       continue;
     }
     byId.set(w.id, works.length);
@@ -192,7 +265,7 @@ function mergeWorks(local: readonly WorkRecord[], incoming: readonly WorkRecord[
       continue;
     }
     const current = works[at]!;
-    const { work, tookCandidate } = newerWork(current, { ...w, id: current.id });
+    const { work, tookCandidate } = newerWork(current, { ...w, id: current.id }, records);
     works[at] = work;
     if (tookCandidate && at < localCount) worksUpdated++;
   }
@@ -220,11 +293,14 @@ function withoutMaster(r: Redemption): Redemption {
  *
  * Stats: `worksAdded` counts incoming works that became new works; `worksRemapped` counts incoming works
  * matched to a local work by manifestWorkId; `worksUpdated` counts matched works (by id or remapped) whose
- * incoming record was newer and replaced the local fields. `progressAdded`, `sessionsAdded` and
+ * incoming record was newer and replaced the local fields, or whose incoming manifest replaced the local one.
+ * `progressAdded`, `sessionsAdded` and
  * `notesAdded` count incoming records whose key local did not have.
  */
 export function mergeBackup(local: BackupDataV1, incoming: BackupDataV1): { merged: BackupDataV1; stats: MergeStats } {
-  const w = mergeWorks(local.works, incoming.works);
+  const recordsByKey = new Map<string, ManifestRecord>();
+  for (const r of [...local.manifests, ...incoming.manifests]) if (!recordsByKey.has(r.key)) recordsByKey.set(r.key, r);
+  const w = mergeWorks(local.works, incoming.works, recordsByKey);
   const remap = <T extends { workId: string }>(records: readonly T[]): T[] => remapWorkIds(records, w.idMap);
 
   const manifests = unionBy(local.manifests, remap(incoming.manifests), (m) => m.key, (current) => current);
@@ -251,7 +327,7 @@ export function mergeBackup(local: BackupDataV1, incoming: BackupDataV1): { merg
     progress: progress.records,
     redemptions: redemptions.records,
     hints: hints.records,
-    sessions: sessions.records,
+    sessions: closeExtraOpenSessions(sessions.records, new Set(local.sessions.filter((x) => !isEnded(x)).map((x) => x.id))),
     notes: notes.records,
     pending: mergePending(local.pending, incoming.pending),
     sealedOpens: sealedOpens.records,

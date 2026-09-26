@@ -35,8 +35,21 @@ export interface ShioriRepo {
   deleteProgress(workId: string, goalId: string): Promise<void>;
   listRedemptions(workId?: string): Promise<Redemption[]>;
   putRedemption(r: Redemption): Promise<void>;
+  /**
+   * Cache-only write: sets (or, with `cache` undefined, removes) Redemption.master/masterSalt of the stored
+   * redemption [workId, goalId], but only while its canonical code is still `canonical`. Nothing else changes,
+   * and nothing is written when the row is gone (so a cache refresh never re-creates a deleted work's code).
+   * Not counted in changesSinceBackup: the cache is never exported. Listeners fire only when a row changed.
+   */
+  putRedemptionCache(
+    workId: string,
+    goalId: string,
+    canonical: string,
+    cache: { master: string; masterSalt: string } | undefined,
+  ): Promise<void>;
   listHints(workId: string): Promise<HintReveal[]>;
   putHint(h: HintReveal): Promise<void>;
+  deleteHint(workId: string, goalId: string): Promise<void>;
   /** sorted startedAt desc */
   listSessions(workId?: string): Promise<Session[]>;
   putSession(s: Session): Promise<void>;

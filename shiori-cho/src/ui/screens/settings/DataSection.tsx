@@ -2,13 +2,17 @@
 // - バックアップを書き出す: optional passphrase (≥ 8 characters, typed twice) → exportBackupFile → download
 //   with the neutral name shiori-backup-YYYYMMDD.json.
 // - バックアップから復元: file → (encrypted? ask the passphrase) → readBackupFile → preview counts →
-//   まとめる / 置き換え (confirm) → applyBackup.
+//   まとめる / 置き換え (confirm) → restoreBackup (also retries pending codes and opens newly satisfied extras).
 // - 保存の長持ち: status of navigator.storage.persist() + 「保存を長持ちさせる」.
-// - 全データを消す: double confirmation, optional 工房 data, then the databases are deleted and the page reloads.
+// - 全データを消す: double confirmation, optional 工房 data, then the app-level wipe service (app/wipe.ts:
+//   databases, this tab's session keys, other open windows are told to reload) and the page restarts.
+// Long-running work (an encrypted export runs PBKDF2 at 600k iterations) may finish after the user pressed
+// 「隠す」: the download is then skipped (it would appear over the 「メモ」 notepad), the backup reminder is
+// left as it was (nothing was saved), and the toast is dropped by the UiProvider while camouflaged.
 import { useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  applyBackup,
+  restoreBackup,
   backupErrorMessageJa,
   exportBackupFile,
   isEncryptedBackupText,
@@ -17,9 +21,8 @@ import {
   requestPersistentStorage,
 } from '../../../app/backup';
 import { download, readFileAsText } from '../../../app/platform';
-import { DB_PLAYER, DB_STUDIO } from '../../../core/constants';
-import type { BackupDataV1, ParseBackupResult } from '../../../core/types';
-import { deleteIdbDatabase } from '../../../storage/idbRepo';
+import { wipeAllData } from '../../../app/wipe';
+import type { BackupDataV1, ParseBackupResult, Settings } from '../../../core/types';
 import { useRepo, useSettings, useUi } from '../../context';
 import { formatDateTimeJa } from '../../format';
 import { hrefFor } from '../../router';
@@ -75,8 +78,15 @@ function BackupExport(): ReactNode {
     }
     setError(null);
     setBusy(true);
+    const before: Partial<Settings> = { lastBackupAt: settings.lastBackupAt, changesSinceBackup: settings.changesSinceBackup };
     try {
       const { filename, text } = await exportBackupFile(repo, encrypt ? { passphrase: p1 } : {});
+      if (ui.isCamouflaged?.()) {
+        // Hidden (「隠す」) while the file was being prepared: no download over the camouflage notepad, and
+        // since nothing was saved, the backup reminder stays as it was.
+        await repo.updateSettings(before).catch((err: unknown) => console.error('[shiori] could not save', err));
+        return;
+      }
       download(filename, text, 'application/json');
       setP1('');
       setP2('');
@@ -241,13 +251,21 @@ function BackupImport(): ReactNode {
     if (!ok) return;
     setBusy(true);
     try {
-      const stats = await applyBackup(repo, loaded.data, mode);
+      // restoreBackup also retries pending codes and opens extras the restored codes now satisfy (§5.2, F15).
+      const result = await restoreBackup(repo, loaded.data, mode);
+      const stats = result.stats;
+      const extra: string[] = [];
+      const redeemed = result.pendingOutcomes.filter((o) => o.status === 'unlocked').length;
+      if (redeemed > 0) extra.push(`保留中の合言葉を${redeemed}件使いました`);
+      if (result.closedSessionIds.length > 0) extra.push(`記録中だったプレイ記録を${result.closedSessionIds.length}件終了にしました`);
       ui.toast(
-        stats
-          ? `まとめました（作品：追加${stats.worksAdded}・更新${stats.worksUpdated}）`
-          : 'バックアップの内容に置き換えました',
+        [
+          stats ? `まとめました（作品：追加${stats.worksAdded}・更新${stats.worksUpdated}）` : 'バックアップの内容に置き換えました',
+          ...extra,
+        ].join('。'),
         { tone: 'ok' },
       );
+      if (result.openedSealed.length > 0) ui.queueEnvelopes(result.openedSealed);
       setLoaded(null);
     } catch (e) {
       ui.toast(errorMessageJa(e), { tone: 'danger' });
@@ -415,8 +433,7 @@ function DeleteAll(): ReactNode {
     if (!second) return;
     setBusy(true);
     try {
-      await deleteIdbDatabase(DB_PLAYER);
-      if (withStudio) await deleteIdbDatabase(DB_STUDIO);
+      await wipeAllData({ studio: withStudio });
     } catch (e) {
       setBusy(false);
       ui.toast(errorMessageJa(e), { tone: 'danger' });

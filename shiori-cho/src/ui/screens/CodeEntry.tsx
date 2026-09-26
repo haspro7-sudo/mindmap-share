@@ -7,6 +7,8 @@
 // - Pending codes: list with delete (undo) and 「もう一度試す」 (processPending).
 // - A one-shot hand-off from the deep-link landing (codeHandoff.ts) pre-fills the result and shows the iOS
 //   「コピー → 貼り付け」 notice (F11 AC3).
+// - If the work list / pending codes cannot be read, a notice with 「もう一度読み込む」 replaces them (the code
+//   can still be checked).
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { isCoarsePointer, vibrate, writeClipboard } from '../../app/platform';
@@ -294,6 +296,15 @@ export function CodeEntryScreen({ workId }: { workId?: string }): ReactNode {
           )}
         </button>
       </form>
+
+      {q.error !== undefined && data === undefined && !q.loading ? (
+        <div className="banner banner-danger ce-load-error" role="alert">
+          <span className="ce-load-error-text">作品の一覧と保留中の合言葉を読み込めませんでした。</span>
+          <button type="button" className="btn btn-sm" onClick={q.reload}>
+            もう一度読み込む
+          </button>
+        </div>
+      ) : null}
 
       <div className="ce-result-slot">
         {result && result.kind !== 'invalid' ? (

@@ -145,12 +145,16 @@
 .stu-save.is-saved {
   color: var(--ok);
 }
-.stu-save.is-error {
+.stu-save.is-error,
+.stu-save.is-conflict {
   color: var(--danger);
 }
 .stu-save-retry {
-  min-height: 36px;
+  min-height: var(--tap);
   color: var(--danger);
+}
+.stu-conflict p {
+  margin: 0;
 }
 .stu-panel {
   min-width: 0;
@@ -364,10 +368,11 @@ details[open] > .stu-adv-summary::before {
 }
 .stu-row .stu-tools {
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
+/* F18 AC3: every tap target is at least 44 px, with room between the stacked ↑ / ↓ buttons. */
 .stu-row .stu-tool {
-  min-height: 36px;
+  min-height: var(--tap);
   min-width: var(--tap);
 }
 
@@ -644,7 +649,7 @@ details[open] > .stu-adv-summary::before {
   overflow-wrap: anywhere;
 }
 .stu-issue-go {
-  min-height: 36px;
+  min-height: var(--tap);
   padding: 0 8px;
   color: var(--accent);
 }
@@ -850,4 +855,14 @@ details[open] > .stu-adv-summary::before {
 .stu-prev-code-list .btn-sm {
   min-height: var(--tap);
   flex: none;
+}
+
+/* F18 AC3: the theme's small buttons are 36 px; in the studio every button keeps a 44 px tap target. */
+.stu .btn-sm {
+  min-height: var(--tap);
+}
+
+/* ───────── duplicate sheet ───────── */
+.stu-dup .field-hint {
+  margin: 0;
 }

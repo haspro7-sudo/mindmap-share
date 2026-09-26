@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { importBundledDemos } from '../../app/library';
 import { submitCode } from '../../app/unlock';
@@ -62,11 +62,48 @@ describe('EnvelopeReveal (F12 AC2)', () => {
     vi.useFakeTimers();
     const onDone = vi.fn();
     render(<EnvelopeReveal onDone={onDone} />);
-    fireEvent.click(screen.getByRole('button', { name: 'おまけを開く（タップでスキップ）' }));
+    fireEvent.click(screen.getByRole('button', { name: /おまけが届きました/ }));
     act(() => vi.advanceTimersByTime(ENVELOPE_MS));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
+
+  it('its accessible name is the visible text, including the item label (WCAG 2.5.3)', () => {
+    render(<EnvelopeReveal kind="letter" label="司書ミナからの手紙" onDone={() => undefined} />);
+    const button = screen.getByRole('button', { name: /司書ミナからの手紙/ });
+    expect(button.getAttribute('aria-label')).toBeNull();
+    expect(button.textContent).toContain('おまけが届きました');
+    expect(button.textContent).toContain('タップで読む');
+  });
+
+  it('with onHide, Escape and 「隠す」 hide instead of skipping to the reader (F2 AC3)', () => {
+    vi.useFakeTimers();
+    const onDone = vi.fn();
+    const onHide = vi.fn();
+    render(<EnvelopeReveal label="司書ミナからの手紙" onDone={onDone} onHide={onHide} />);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(onHide).toHaveBeenCalledTimes(1);
+    expect(onDone).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '隠す' }));
+    expect(onHide).toHaveBeenCalledTimes(2);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it('without onHide (standalone), Escape skips like a tap and there is no 「隠す」', () => {
+    const onDone = vi.fn();
+    render(<EnvelopeReveal onDone={onDone} />);
+    expect(screen.queryByRole('button', { name: '隠す' })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
 });
+
+async function openedLetter() {
+  const repo = createMemoryRepo();
+  const [hoshiyomi] = await importBundledDemos(repo);
+  const outcome = await submitCode(repo, 'ST4-RMA-P1X', { workId: hoshiyomi });
+  const items = outcome.openedSealedIds.map((sealedId) => ({ workId: hoshiyomi!, sealedId }));
+  return { repo, hoshiyomi: hoshiyomi!, items };
+}
 
 function Opener({ items }: { items: { workId: string; sealedId: string }[] }) {
   const ui = useUi();
@@ -104,5 +141,52 @@ describe('UiProvider envelope queue', () => {
       expect(opens.find((o) => o.sealedId === items[0]!.sealedId)?.seen).toBe(true);
     });
     Reflect.deleteProperty(navigator, 'vibrate');
+  });
+
+  it('the envelope and the reader have their own 「隠す」', async () => {
+    mockReducedMotion(true);
+    const { repo, items } = await openedLetter();
+    const { user, onHide } = renderWithProviders(<Opener items={items} />, { repo });
+    await user.click(screen.getByRole('button', { name: '開封' }));
+    const env = await screen.findByTestId('envelope-reveal');
+    fireEvent.click(within(env).getByRole('button', { name: '隠す' }));
+    expect(onHide).toHaveBeenCalledTimes(1);
+    const reader = await screen.findByRole('dialog', { name: 'おまけが届きました' }, { timeout: 3000 });
+    await user.click(within(reader).getByRole('button', { name: '隠す' }));
+    expect(onHide).toHaveBeenCalledTimes(2);
+  });
+
+  it('a route change during the animation closes it and keeps the item unseen (it replays later)', async () => {
+    mockReducedMotion(false);
+    window.location.hash = '#/w/x';
+    const { repo, hoshiyomi, items } = await openedLetter();
+    const { user } = renderWithProviders(<Opener items={items} />, { repo });
+    await user.click(screen.getByRole('button', { name: '開封' }));
+    expect(await screen.findByTestId('envelope-reveal')).toBeTruthy();
+    act(() => {
+      window.location.hash = '#/settings';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(screen.queryByTestId('envelope-reveal')).toBeNull());
+    await new Promise((r) => setTimeout(r, ENVELOPE_MS + 100));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect((await repo.listSealedOpens(hoshiyomi)).find((o) => o.sealedId === items[0]!.sealedId)?.seen).toBe(false);
+  });
+
+  it('Back while the reader is open closes it (it was read: marked seen)', async () => {
+    mockReducedMotion(true);
+    window.location.hash = '#/w/x';
+    const { repo, hoshiyomi, items } = await openedLetter();
+    const { user } = renderWithProviders(<Opener items={items} />, { repo });
+    await user.click(screen.getByRole('button', { name: '開封' }));
+    await screen.findByRole('dialog', { name: 'おまけが届きました' }, { timeout: 3000 });
+    act(() => {
+      window.location.hash = '#/settings';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(async () =>
+      expect((await repo.listSealedOpens(hoshiyomi)).find((o) => o.sealedId === items[0]!.sealedId)?.seen).toBe(true),
+    );
   });
 });

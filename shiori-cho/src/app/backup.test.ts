@@ -3,15 +3,20 @@ import { APP_VERSION, BACKUP_REMINDER_CHANGES } from '../core/constants';
 import { isShioriError } from '../core/errors';
 import type { BackupDataV1, ManifestRecord, Settings, ShioriManifestV1, WorkRecord } from '../core/types';
 import { DEFAULT_SETTINGS } from '../core/types';
+import { manifestKey, validateManifest } from '../core/manifest/validate';
 import { createMemoryRepo } from '../storage/memoryRepo';
 import type { MemoryRepoSeed } from '../storage/memoryRepo';
 import type { ShioriRepo } from '../storage/repo';
+import hoshiyomiJson from '../demo/hoshiyomi.shiori.json';
+import { commitImport, importBundledDemos, previewImport } from './library';
+import { addPending, submitCode } from './unlock';
 import {
   applyBackup,
   exportBackupFile,
   hasBackupData,
   readBackupFile,
   requestPersistentStorage,
+  restoreBackup,
   shouldRemindBackup,
   snoozeBackupReminder,
 } from './backup';
@@ -38,9 +43,23 @@ function manifest(manifestWorkId: string): ShioriManifestV1 {
   };
 }
 
-function manifestRecord(key: string, workId: string, manifestWorkId = 'demo-backup'): ManifestRecord {
-  return { key, workId, manifest: manifest(manifestWorkId), source: 'file', importedAt: T0 };
+function manifestRecord(key: string, workId: string, m: ShioriManifestV1 = manifest('demo-backup')): ManifestRecord {
+  return { key, workId, manifest: m, source: 'file', importedAt: T0 };
 }
+
+/** The key the app stores a manifest under (restores recompute it, so fixtures must use the real one). */
+async function keyOf(m: ShioriManifestV1): Promise<string> {
+  const v = validateManifest(m);
+  if (!v.ok) throw new Error('invalid fixture manifest');
+  return manifestKey(v.manifest);
+}
+
+function manifestV2(): ShioriManifestV1 {
+  return { ...manifest('demo-backup'), work: { ...manifest('demo-backup').work, version: '1.1.0' } };
+}
+
+const MK1 = await keyOf(manifest('demo-backup'));
+const MK2 = await keyOf(manifestV2());
 
 function work(id: string, over: Partial<WorkRecord> = {}): WorkRecord {
   return {
@@ -62,8 +81,8 @@ function work(id: string, over: Partial<WorkRecord> = {}): WorkRecord {
 /** Device A: two works (w1 with a manifest), progress, a redemption with a cached master, and more. */
 function seedA(): MemoryRepoSeed {
   return {
-    works: [work('w1', { manifestKey: 'mk-1', manifestWorkId: 'demo-backup', lastPlayedAt: T0 }), work('w2', { alias: '作品B' })],
-    manifests: [manifestRecord('mk-1', 'w1')],
+    works: [work('w1', { manifestKey: MK1, manifestWorkId: 'demo-backup', lastPlayedAt: T0 }), work('w2', { alias: '作品B' })],
+    manifests: [manifestRecord(MK1, 'w1')],
     progress: [{ workId: 'w1', goalId: 'end-1', via: 'code', doneAt: T0, hintTierAtDone: 0, archived: false }],
     redemptions: [
       { workId: 'w1', goalId: 'end-1', canonical: 'b32:K7QM2XRAP', redeemedAt: T0, master: MASTER, masterSalt: SALT },
@@ -249,8 +268,8 @@ describe('applyBackup: replace', () => {
     const data = await exportedData(a);
     const otherManifest: BackupDataV1 = {
       ...data,
-      works: data.works.map((w) => (w.id === 'w1' ? { ...w, manifestKey: 'mk-2' } : w)),
-      manifests: [manifestRecord('mk-2', 'w1')],
+      works: data.works.map((w) => (w.id === 'w1' ? { ...w, manifestKey: MK2 } : w)),
+      manifests: [manifestRecord(MK2, 'w1', manifestV2())],
     };
     await applyBackup(a, otherManifest, 'replace');
     expect((await a.listRedemptions())[0]?.master).toBeUndefined();
@@ -306,8 +325,8 @@ describe('applyBackup: merge', () => {
   it('remaps a work by manifestWorkId and moves its records to the local id', async () => {
     const data = await exportedData(repoA());
     const b = createMemoryRepo({
-      works: [work('local-w', { manifestKey: 'mk-1', manifestWorkId: 'demo-backup', updatedAt: T0 - DAY })],
-      manifests: [manifestRecord('mk-1', 'local-w')],
+      works: [work('local-w', { manifestKey: MK1, manifestWorkId: 'demo-backup', updatedAt: T0 - DAY })],
+      manifests: [manifestRecord(MK1, 'local-w')],
     });
     const stats = await applyBackup(b, data, 'merge');
     expect(stats?.worksRemapped).toBe(1);
@@ -333,6 +352,127 @@ describe('applyBackup: merge', () => {
     expect(withoutSettings(await empty.exportAll())).toEqual(withoutSettings(await a.exportAll()));
     expect((await empty.getSettings()).discreet).toEqual(DEFAULT_SETTINGS.discreet);
     expect((await empty.listRedemptions())[0]?.master).toBeUndefined();
+  });
+});
+
+describe('restoreBackup: after the data is in place', () => {
+  it('opens sealed extras whose codes were entered on different devices (merge)', async () => {
+    // This device entered END 1; the other device (its own copy of the demo) entered END 2–4.
+    const here = createMemoryRepo();
+    const [hoshiHere] = await importBundledDemos(here, T0);
+    await submitCode(here, 'ST4-RMA-P1X', { workId: hoshiHere, now: T0 + 1 });
+    const there = createMemoryRepo();
+    const [hoshiThere] = await importBundledDemos(there, T0);
+    for (const code of ['M00-NDE-SKR', 'NEK-0T0-M0E', 'SK1-ES0-NGM']) await submitCode(there, code, { workId: hoshiThere, now: T0 + 2 });
+    expect((await here.listSealedOpens(hoshiHere!)).map((o) => o.sealedId)).toEqual(['letter-mina']);
+    await here.updateSettings({ changesSinceBackup: 3 });
+
+    const result = await restoreBackup(here, await exportedData(there), 'merge', { now: T0 + 10 });
+    expect((await here.listRedemptions(hoshiHere)).map((r) => r.goalId).sort()).toEqual(['end-a', 'end-b', 'end-c', 'end-true']);
+    const opens = await here.listSealedOpens(hoshiHere!);
+    expect(opens.map((o) => o.sealedId).sort()).toEqual(['afterword', 'door-code', 'letter-mina']);
+    expect(opens.find((o) => o.sealedId === 'afterword')).toMatchObject({ seen: false, firstOpenedAt: T0 + 10 });
+    expect(result.openedSealed).toEqual([{ workId: hoshiHere, sealedId: 'afterword' }]);
+    // derived from the merged data: not counted as changes
+    expect((await here.getSettings()).changesSinceBackup).toBe(3);
+  });
+
+  it('redeems a pending code once a merge brings its manifest in', async () => {
+    const here = createMemoryRepo();
+    await addPending(here, 'b32:ST4RMAP1X', 'demo-hoshiyomi', T0);
+    const there = createMemoryRepo();
+    const [hoshiThere] = await importBundledDemos(there, T0);
+
+    const result = await restoreBackup(here, await exportedData(there), 'merge', { now: T0 + 5 });
+    expect(await here.listPending()).toEqual([]);
+    expect(result.pendingOutcomes).toHaveLength(1);
+    expect(result.pendingOutcomes[0]).toMatchObject({ status: 'unlocked', goalId: 'end-a', workId: hoshiThere });
+    expect(result.openedSealed).toEqual([{ workId: hoshiThere, sealedId: 'letter-mina' }]);
+    expect((await here.listProgress(hoshiThere!)).find((p) => p.goalId === 'end-a')).toMatchObject({ via: 'code' });
+  });
+
+  it('keeps only one session open after a merge and reports the one it closed', async () => {
+    const a = repoA();
+    await a.putSession({ id: 's-phone', workId: 'w1', startedAt: T0 + 60 * MIN });
+    const b = repoB();
+    await b.putSession({ id: 's-pc', workId: 'w9', startedAt: T0 - 60 * MIN });
+
+    const result = await restoreBackup(a, await exportedData(b), 'merge', { now: T0 + 70 * MIN });
+    expect(result.closedSessionIds).toEqual(['s-pc']);
+    expect((await a.getOpenSession())?.id).toBe('s-phone');
+    const closed = (await a.listSessions('w9')).find((x) => x.id === 's-pc');
+    expect(closed).toMatchObject({ endedAt: T0 - 60 * MIN, minutes: 0 });
+  });
+
+  it('runs under the shared lock: a merge waits for a locked service and the next one waits for it', async () => {
+    const { withRepoLock } = await import('./repoLock');
+    const a = repoA();
+    const data = await exportedData(repoB());
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    const held = withRepoLock(a, () => new Promise<void>((r) => (release = r)).then(() => void order.push('held')));
+    const merging = restoreBackup(a, data, 'merge').then(() => void order.push('merge'));
+    const after = withRepoLock(a, async () => void order.push('after'));
+    await Promise.resolve();
+    release();
+    await Promise.all([held, merging, after]);
+    expect(order).toEqual(['held', 'merge', 'after']);
+  });
+});
+
+describe('restoreBackup: broken manifests in the file', () => {
+  const HOSHI_TEXT = JSON.stringify(hoshiyomiJson);
+
+  async function deviceWithDemo(): Promise<{ repo: ShioriRepo; workId: string }> {
+    const repo = createMemoryRepo();
+    const p = await previewImport(repo, HOSHI_TEXT);
+    if (p.kind === 'invalid') throw new Error('demo invalid');
+    const { workId } = await commitImport(repo, p, { source: 'file', now: T0 });
+    await repo.putProgress({ workId, goalId: 'ach-cat', via: 'manual', doneAt: T0, hintTierAtDone: 0, archived: false });
+    return { repo, workId };
+  }
+
+  it('drops a manifest that fails validation; importing the genuine file repairs the work and its progress', async () => {
+    const { repo: source, workId } = await deviceWithDemo();
+    const data = await exportedData(source);
+    const broken = structuredClone(data);
+    delete (broken.manifests[0]!.manifest as Partial<ShioriManifestV1>).kdf; // code goals without a kdf
+
+    const target = createMemoryRepo();
+    await applyBackup(target, broken, 'replace');
+    expect(await target.listManifests()).toEqual([]);
+    expect(await target.getWork(workId)).toMatchObject({ manifestWorkId: 'demo-hoshiyomi' });
+    expect((await target.getWork(workId))?.manifestKey).toBeUndefined();
+
+    const again = await previewImport(target, HOSHI_TEXT);
+    expect(again).toMatchObject({ kind: 'update', alreadyImported: false });
+    if (again.kind === 'invalid') return;
+    const { workId: repaired } = await commitImport(target, again, { source: 'file', now: T0 + 1 });
+    expect(repaired).toBe(workId);
+    expect(await target.listWorks()).toHaveLength(1);
+    expect((await target.listProgress(workId)).find((p) => p.goalId === 'ach-cat')).toMatchObject({ archived: false });
+  });
+
+  it('re-keys an edited manifest, so the genuine file is not reported as already imported', async () => {
+    const { repo: source, workId } = await deviceWithDemo();
+    const data = await exportedData(source);
+    const genuineKey = data.manifests[0]!.key;
+    const edited = structuredClone(data);
+    edited.manifests[0]!.manifest.goals[5]!.label = '書き換えられた名前';
+
+    const target = createMemoryRepo();
+    await applyBackup(target, edited, 'replace');
+    const stored = await target.getWork(workId);
+    expect(stored?.manifestKey).toBeDefined();
+    expect(stored?.manifestKey).not.toBe(genuineKey);
+
+    const again = await previewImport(target, HOSHI_TEXT);
+    expect(again).toMatchObject({ kind: 'update', alreadyImported: false });
+    if (again.kind === 'invalid') return;
+    await commitImport(target, again, { source: 'file', now: T0 + 1 });
+    const record = await target.getManifest((await target.getWork(workId))!.manifestKey!);
+    expect(record?.key).toBe(genuineKey);
+    expect(record?.manifest.goals[5]!.label).toBe(hoshiyomiJson.goals[5]!.label);
   });
 });
 

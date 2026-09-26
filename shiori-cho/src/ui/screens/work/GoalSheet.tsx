@@ -246,7 +246,7 @@ export function GoalSheet({ data, view, tolerance, preview, onClose, onEnterCode
             <ol className="gs-hint-list">
               {goal.hints.map((text, i) => {
                 const n = i + 1;
-                const name = hintTierName(n, hintCount);
+                const name = hintTierName(n);
                 if (n <= tier) {
                   return (
                     <li key={n} className="gs-hint is-open">
@@ -264,7 +264,7 @@ export function GoalSheet({ data, view, tolerance, preview, onClose, onEnterCode
                       label={`ヒント${n}（${name}）を見る`}
                       disabled={!next || busy}
                       confirm={
-                        isAnswerTier(n, hintCount) ? { title: ANSWER_CONFIRM_TITLE, okLabel: '表示する' } : undefined
+                        isAnswerTier(n) ? { title: ANSWER_CONFIRM_TITLE, okLabel: '表示する' } : undefined
                       }
                       onReveal={() => void revealTier(n)}
                     />

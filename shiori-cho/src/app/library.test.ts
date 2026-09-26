@@ -10,17 +10,23 @@ import hoshiyomiJson from '../demo/hoshiyomi.shiori.json';
 import { createMemoryRepo } from '../storage/memoryRepo';
 import type { ShioriRepo } from '../storage/repo';
 import {
+  MSG_ATTACH_OTHER_MANIFEST,
+  MSG_ATTACH_OTHER_WORK,
+  attachManifest,
   commitImport,
   createQuickWork,
   createWork,
   defaultCoverEmoji,
+  deleteWork,
   exportPlayerManifest,
   getWorkManifest,
   importBundledDemos,
+  previewAttach,
   previewImport,
   setGoalDone,
   updatePlayerManifest,
 } from './library';
+import { withRepoLock } from './repoLock';
 import { addPending, decryptGoalSecrets, readSealed, submitCode } from './unlock';
 
 const T0 = 1_790_000_000_000;
@@ -499,15 +505,36 @@ describe('player manifests', () => {
     expect(progress.get('end-1')?.archived).toBe(false);
     expect(progress.get('end-3')?.archived).toBe(true);
 
-    // In-place mutation without a return value also works; an unchanged result is a no-op
+    // In-place mutation without a return value also works; an unchanged result is a no-op.
+    // A goal the player adds is new, even with the id of a deleted one: the old completion does not come back.
     await updatePlayerManifest(repo, work.id, (mm) => {
       mm.goals.push({ id: 'end-3', group: 'endings', label: 'END 3', spoiler: 0, hints: [], unlock: { type: 'manual' } });
       return undefined as unknown as ShioriManifestV1;
     }, T0 + 20);
-    expect((await repo.listProgress(work.id)).find((p) => p.goalId === 'end-3')?.archived).toBe(false);
+    expect((await getWorkManifest(repo, work.id))?.goals.map((g) => g.id)).toEqual(['end-1', 'end-2', 'end-3']);
+    expect((await repo.listProgress(work.id)).find((p) => p.goalId === 'end-3')).toBeUndefined();
     const key = (await repo.getWork(work.id))?.manifestKey;
     await updatePlayerManifest(repo, work.id, (mm) => mm, T0 + 30);
     expect((await repo.getWork(work.id))?.manifestKey).toBe(key);
+  });
+
+  it('updatePlayerManifest gives an added goal a clean slate: no progress, no hint, notes stay as work notes', async () => {
+    const repo = createMemoryRepo();
+    const work = await quick(repo);
+    const item = { id: 'my-4', group: 'endings', label: '自分で足した項目', spoiler: 0 as const, hints: [], unlock: { type: 'manual' as const } };
+    await updatePlayerManifest(repo, work.id, (m) => ({ ...m, goals: [...m.goals, item] }), T0 + 1);
+    await setGoalDone(repo, work.id, 'my-4', true, T0 + 2);
+    await repo.putHint({ workId: work.id, goalId: 'my-4', tier: 1, updatedAt: T0 + 2 });
+    await repo.putNote({ id: 'n-goal', workId: work.id, goalId: 'my-4', text: '項目Aのメモ', createdAt: T0 + 2, updatedAt: T0 + 2 });
+    await updatePlayerManifest(repo, work.id, (m) => ({ ...m, goals: m.goals.filter((g) => g.id !== 'my-4') }), T0 + 3);
+    expect((await repo.listProgress(work.id)).find((p) => p.goalId === 'my-4')?.archived).toBe(true);
+
+    await updatePlayerManifest(repo, work.id, (m) => ({ ...m, goals: [...m.goals, { ...item, label: '別の項目B' }] }), T0 + 4);
+    expect((await repo.listProgress(work.id)).find((p) => p.goalId === 'my-4')).toBeUndefined();
+    expect((await repo.listHints(work.id)).find((h) => h.goalId === 'my-4')).toBeUndefined();
+    const [note] = await repo.listNotes(work.id);
+    expect(note).toMatchObject({ id: 'n-goal', text: '項目Aのメモ', updatedAt: T0 + 4 });
+    expect(note).not.toHaveProperty('goalId');
   });
 
   it('updatePlayerManifest rejects invalid results, id changes and creator manifests', async () => {
@@ -601,5 +628,171 @@ describe('setGoalDone', () => {
 
     expectShioriError(await catchError(setGoalDone(repo, id, 'no-such-goal', true)), 'notFound', '項目が見つかりません');
     expectShioriError(await catchError(setGoalDone(repo, 'no-such-work', 'end-a', true)), 'notFound', '作品が見つかりません');
+  });
+});
+
+describe('attachManifest', () => {
+  async function ready(repo: ShioriRepo, workId: string, text: string) {
+    const p = await previewAttach(repo, workId, text);
+    if (p.kind === 'invalid') throw new Error('invalid');
+    return p;
+  }
+
+  it('gives a 記録だけ work its checklist, keeping its sessions, notes and status (no second work)', async () => {
+    const repo = createMemoryRepo();
+    const plain = await createWork(repo, { title: '雨音と読書の時間', alias: '作品A', kind: 'voice' }, T0);
+    await repo.putWork({ ...plain, status: 'playing', lastPlayedAt: T0 + 5 });
+    await repo.putSession({ id: 's1', workId: plain.id, startedAt: T0, endedAt: T0 + 5, minutes: 30 });
+    await repo.putNote({ id: 'n1', workId: plain.id, text: 'メモ', createdAt: T0, updatedAt: T0 });
+    await addPending(repo, 'ほたる・かえで・つばめ・こだま・すずめ', 'demo-amaoto', T0);
+
+    const p = await ready(repo, plain.id, AMAOTO_TEXT);
+    expect(p).toMatchObject({ mode: 'attach', alreadyAttached: false, stats: { goals: amaotoJson.goals.length } });
+    expect(p.blocked).toBeUndefined();
+    const res = await attachManifest(repo, plain.id, p.manifest, { source: 'file', now: T0 + 10 });
+
+    expect(await repo.listWorks()).toHaveLength(1);
+    const work = await repo.getWork(plain.id);
+    expect(work).toMatchObject({ alias: '作品A', title: '雨音と読書の時間', status: 'playing', manifestWorkId: 'demo-amaoto', newGoalIds: [] });
+    expect(work?.manifestKey).toBe(await manifestKey(p.manifest));
+    expect((await repo.listManifests(plain.id)).map((r) => r.source)).toEqual(['file']);
+    expect(await repo.listSessions(plain.id)).toHaveLength(1);
+    expect(await repo.listNotes(plain.id)).toHaveLength(1);
+    // the pending code of this work is used right away
+    expect(res.pendingOutcomes).toHaveLength(1);
+    expect(res.pendingOutcomes[0]).toMatchObject({ status: 'unlocked', workId: plain.id, goalId: 'bonus-talk' });
+    expect(await repo.listPending()).toEqual([]);
+  });
+
+  it('replaces a かんたんしおり with the circle\'s file, archiving the quick checklist\'s progress', async () => {
+    const repo = createMemoryRepo();
+    const q = await createQuickWork(repo, { title: '星読みの図書館', kind: 'game', counts: { endings: 2, cg: 0, achievements: 0, tracks: 0, chapters: 0 } }, T0);
+    await setGoalDone(repo, q.id, 'end-1', true, T0 + 1);
+    const p = await ready(repo, q.id, HOSHIYOMI_TEXT);
+    expect(p.mode).toBe('replacePlayer');
+    await attachManifest(repo, q.id, p.manifest, { source: 'paste', now: T0 + 10 });
+
+    const work = await repo.getWork(q.id);
+    expect(work).toMatchObject({ manifestWorkId: 'demo-hoshiyomi', newGoalIds: [] });
+    expect((await repo.listManifests(q.id)).map((r) => [r.key, r.source])).toEqual([[work?.manifestKey, 'paste']]);
+    expect((await repo.listProgress(q.id)).find((x) => x.goalId === 'end-1')).toMatchObject({ archived: true });
+    // the circle's file then updates normally: a code of this work is found
+    const out = await submitCode(repo, 'ST4-RMA-P1X', { workId: q.id, now: T0 + 20 });
+    expect(out).toMatchObject({ status: 'unlocked', workId: q.id });
+  });
+
+  it('treats a file with the same manifest work id as an update (NEW badges)', async () => {
+    const repo = createMemoryRepo();
+    const { workId } = await importText(repo, HOSHIYOMI_TEXT, T0);
+    const p = await ready(repo, workId, JSON.stringify(hoshiyomiV2()));
+    expect(p).toMatchObject({ mode: 'update', diff: { added: ['ach-new'], removed: ['ach-cat'] } });
+    await attachManifest(repo, workId, p.manifest, { source: 'file', now: T0 + 10 });
+    expect((await repo.getWork(workId))?.newGoalIds).toEqual(['ach-new']);
+    expect(await repo.listWorks()).toHaveLength(1);
+  });
+
+  it('refuses a file another work already uses, or a different work\'s file for a circle\'s work', async () => {
+    const repo = createMemoryRepo();
+    const [hoshiId] = await importBundledDemos(repo, T0);
+    const plain = await createWork(repo, { title: '記録だけ', kind: 'game' }, T0);
+
+    const p = await ready(repo, plain.id, HOSHIYOMI_TEXT);
+    expect(p.blocked).toMatchObject({ reason: 'otherWork', other: { id: hoshiId } });
+    expectShioriError(await catchError(attachManifest(repo, plain.id, p.manifest, { source: 'file' })), 'conflict', MSG_ATTACH_OTHER_WORK);
+    expect((await repo.getWork(plain.id))?.manifestKey).toBeUndefined();
+
+    const q = await createQuickWork(repo, { title: 'かんたん', kind: 'game', counts: { endings: 1, cg: 0, achievements: 0, tracks: 0, chapters: 0 } }, T0);
+    const other = await ready(repo, hoshiId!, JSON.stringify({ ...(await getWorkManifest(repo, q.id))!, author: { kind: 'player' } }));
+    expect(other.blocked).toEqual({ reason: 'otherManifest' });
+    expectShioriError(
+      await catchError(attachManifest(repo, hoshiId!, other.manifest, { source: 'file' })),
+      'conflict',
+      MSG_ATTACH_OTHER_MANIFEST,
+    );
+  });
+
+  it('is a no-op for the file the work already uses, and reports invalid files and unknown works', async () => {
+    const repo = createMemoryRepo();
+    const { workId } = await importText(repo, HOSHIYOMI_TEXT, T0);
+    const p = await ready(repo, workId, HOSHIYOMI_TEXT);
+    expect(p.alreadyAttached).toBe(true);
+    const before = await repo.exportAll();
+    expect(await attachManifest(repo, workId, p.manifest, { source: 'file', now: T0 + 5 })).toEqual({
+      workId,
+      pendingOutcomes: [],
+      openedSealedIds: [],
+    });
+    expect(await repo.exportAll()).toEqual(before);
+
+    expect((await previewAttach(repo, workId, '{')).kind).toBe('invalid');
+    expectShioriError(await catchError(previewAttach(repo, 'nope', HOSHIYOMI_TEXT)), 'notFound');
+    expectShioriError(await catchError(attachManifest(repo, 'nope', p.manifest, { source: 'file' })), 'notFound');
+    const tampered = { ...p.manifest, groups: [] };
+    const plain = await createWork(repo, { title: '記録だけ', kind: 'game' }, T0);
+    expectShioriError(await catchError(attachManifest(repo, plain.id, tampered, { source: 'file' })), 'validation');
+  });
+});
+
+describe('deleteWork', () => {
+  it('deletes the work with everything of it, after the services already queued on the repository', async () => {
+    const repo = createMemoryRepo();
+    const { workId } = await importText(repo, HOSHIYOMI_TEXT, T0);
+    await submitCode(repo, 'ST4-RMA-P1X', { workId, now: T0 + 1 });
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    const held = withRepoLock(repo, () => new Promise<void>((r) => (release = r)).then(() => void order.push('held')));
+    const deleting = deleteWork(repo, workId).then(() => void order.push('deleted'));
+    await Promise.resolve();
+    expect(await repo.getWork(workId)).toBeDefined();
+    release();
+    await Promise.all([held, deleting]);
+    expect(order).toEqual(['held', 'deleted']);
+    expect(await repo.getWork(workId)).toBeUndefined();
+    expect(await repo.listRedemptions(workId)).toEqual([]);
+  });
+
+  it('a master re-derivation running while the work is deleted does not bring its codes back', async () => {
+    const repo = createMemoryRepo();
+    const { workId } = await importText(repo, HOSHIYOMI_TEXT, T0);
+    for (const code of ['ST4-RMA-P1X', 'M00-NDE-SKR']) await submitCode(repo, code, { workId, now: T0 + 1 });
+    // as after a restore: no cached masters, so reading the secrets re-derives them (PBKDF2)
+    for (const r of await repo.listRedemptions(workId)) await repo.putRedemptionCache(r.workId, r.goalId, r.canonical, undefined);
+    const reading = decryptGoalSecrets(repo, workId);
+    await new Promise((r) => setTimeout(r, 0));
+    await repo.deleteWork(workId); // straight to the repository, as a racing writer would
+    await reading;
+    expect(await repo.listRedemptions(workId)).toEqual([]);
+    expect((await repo.exportAll()).redemptions).toEqual([]);
+  });
+});
+
+describe('manifest update: steps that fail part-way', () => {
+  it('a failure when the work is switched leaves the old manifest active with its progress intact', async () => {
+    const base = createMemoryRepo();
+    const { workId } = await importText(base, HOSHIYOMI_TEXT, T0);
+    await setGoalDone(base, workId, 'ach-cat', true, T0 + 1);
+    let failPutWork = true;
+    const repo = new Proxy(base, {
+      get(target, prop, receiver) {
+        if (prop === 'putWork') {
+          return async (w: Parameters<ShioriRepo['putWork']>[0]) => {
+            if (failPutWork) throw new Error('QuotaExceededError');
+            return target.putWork(w);
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    const upd = await preview(repo, JSON.stringify(hoshiyomiV2())); // removes ach-cat
+    await expect(commitImport(repo, upd, { source: 'file', now: T0 + 10 })).rejects.toThrow();
+    const work = await base.getWork(workId);
+    expect((await base.getManifest(work!.manifestKey!))?.manifest.work.version).toBe('1.0.0');
+    expect((await base.listProgress(workId)).find((p) => p.goalId === 'ach-cat')).toMatchObject({ archived: false });
+
+    // the next import finishes the job
+    failPutWork = false;
+    await commitImport(repo, await preview(repo, JSON.stringify(hoshiyomiV2())), { source: 'file', now: T0 + 20 });
+    expect((await base.listProgress(workId)).find((p) => p.goalId === 'ach-cat')).toMatchObject({ archived: true });
+    expect(await base.listManifests(workId)).toHaveLength(1);
   });
 });

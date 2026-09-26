@@ -1,11 +1,15 @@
 // F12 AC2: the envelope-opening animation played the first time a sealed extra opens.
-// At most 1.5 s (ENVELOPE_MS), tap / Enter / Escape skips it; with prefers-reduced-motion it becomes a
-// 200 ms fade (ENVELOPE_REDUCED_MS). Only public data (the sealed item's label and kind) is shown.
+// At most 1.5 s (ENVELOPE_MS), a tap / Enter skips it; with prefers-reduced-motion it becomes a 200 ms fade
+// (ENVELOPE_REDUCED_MS). Only public data (the sealed item's label and kind) is shown.
+// The overlay covers the whole screen, header included, so with `onHide` it has its own 「隠す」 and Escape
+// hides (F2 AC3) — Escape never skips to the reader, which would show the sealed text instead of hiding.
+// Without `onHide` (standalone), Escape skips like a tap.
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { prefersReducedMotion } from '../../app/platform';
 import type { SealedKind } from '../../core/types';
+import { HideButton } from './HideButton';
 import { useFocusTrap, useOverlayLayer } from './overlay';
 import { SEALED_KIND_ICON } from './sealedKind';
 import { useLatest } from './useLatest';
@@ -19,15 +23,18 @@ export interface EnvelopeRevealProps {
   /** public label of the sealed item (「あとがき」) */
   label?: string;
   onDone(): void;
+  /** 「隠す」 / Escape: switch to the camouflage (the envelope then waits and replays afterwards) */
+  onHide?(): void;
   /** defaults to the user's prefers-reduced-motion setting */
   reducedMotion?: boolean;
 }
 
-export function EnvelopeReveal({ kind = 'letter', label, onDone, reducedMotion }: EnvelopeRevealProps): ReactNode {
+export function EnvelopeReveal({ kind = 'letter', label, onDone, onHide, reducedMotion }: EnvelopeRevealProps): ReactNode {
   const reduced = reducedMotion ?? prefersReducedMotion();
   const duration = reduced ? ENVELOPE_REDUCED_MS : ENVELOPE_MS;
   const doneRef = useRef(false);
   const onDoneRef = useLatest(onDone);
+  const onHideRef = useLatest(onHide);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -47,7 +54,11 @@ export function EnvelopeReveal({ kind = 'letter', label, onDone, reducedMotion }
     return () => clearTimeout(t);
   }, [duration, onDoneRef]);
 
-  useOverlayLayer(true, finish);
+  useOverlayLayer(true, () => {
+    const hide = onHideRef.current;
+    if (hide) hide();
+    else finish();
+  });
   useFocusTrap(rootRef, true, buttonRef);
 
   if (typeof document === 'undefined') return null;
@@ -58,8 +69,9 @@ export function EnvelopeReveal({ kind = 'letter', label, onDone, reducedMotion }
       style={{ ['--env-ms' as string]: `${duration}ms` }}
       data-reduced-motion={reduced ? 'true' : 'false'}
       data-testid="envelope-reveal"
+      tabIndex={-1}
     >
-      <button ref={buttonRef} type="button" className="env-skip" onClick={finish} aria-label="おまけを開く（タップでスキップ）">
+      <button ref={buttonRef} type="button" className="env-skip" onClick={finish}>
         <span className="env-stage" aria-hidden="true">
           <svg className="env-svg" viewBox="0 0 200 160" width="200" height="160" focusable="false">
             <path d="M20 60 L100 6 L180 60 Z" className="env-flap env-flap-open" />
@@ -76,12 +88,14 @@ export function EnvelopeReveal({ kind = 'letter', label, onDone, reducedMotion }
           </svg>
           <span className="env-kind">{SEALED_KIND_ICON[kind]}</span>
         </span>
+        {/* the visible text is the button's accessible name (it includes the item's label) */}
         <span className="env-text">
-          <span className="env-title">おまけが開きました</span>
+          <span className="env-title">おまけが届きました</span>
           {label ? <span className="env-label">{label}</span> : null}
-          <span className="env-hint">タップで開く</span>
+          <span className="env-hint">タップで読む</span>
         </span>
       </button>
+      {onHide ? <HideButton onHide={onHide} className="btn-ghost env-hide" /> : null}
     </div>,
     document.body,
   );

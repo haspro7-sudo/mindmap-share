@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as platform from '../../../app/platform';
 import { createQuickWork, createWork, importBundledDemos } from '../../../app/library';
 import { DEFAULT_SETTINGS } from '../../../core/types';
+import amaotoJson from '../../../demo/amaoto.shiori.json';
 import { createMemoryRepo } from '../../../storage/memoryRepo';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import { WorkEditScreen } from './WorkEdit';
@@ -44,7 +45,7 @@ describe('WorkEditScreen (作品設定)', () => {
     await user.type(screen.getByLabelText('表示名'), 'あの作品');
     await user.selectOptions(screen.getByLabelText('状態'), 'cleared');
     await user.click(screen.getByRole('radio', { name: /2: 条件の方向性まで見せる/ }));
-    await user.click(screen.getByRole('radio', { name: '空' }));
+    await user.click(screen.getByRole('radio', { name: '空色' }));
     await user.click(screen.getByRole('button', { name: '変更を保存する' }));
     await waitFor(async () => expect((await repo.getWork(work.id))?.storeCode).toBe('RJ01234567'));
     const saved = (await repo.getWork(work.id))!;
@@ -72,11 +73,12 @@ describe('WorkEditScreen (作品設定)', () => {
   it('creator manifests show the claim but no export button', async () => {
     const repo = createMemoryRepo();
     const [hoshiyomi] = await importBundledDemos(repo);
-    renderWithProviders(<WorkEditScreen workId={hoshiyomi!} />, { repo });
+    const { user } = renderWithProviders(<WorkEditScreen workId={hoshiyomi!} />, { repo });
     expect(await screen.findByText(/作成者の申告：サークル/)).toBeTruthy();
     expect(screen.getAllByText('1.0.0').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: 'しおりファイルとして書き出す' })).toBeNull();
-    expect(screen.getByRole('link', { name: '更新を読み込む' }).getAttribute('href')).toBe('#/add');
+    await user.click(screen.getByRole('button', { name: '更新を読み込む' }));
+    expect(await screen.findByRole('dialog', { name: '更新を読み込む' })).toBeTruthy();
   });
 
   it('deletes the work only after a double confirmation', async () => {
@@ -94,5 +96,34 @@ describe('WorkEditScreen (作品設定)', () => {
     await user.click(within(await screen.findByRole('alertdialog', { name: '本当に削除しますか？' })).getByRole('button', { name: '削除する' }));
     await waitFor(async () => expect(await repo.getWork(work.id)).toBeUndefined());
     await waitFor(() => expect(window.location.hash).toBe('#/'));
+  });
+});
+
+describe('WorkEditScreen: しおりファイル for this work', () => {
+  it('a 記録だけ work reads a shiori.json in place instead of adding a second work', async () => {
+    const repo = createMemoryRepo();
+    const work = await createWork(repo, { title: '雨音と読書の時間', kind: 'voice' });
+    const { user } = renderWithProviders(<WorkEditScreen workId={work.id} />, { repo });
+    await user.click(await screen.findByRole('button', { name: 'しおりファイルを読み込む' }));
+    const sheet = await screen.findByRole('dialog', { name: 'しおりファイルを読み込む' });
+    await user.click(within(sheet).getByLabelText('または、内容を貼り付ける'));
+    await user.paste(JSON.stringify(amaotoJson));
+    await user.click(within(sheet).getByRole('button', { name: '内容を確かめる' }));
+    await user.click(await within(sheet).findByRole('button', { name: '読み込む' }));
+    await waitFor(async () => expect((await repo.getWork(work.id))?.manifestWorkId).toBe('demo-amaoto'));
+    expect(await repo.listWorks()).toHaveLength(1);
+    expect(await screen.findByText(/作成者の申告：サークル/)).toBeTruthy();
+  });
+
+  it('a かんたんしおり offers the circle\'s file', async () => {
+    const repo = createMemoryRepo();
+    const work = await createQuickWork(repo, {
+      title: 'テスト',
+      kind: 'game',
+      counts: { endings: 2, cg: 0, achievements: 0, tracks: 0, chapters: 0 },
+    });
+    const { user } = renderWithProviders(<WorkEditScreen workId={work.id} />, { repo });
+    await user.click(await screen.findByRole('button', { name: 'サークルのしおりファイルを読み込む' }));
+    expect(await screen.findByRole('dialog', { name: 'しおりファイルを読み込む' })).toBeTruthy();
   });
 });

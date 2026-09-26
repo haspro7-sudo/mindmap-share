@@ -1,8 +1,20 @@
 # しおり帳 (Shiori-chō), "Shiori Companion": Final v1 Product and Technical Spec
 
-> **Implementation notes (read first).** This spec came out of a judge-panel design workflow. The code differs from the text below in a few places:
-> - The app lives in `shiori-cho/` inside this repo. All paths below are relative to it.
-> - Linting uses **oxlint** (`.oxlintrc.json`, `react/no-danger: error`) instead of ESLint. The rule that `src/core` stays pure is enforced by `src/core/boundary.test.ts`.
+> **Implementation notes (read first).** This spec came out of a judge-panel design workflow. The code differs from the original text in a few places. Every difference is listed here; the sections below have been corrected where the fix is a simple fact (a file name, a config value, a privacy claim):
+> - The app lives in `shiori-cho/` inside this repo. All paths below are relative to it, except the CI workflow, which is `.github/workflows/shiori-cho.yml` at the repo root (not `pages.yml`). It runs `npm ci` → `gen-licenses --check` → typecheck → `npm run lint` → test → build → `check:dist`, and deploys to Pages only on a manual run with `deploy` checked.
+> - Linting uses **oxlint** (`.oxlintrc.json`, `npm run lint` = `oxlint src scripts`, `react/no-danger: error`) instead of ESLint. The rule that `src/core` stays pure is enforced by `src/core/boundary.test.ts`. `no-restricted-properties` is not enabled in `.oxlintrc.json`; instead the raw-HTML ban of F5 AC6 is enforced by `scripts/check-dist.ts` (next item).
+> - `scripts/check-dist.ts` (§7.2) does two things. (1) It fails if any text file in `dist/` names an http(s) host outside an allowlist: `www.dlsite.com` (store links), `www.w3.org` (SVG namespaces), `react.dev` (React's error-decoder text), `localhost` (creator-kit default), `example.invalid` (placeholders), plus `json-schema.org` in any `dist/assets/*.js` chunk (zod's `$schema` identifiers) and `bit.ly` in the workbox chunk. None of them is ever fetched (CSP `connect-src 'self'`). (2) It scans **`src/`**, not `dist/`, for `dangerouslySetInnerHTML`, `.innerHTML`, `.outerHTML`, `insertAdjacentHTML` and `document.write` (test files excepted); React's own bundle uses `innerHTML` internally, so `dist/` cannot be scanned for it.
+> - PWA registration (§7.3): `injectRegister: false`. The service worker is registered by the `useRegisterSW` hook from `virtual:pwa-register/react` in `src/ui/shell/UpdatePrompt.tsx` (bundled into the app, so it is CSP-safe); there is no `registerSW.js`.
+> - UI copy is written inline in the components. There is no `src/ui/strings/ja.ts`. `APP_NAME_JA` / `APP_NAME_EN` are in `src/core/constants.ts`, but 「しおり帳」 also appears in many UI and kit strings (see §9 Naming for what a rename touches).
+> - Onboarding (§6) asks the 自動ロック question only when a PIN was set, so without a PIN it has two questions (the counter shows 1 / 2).
+> - Privacy fixes from the review (F1–F3, F11): 「PINを忘れた」 → 全データを消して初期化 deletes **both** `shiori` and `shiori-studio` (the PIN guards the whole app; §5.3's "keep studio data" applies only to 設定 → 全データを消す, which keeps its separate checkbox), then reloads at `#/`. Deep links `#/u/…` are moved out of the address bar **before** any gate, lock or camouflage and processed once the app is open. 隠す/Escape hide in one step even while a sheet, dialog or envelope is open; toasts and dialogs never appear over the camouflage; the camouflage survives a reload of the same tab. Settings' 「いまのPIN」 check shares the lock screen's failure counter and cooldown, and the cooldown is capped at 30 s from now. An error boundary keeps 隠す working if a screen crashes.
+> - Data fixes from the review: `ShioriRepo` has two more members. `putRedemptionCache(workId, goalId, canonical, cache | undefined)` refreshes a cached master only; it never creates a row and does **not** count toward `changesSinceBackup` (like `updateSettings`). `deleteHint(workId, goalId)` counts. Sealed evaluation (§5.2) also runs after a backup restore/merge (`restoreBackup` retries pending codes across all works, then evaluates every work), after attaching a file, and as a safety net when a work page opens. A creator `shiori.json` can be **attached** to an existing 記録だけ / かんたんしおり work from the work page or 作品設定 (`previewAttach` / `attachManifest`); a manifest whose `work.id` belongs to another local work is refused. `work.lastPlayedAt` is recomputed from the remaining ended sessions when a session is edited or deleted. Player-added goal ids are never reused.
+> - Merge rules (§5.5) amended: for a work matched on both sides, the newer `updatedAt` wins the record's own fields, but `manifestKey` / `manifestWorkId` / `newGoalIds` come from the side that (in order) has an existing manifest record, has a creator file rather than a player file, or has the later `ManifestRecord.importedAt` (ties → the `updatedAt` winner). After a merge at most one session stays open app-wide (this device's open session if any, else the latest start); the others are ended at their own start with 0 minutes.
+> - Hint tiers (F8 AC2) are named by position — 1 = 示唆, 2 = 方向, 3 = 答え — and only the third tier (答え) needs the confirmation. A goal with fewer than three hints has no 答え tier.
+> - Studio fixes (F16): 「サンプルを開く」 and 「複製 → 別の作品のひな形」 give the copy a new work id, no salt and fresh codes; 点検 refuses the bundled demos' ids, salts and published codes (app layer, so the demo build still passes core lint) and warns when another project shares a work id, salt or code. Draft schemas are lenient so any editor state round-trips through the project backup (strictness lives in lint/build). The project backup is named `shiori-studio-project-YYYYMMDD.json`. A letter's `from` signature is a soft secret: appearing in public text is a warning, not a leak error. The no-spoil guard also matches normalized spellings of codes (full-width, other separators, katakana). `codes.csv` prefixes cells that start with `= + - @` with an apostrophe. Without an absolute http(s) app URL the kit has no QR PNGs and no 解放URL column values.
+> - Storage (§9 Privacy): besides IndexedDB, the app keeps a few tab-scoped entries in `sessionStorage` (keys start with `shiori.`): the one-shot code hand-off from `#/u/…` to `#/code` (expires after 5 minutes), a stashed deep link while a gate or lock is shown (30 minutes), the library filter/sort, and the camouflage flag. They vanish when the tab closes, and 全データを消す clears them too.
+> - Deep links `#/u/<manifestWorkId>/<code>` carry the manifest's `work.id`. The editor proposes an opaque `w-…` id, but the creator can change it to a readable slug (the demos use `demo-hoshiyomi` and `demo-amaoto`), so help texts call it 「作品のID（作者が付けた識別子）」, not a meaningless number.
+> - Third-party notices (§6 このアプリについて): `scripts/gen-licenses.ts` collects the copyright and license texts of every package whose code ships in `dist/` (the runtime dependencies and their dependencies, plus the Workbox service-worker modules and the small runtime helpers of Vite and vite-plugin-pwa) into `public/licenses.txt`. The file is committed, checked for staleness in CI and by `scripts/gen-licenses.test.ts`, and linked from ヘルプ →「このアプリについて」. URLs in it lose their `http(s)://` prefix so that `check:dist` keeps passing.
 > - **Contract files are the source of truth for signatures:** `src/core/types.ts`, `src/storage/repo.ts`, plus the `declare`-style stubs in every module. `ShioriRepo` also has `listManifests(workId?)`. `UnlockOutcome.status` also includes `'pending'`, and the `ImportPreview` update variant also carries `stats`.
 > - Shared zod helpers and the post-decrypt payload schemas are in `src/core/manifest/payloadSchemas.ts`.
 > - The golden vectors in §4.3 and the demo codes in §4.6 have been checked independently with Node WebCrypto. They are correct.
@@ -84,7 +96,7 @@ Each feature has a UI name in parentheses. **AC** = acceptance criteria.
 - AC3: The preview shows the title, circle, version, counts (目標 N・合言葉 M・おまけ K), warnings, and the author's claim as 「作成者の申告：サークル／プレイヤー」. It is never shown as verified.
 - AC4: If `work.id` matches an existing work, the import becomes an update: 「『作品A』の更新として読み込みます：追加3・削除1」. Progress carries over by goal id, removed goals are archived (not deleted), and added goals get a NEW badge until viewed. If the key matches the stored manifest exactly, the message is 「読み込み済みです」.
 - AC5: After any import, pending codes are tried against the new manifest automatically.
-- AC6: Manifest strings render only as React text nodes. `dangerouslySetInnerHTML` and `innerHTML` are banned by ESLint (`react/no-danger: error` plus `no-restricted-properties`).
+- AC6: Manifest strings render only as React text nodes. `dangerouslySetInnerHTML` is banned by oxlint (`react/no-danger: error`), and `check:dist` fails on `dangerouslySetInnerHTML`, `innerHTML`, `outerHTML`, `insertAdjacentHTML` or `document.write` anywhere in `src/` (see the implementation notes).
 
 **F6. Quick shiori (かんたんしおり)**
 - AC1: The form takes counts for エンディング (0–50), 回想・CG (0–200), 実績 (0–200), トラック (0–100) and 章 (0–30). At least one must be greater than 0.
@@ -608,10 +620,10 @@ export type BackupFileV1 =
 
 **Overlay layers** (rendered above the router in this order; each is state, never a route):
 1. `AgeGate` (F1)
-2. `Onboarding`, three questions:
+2. `Onboarding`, up to three questions:
    - 「人前で使うことがありますか？」 → `aliasOnly`
    - 「PINを設定しますか？」
-   - 「自動ロックまでの時間」
+   - 「自動ロックまでの時間」 (asked only when a PIN was set)
    It then explains the long-press-to-return gesture and calls `persist()`.
 3. `LockScreen`: a PIN pad.
 4. `Camouflage`: the 「メモ」 notepad.
@@ -629,7 +641,7 @@ export type BackupFileV1 =
 | `#/w/<id>/edit` | 作品設定: alias, real title (tap to reveal), emoji, color, status, store code with an 「作品ページを開く」 button (hidden by `hideStoreLinks`, confirm before opening), spoiler tolerance 0–3 with a plain explanation, manifest info (version, author claim), 「更新を読み込む」, 「しおりファイルとして書き出す」 (player manifests), 「この作品を削除」 |
 | `#/code?w=<id>` | 合言葉: large input, 「貼り付け」, 「確かめる」, live format feedback, optional work selector 「どの作品？（おまかせ）」, pending list |
 | `#/u/<manifestWorkId>/<code>` | UnlockLanding: processes the code, then `replaceState` (F11) |
-| `#/settings` | 設定: おしのび switches and camouflage text, 画面ロック, データ (export with optional passphrase, import with replace or merge, storage status, delete all), サークル向け → 工房, ヘルプ, このアプリについて (disclaimer, version, licenses), 年齢確認の取り消し |
+| `#/settings` | 設定: おしのび switches and camouflage text, 画面ロック, データ (export with optional passphrase, import with replace or merge, storage status, delete all), サークル向け → 工房, ヘルプ, このアプリについて (disclaimer, version, licenses; the full third-party notices are `public/licenses.txt`, linked from ヘルプ →「このアプリについて」), 年齢確認の取り消し |
 | `#/studio` | 工房 list: new, 「サンプルを開く」, import project, secret banner |
 | `#/studio/<pid>?tab=work\|structure\|goals\|extras\|check\|export` | 工房 editor. Tabs: 作品 (incl. work.id, appUrl, advanced iterations), 章・グループ (reorder with up/down buttons), 目標 (list plus form; unlock 手動/合言葉 with 英数字/ひらがな5語, code display, 「作り直す」), おまけ (condition すべて/どれか plus a multi-select of code goals, payload fields), 点検 (report plus 「プレイヤー画面で試す」 → `#/studio/<pid>/preview`), 書き出し (ship/don't-ship checklist, kit zip, shiori.json only, project backup, store template with a copy button) |
 | `#/studio/<pid>/preview` | Player WorkScreen mounted on a MemoryRepo seeded from the build |
@@ -648,8 +660,8 @@ export type BackupFileV1 =
 ## 7. Architecture (Vite + React + TypeScript, no backend)
 
 ### 7.1 Dependencies
-- Runtime: `react`, `react-dom` (19), `zod` (4), `idb`, `fflate` (zip), `qrcode-generator`.
-- Dev: `vite`, `@vitejs/plugin-react`, `vite-plugin-pwa`, `typescript` (strict, `noUncheckedIndexedAccess`), `vitest`, `@testing-library/react`, `jsdom`, `fake-indexeddb`, `tsx`, `eslint` with the React and import plugins.
+- Runtime: `react`, `react-dom` (19), `zod` (4), `idb`, `fflate` (zip), `qrcode-generator`. `workbox-window` (a dev dependency used by `virtual:pwa-register`) is bundled too.
+- Dev: `vite`, `@vitejs/plugin-react`, `vite-plugin-pwa`, `typescript` (strict, `noUncheckedIndexedAccess`), `vitest`, `@testing-library/react`, `jsdom`, `fake-indexeddb`, `tsx`, `oxlint`.
 - No router library (a custom hash router), no CSS framework, no CDN.
 
 ### 7.2 Module map (owners can work in parallel against the CONTRACT files)
@@ -657,11 +669,12 @@ export type BackupFileV1 =
 index.html                      lang="ja", <title>しおり帳</title>, <meta name="referrer" content="no-referrer">, <meta name="robots" content="noindex">
 vite.config.ts                  base: process.env.VITE_BASE ?? './'; react(); VitePWA(...); cspPlugin (build only)
 vitest.config.ts                environment 'node' default; setupFiles src/test/setup.ts; process.env.TZ='Asia/Tokyo'
-eslint.config.js                react/no-danger error; src/core may not import storage/app/ui/react or use DOM/fetch
+.oxlintrc.json                  react/no-danger error (the src/core purity rule is src/core/boundary.test.ts)
 public/icons/                   icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png, favicon.svg (bookmark)
 scripts/build-demo.ts           src/demo/*.project.json → buildManifest → src/demo/*.shiori.json (committed)
-scripts/check-dist.ts           fails if dist contains http(s) hosts other than www.dlsite.com (link builder) or text "dangerouslySetInnerHTML"
-.github/workflows/pages.yml     npm ci → typecheck → lint → test → build → check:dist → deploy-pages
+scripts/check-dist.ts           fails if dist names an http(s) host outside its allowlist, or src uses a raw-HTML API (see the implementation notes)
+scripts/gen-licenses.ts         node_modules LICENSE texts of everything bundled → public/licenses.txt (committed; --check for CI)
+../.github/workflows/shiori-cho.yml  npm ci → gen-licenses --check → typecheck → lint → test → build → check:dist → deploy-pages (manual)
 src/core/                       PURE (no React/DOM; only globalThis.crypto, TextEncoder/Decoder)
   types.ts  constants.ts (domain strings, limits)  errors.ts (ShioriError{code,messageJa})
   encoding.ts        utf8/fromUtf8, b64uEncode/Decode, concatBytes, randomBytes, bytesEqual, sha256
@@ -701,7 +714,7 @@ src/app/      (services, no React; take a repo)
   backup.ts    exportBackupFile, readBackupFile, applyBackup(repo, data, mode)
   studio.ts    buildAndCheck(project), withBuildSalt, exportKitZip(project, build, renderQrPng) (QR PNGs via ui/studio/qrPng.ts)
   platform.ts  vibrate, readClipboard, writeClipboard, requestPersist, isIosSafariNotStandalone, download(name, blob)
-src/ui/  App.tsx, router.tsx (useHashRoute), strings/ja.ts (ALL copy; tone-reviewed, non-explicit), theme.css,
+src/ui/  App.tsx, router.ts (useHashRoute), theme.css (copy is inline in the components; tone-reviewed, non-explicit),
          shell/ (AgeGate, Onboarding, LockScreen, Camouflage, PrivacyVeil, Header, BottomNav, UpdatePrompt),
          components/ (HoldToReveal, SpoilerText, ProgressBar, EnvelopeReveal, Sheet, Toast, ConfirmDialog, CodeInput, EmojiCover),
          screens/ (Home, AddWork, ImportPreview, QuickPackForm, work/*, CodeEntry, UnlockLanding, Settings, Help, DemoPc),
@@ -731,7 +744,7 @@ State in React: a `RepoContext` (IdbRepo in the app, MemoryRepo in preview and t
 
 ### 7.3 PWA, hosting and security headers
 - `vite-plugin-pwa`:
-  - `generateSW`, `registerType: 'prompt'`, `injectRegister: 'script'` (external `registerSW.js`, compatible with the CSP).
+  - `generateSW`, `registerType: 'prompt'`, `injectRegister: false`: `src/ui/shell/UpdatePrompt.tsx` registers the worker with `useRegisterSW` from `virtual:pwa-register/react` (bundled, compatible with the CSP).
   - `workbox.globPatterns: ['**/*.{js,css,html,svg,png,json,webmanifest}']`, `navigateFallback: 'index.html'`, `cleanupOutdatedCaches: true`.
   - Manifest: `{ name: 'しおり帳', short_name: 'しおり帳', lang: 'ja', start_url: './', scope: './', id: './', display: 'standalone', background_color: '#f7f3ea', theme_color: '#f7f3ea', icons: [192, 512, maskable 512] }`. The name is neutral from day one because it cannot change after install.
 - CSP (injected only in the build, through `transformIndexHtml`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`.
@@ -802,10 +815,10 @@ Core tests run in the `node` environment, UI tests in `jsdom`, `TZ=Asia/Tokyo`, 
 - Regenerating codes after release breaks players' existing extras, so the editor warns about it.
 
 **Privacy**
-- No accounts, analytics, telemetry or third-party requests, enforced by the CSP and `check-dist`. Data lives in IndexedDB on the device only.
+- No accounts, analytics, telemetry or third-party requests, enforced by the CSP and `check-dist`. Data lives in IndexedDB on the device only. A few tab-scoped `sessionStorage` entries (the code hand-off, a stashed deep link, the library filter/sort, the camouflage flag) vanish when the tab closes, and the help and README say so.
 - The PIN is presented honestly as a screen lock. Data at rest is not encrypted, to avoid unrecoverable data loss.
 - Backups can reveal titles. They use neutral filenames and offer optional passphrase encryption (PBKDF2 at 600k iterations with AES-GCM).
-- Browser history may keep `#/u/<opaque id>/<code>` entries. Work ids are opaque and codes mean nothing without the file, and the app calls `replaceState` right away.
+- Browser history may keep `#/u/<work id>/<code>` entries, and the app calls `replaceState` right away. The code means nothing without the file. The work id is the creator's `work.id`: the editor proposes an opaque one and recommends keeping it unrelated to the content, but a creator can choose a readable slug, so the help text does not call it meaningless.
 - `noindex` and `no-referrer` are set.
 
 **Platform**
@@ -824,4 +837,4 @@ Core tests run in the `node` environment, UI tests in `jsdom`, `TZ=Asia/Tokyo`, 
 - A kit export aims for about 15 minutes of work, with ready engine snippets and a store-description line.
 
 **Naming**
-- Search for existing trademarks or apps named 「しおり帳」 before public launch. The name lives only in `strings/ja.ts` and the web manifest, so it is easy to change before the first release. After install, the PWA name is fixed.
+- Search for existing trademarks or apps named 「しおり帳」 before public launch. After install, the PWA name is fixed. The name is not centralized: besides `APP_NAME_JA` in `src/core/constants.ts` and the web manifest in `vite.config.ts`, it appears in `index.html`, in many inline UI strings (`src/ui/**`), in the creator-kit texts (`src/core/kit.ts`, `src/app/studio.ts`), in the demo projects and their built manifests (`src/demo/`), in `scripts/gen-licenses.ts` and in the README. A rename before the first release needs a repo-wide search for 「しおり帳」, followed by `npm run demo:build` and `npx tsx scripts/gen-licenses.ts`.

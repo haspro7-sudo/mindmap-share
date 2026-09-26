@@ -256,11 +256,14 @@ function convert(iss: LooseIssue, prefix: readonly PropertyKey[], out: Validatio
   }
 }
 
-/** Converts a zod error's issues into ValidationIssue[] with Japanese messages. */
-export function zodIssuesToValidationIssues(issues: ReadonlyArray<unknown>): ValidationIssue[] {
+/**
+ * Converts a zod error's issues into ValidationIssue[] with Japanese messages. `prefix` is prepended to every path
+ * (e.g. ['sealed', 2, 'payload'] when a sub-object was parsed on its own).
+ */
+export function zodIssuesToValidationIssues(issues: ReadonlyArray<unknown>, prefix: ReadonlyArray<PropertyKey> = []): ValidationIssue[] {
   const out: ValidationIssue[] = [];
   for (const iss of issues) {
-    if (isRecord(iss)) convert(iss as LooseIssue, [], out);
+    if (isRecord(iss)) convert(iss as LooseIssue, prefix, out);
   }
   return out;
 }

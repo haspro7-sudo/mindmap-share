@@ -19,6 +19,7 @@ import { Tabs } from '../../components/Tabs';
 import { useRepo, useSettings, useUi } from '../../context';
 import { KIND_LABEL, STATUS_LABEL, displayTitle } from '../../format';
 import { hrefFor, navigate } from '../../router';
+import { AttachManifestSheet } from './AttachManifestSheet';
 import { ExtrasTab } from './ExtrasTab';
 import { GoalSheet } from './GoalSheet';
 import { LogTab } from './LogTab';
@@ -26,7 +27,7 @@ import { NotesTab } from './NotesTab';
 import { ProgressTab } from './ProgressTab';
 import { QuickAttachSheet } from './QuickAttachSheet';
 import { SessionBar } from './SessionBar';
-import { errorMessageJa, goalViews, useGoalSecrets, useWorkData } from './workModel';
+import { errorMessageJa, goalViews, useGoalSecrets, useSealedEvaluation, useWorkData } from './workModel';
 import './work.css';
 
 export type WorkSheet = { type: 'goal' | 'sealed'; index: number } | undefined;
@@ -46,8 +47,10 @@ export function WorkScreen(props: WorkScreenProps): ReactNode {
   const { settings } = useSettings();
   const q = useWorkData(workId);
   const secrets = useGoalSecrets(workId);
+  useSealedEvaluation(workId);
   const [starting, setStarting] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const titleId = useId();
 
   const data = q.data;
@@ -197,6 +200,7 @@ export function WorkScreen(props: WorkScreenProps): ReactNode {
           onStartSession={() => void start()}
           onOpenGoal={openGoal}
           onQuickAttach={() => setQuickOpen(true)}
+          onAttachFile={() => setAttachOpen(true)}
         />
       );
       break;
@@ -283,6 +287,7 @@ export function WorkScreen(props: WorkScreenProps): ReactNode {
 
       {sheetNode}
       {quickOpen && !manifest ? <QuickAttachSheet work={work} onClose={() => setQuickOpen(false)} /> : null}
+      {attachOpen && !preview ? <AttachManifestSheet work={work} onClose={() => setAttachOpen(false)} /> : null}
     </main>
   );
 }

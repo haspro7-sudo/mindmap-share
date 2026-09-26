@@ -1,7 +1,8 @@
 // Data loading and pure view helpers for the work page (#/w/<id>) and 作品設定.
 // Everything is read through the repository in context (IdbRepo in the app, MemoryRepo in the studio preview).
 import { useEffect, useState } from 'react';
-import { decryptGoalSecrets, isCodeGoal } from '../../../app/unlock';
+import { withRepoLock } from '../../../app/repoLock';
+import { decryptGoalSecrets, evaluateSealed, isCodeGoal } from '../../../app/unlock';
 import { SESSION_MAX_MINUTES } from '../../../core/constants';
 import { isShioriError } from '../../../core/errors';
 import type {
@@ -19,7 +20,7 @@ import type {
   WorkRecord,
 } from '../../../core/types';
 import type { ShioriRepo } from '../../../storage/repo';
-import { useRepoQuery } from '../../context';
+import { useRepo, useRepoQuery } from '../../context';
 import type { RepoQuery } from '../../context';
 
 export interface WorkData {
@@ -74,35 +75,59 @@ export function useWorkData(workId: string): RepoQuery<WorkData | null> {
   return useRepoQuery((repo) => loadWorkData(repo, workId), [workId]);
 }
 
-/** goalId → decrypted GoalSecret for redeemed code goals. Never persisted; a failure yields {}. */
+/**
+ * goalId → decrypted GoalSecret for redeemed code goals. Never persisted; a failure yields an empty map.
+ * The maps have no prototype (goal ids such as 'constructor' are valid), and readers use goalSecret().
+ */
 export function useGoalSecrets(workId: string): Record<string, GoalSecret> {
   const q = useRepoQuery(
     async (repo) => {
       try {
         return await decryptGoalSecrets(repo, workId);
       } catch {
-        return {} as Record<string, GoalSecret>;
+        return Object.create(null) as Record<string, GoalSecret>;
       }
     },
     [workId],
   );
   return q.data ?? EMPTY_SECRETS;
 }
-const EMPTY_SECRETS: Record<string, GoalSecret> = Object.freeze({}) as Record<string, GoalSecret>;
+const EMPTY_SECRETS: Record<string, GoalSecret> = Object.freeze(Object.create(null)) as Record<string, GoalSecret>;
+
+/**
+ * Safety net for the sealed evaluation of §5.2: opening the work page opens the sealed extras that the work's
+ * redemptions already satisfy but that were never opened (e.g. data merged by an older version of the app).
+ * They are stored unseen, so the おまけ tab plays their envelopes. Failures are ignored (nothing is shown).
+ */
+export function useSealedEvaluation(workId: string): void {
+  const repo = useRepo();
+  useEffect(() => {
+    evaluateSealed(repo, workId).catch(() => undefined);
+  }, [repo, workId]);
+}
+
+/** The decrypted secret of one goal: own keys only, so 'constructor' or 'toString' never find a prototype member. */
+export function goalSecret(secrets: Readonly<Record<string, GoalSecret>>, goalId: string): GoalSecret | undefined {
+  return Object.hasOwn(secrets, goalId) ? secrets[goalId] : undefined;
+}
 
 /**
  * Re-reads the work right before writing so a stale copy never overwrites newer fields
- * (e.g. lastPlayedAt written by endSession while this screen was open).
+ * (e.g. lastPlayedAt written by endSession while this screen was open). Runs under the shared repository
+ * lock, so it can neither interleave with a service's read-modify-write nor re-create a work that a
+ * concurrent 「削除」 just removed.
  */
-export async function patchWork(
+export function patchWork(
   repo: ShioriRepo,
   workId: string,
   patch: (w: WorkRecord) => WorkRecord,
   now: number = Date.now(),
 ): Promise<void> {
-  const current = await repo.getWork(workId);
-  if (!current) return;
-  await repo.putWork({ ...patch(current), updatedAt: now });
+  return withRepoLock(repo, async () => {
+    const current = await repo.getWork(workId);
+    if (!current) return;
+    await repo.putWork({ ...patch(current), updatedAt: now });
+  });
 }
 
 /** User-facing Japanese message for any error thrown by a service. */
@@ -123,17 +148,20 @@ export function hintTierByGoal(hints: readonly HintReveal[]): Map<string, number
   return map;
 }
 
+const HINT_TIER_NAMES = ['示唆', '方向', '答え'] as const;
+
 /**
- * Name of hint tier i (1-based) out of `count`: the last tier is always 答え (docs/SPEC.md F8 AC2);
- * the ones before it are 示唆 then 方向.
+ * Name of hint tier i (1-based). Tiers are named by position, exactly as the studio labels the fields
+ * (docs/SPEC.md §4.1: tier order = 示唆, 方向, 答え): a goal with one or two hints has only 示唆 (and 方向),
+ * never an 答え.
  */
-export function hintTierName(i: number, count: number): string {
-  if (i >= count) return '答え';
-  return i === 1 ? '示唆' : '方向';
+export function hintTierName(i: number): string {
+  return HINT_TIER_NAMES[Math.min(Math.max(Math.trunc(i), 1), HINT_TIER_NAMES.length) - 1]!;
 }
 
-export function isAnswerTier(i: number, count: number): boolean {
-  return i >= count;
+/** Only the third tier is the answer, which asks for a confirmation before it is shown (F8 AC2). */
+export function isAnswerTier(i: number): boolean {
+  return i === HINT_TIER_NAMES.length;
 }
 
 /**
@@ -192,19 +220,39 @@ export function goalViews(
       isNew: fresh.has(goal.id),
     };
     if (p) v.progress = p;
-    const s = secrets[goal.id];
+    const s = goalSecret(secrets, goal.id);
     if (s && v.isCode) v.secret = s;
     return v;
   });
 }
 
-/** Unique goal id for a player-added goal (/^[a-z0-9][a-z0-9_-]{0,39}$/). */
-export function newGoalId(m: ShioriManifestV1): string {
+/**
+ * Id for a player-added goal (/^[a-z0-9][a-z0-9_-]{0,39}$/): `my-<n>` with n one past the highest `my-<n>`
+ * seen in the manifest AND in `taken`. Pass every goal id the work still has records for (progress, archived
+ * included, hints and goal notes): a deleted item's records stay keyed by its id, so reusing that id would hand
+ * the old completion, hint tier and note to a brand-new item.
+ */
+export function newGoalId(m: ShioriManifestV1, taken: Iterable<string> = []): string {
   const used = new Set(m.goals.map((g) => g.id));
-  for (let n = m.goals.length + 1; ; n++) {
+  for (const id of taken) used.add(id);
+  let max = m.goals.length;
+  for (const id of used) {
+    const match = /^my-(\d{1,9})$/.exec(id);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  for (let n = max + 1; ; n++) {
     const id = `my-${n}`;
     if (!used.has(id)) return id;
   }
+}
+
+/** Every goal id the work has records for (progress — archived included —, hints and goal notes). */
+export function goalIdsWithRecords(data: Pick<WorkData, 'progress' | 'hints' | 'notes'>): Set<string> {
+  const ids = new Set<string>();
+  for (const p of data.progress) ids.add(p.goalId);
+  for (const h of data.hints) ids.add(h.goalId);
+  for (const n of data.notes) if (n.goalId !== undefined) ids.add(n.goalId);
+  return ids;
 }
 
 /** mm:ss under an hour, h:mm:ss after (live session timer). */

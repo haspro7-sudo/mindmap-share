@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc -b",
     "demo:build": "tsx scripts/build-demo.ts",
-    "check:dist": "tsx scripts/check-dist.ts"
+    "check:dist": "tsx scripts/check-dist.ts",
+    "licenses": "tsx scripts/gen-licenses.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

@@ -7,6 +7,7 @@ import { QUICK_LABELS, QUICK_LIMITS, checkQuickCounts } from '../../core/manifes
 import type { QuickCounts } from '../../core/types';
 import { useRepo, useUi } from '../context';
 import { navigate } from '../router';
+import { leaveLayersThen } from './work/historyLayer';
 import { FocusHeading, WorkBasicsFields } from './AddWorkFields';
 import { errorMessageJa, focusFirst, useNextAlias, validateWorkBasics } from './libraryShared';
 import type { WorkBasics, WorkBasicsErrors } from './libraryShared';
@@ -100,7 +101,8 @@ export function QuickPackForm({ onCancel }: QuickPackFormProps): ReactNode {
       if (basics.storeCode.trim() !== '') input.storeCode = basics.storeCode;
       const work = await createQuickWork(repo, input);
       ui.toast('かんたんしおりを作りました', { tone: 'ok' });
-      navigate({ name: 'work', id: work.id, tab: 'progress' }, { replace: true });
+      // #/add's sub-view is a history layer: leave it first so the replace takes #/add's own entry.
+      leaveLayersThen(() => navigate({ name: 'work', id: work.id, tab: 'progress' }, { replace: true }));
     } catch (err) {
       ui.toast(errorMessageJa(err), { tone: 'danger' });
       busyRef.current = false;

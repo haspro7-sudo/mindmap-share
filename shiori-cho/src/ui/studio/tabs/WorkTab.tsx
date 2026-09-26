@@ -1,9 +1,9 @@
 // 工房 › 作品 tab (docs/SPEC.md F16, §6): work fields, app URL, advanced KDF iterations and the changelog.
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { newStudioWorkId } from '../../../app/studio';
+import { lintStudioProject, newStudioWorkId } from '../../../app/studio';
 import { KDF_ITERATIONS_DEFAULT, KDF_ITERATIONS_MAX, KDF_ITERATIONS_MIN, KDF_ITERATIONS_WARN_BELOW } from '../../../core/constants';
-import { isAllowedAppUrl } from '../../../core/manifest/lint';
+import { isAllowedAppUrl, isLocalAppUrl } from '../../../core/manifest/lint';
 import { MANIFEST_LIMITS, VERSION_RE, WORK_ID_RE } from '../../../core/manifest/schema';
 import { STORE_CODE_INVALID_JA, parseStoreCode } from '../../../core/storeCode';
 import type { ChangelogEntry, Engine, ManifestWork, WorkKind } from '../../../core/types';
@@ -26,26 +26,36 @@ import type { StudioTabProps } from './model';
 const WORK_ID_HELP = '半角の英小文字・数字・「-」で4〜40文字（先頭は英小文字か数字）。中身と関係のない文字列がおすすめです';
 const MSG_WORK_ID_INVALID = `作品IDは${WORK_ID_HELP.split('。')[0]}にしてください`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const MSG_RELEASED_WORK_ID = '発売済みの作品では作品IDを変えないでください';
 
 export function WorkTab({ project, update }: StudioTabProps): ReactNode {
   const ui = useUi();
   const w = project.work;
   const setWork = (patch: Partial<ManifestWork>) => update((p) => ({ ...p, work: { ...p.work, ...patch } }));
+  const issues = useMemo(() => lintStudioProject(project), [project]);
+  const issueAt = (path: string) => issues.find((i) => i.severity === 'error' && i.path === path)?.messageJa ?? null;
 
   const storeCodeError = w.storeCode && w.storeCode.trim() !== '' && !parseStoreCode(w.storeCode) ? STORE_CODE_INVALID_JA : null;
   const released = project.lastExportedAt !== undefined;
 
+  /** Every change of the work id (typed or regenerated) asks first once the work has been exported. */
+  const confirmWorkIdChange = async (): Promise<boolean> => {
+    if (!released) return true;
+    return ui.confirm({
+      title: MSG_RELEASED_WORK_ID,
+      body: '作品IDが変わると、プレイヤーの端末では別の作品として扱われ、これまでの記録やおまけが引き継がれません。それでも変えますか？',
+      okLabel: '変える',
+      danger: true,
+    });
+  };
+
   const regenerateWorkId = async () => {
-    if (released) {
-      const ok = await ui.confirm({
-        title: '発売済みの作品では作品IDを変えないでください',
-        body: '作品IDが変わると、プレイヤーの端末では別の作品として扱われ、これまでの記録やおまけが引き継がれません。それでも作り直しますか？',
-        okLabel: '作り直す',
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    setWork({ id: newStudioWorkId() });
+    if (!(await confirmWorkIdChange())) return;
+    // A new work also gets a new salt (made at the next 点検): every tag changes with the work id anyway.
+    update((p) => {
+      const { kdfSalt: _salt, ...rest } = p;
+      return { ...rest, work: { ...p.work, id: newStudioWorkId() } };
+    });
     ui.toast('作品IDを作り直しました');
   };
 
@@ -143,8 +153,12 @@ export function WorkTab({ project, update }: StudioTabProps): ReactNode {
           label="作品ID"
           value={w.id}
           validate={(next) => (WORK_ID_RE.test(next) ? null : MSG_WORK_ID_INVALID)}
-          onCommit={(next) => setWork({ id: next })}
-          issue={WORK_ID_RE.test(w.id) ? null : MSG_WORK_ID_INVALID}
+          onCommit={async (next) => {
+            if (!(await confirmWorkIdChange())) return false;
+            setWork({ id: next });
+            return true;
+          }}
+          issue={WORK_ID_RE.test(w.id) ? issueAt('work.id') : MSG_WORK_ID_INVALID}
           hint={
             <>
               {WORK_ID_HELP}。しおりファイルの更新を同じ作品として受け取るための目印なので、
@@ -169,9 +183,11 @@ export function WorkTab({ project, update }: StudioTabProps): ReactNode {
           warning={
             project.appUrl.trim() === ''
               ? 'URLが空です。QRコードが使えません'
-              : isAllowedAppUrl(project.appUrl)
-                ? null
-                : 'https:// で始まるURLにしてください（試験用の http://localhost は使えます）'
+              : !isAllowedAppUrl(project.appUrl)
+                ? 'https:// で始まるURLにしてください（試験用の http://localhost は使えます）'
+                : isLocalAppUrl(project.appUrl)
+                  ? '試験用のURLです。配布するキットには、公開しているアプリのURLを設定してください'
+                  : null
           }
         />
         <div className="row-wrap">
@@ -194,6 +210,7 @@ export function WorkTab({ project, update }: StudioTabProps): ReactNode {
             鍵のソルト：
             {project.kdfSalt ? '作成済み（点検や書き出しのたびに同じものを使います）' : 'まだありません（最初の点検で作られます）'}
           </p>
+          {issueAt('kdfSalt') ? <p className="field-error">{issueAt('kdfSalt')}</p> : null}
         </div>
       </details>
 
@@ -227,7 +244,9 @@ function IterationsField({ value, onChange }: { value: number; onChange(n: numbe
         onChange={(e) => {
           const v = e.target.value.replace(/[^\d]/g, '').slice(0, 7);
           setText(v);
-          if (/^\d+$/.test(v)) onChange(Number(v));
+          // Only values the project file schema accepts are saved (1..max); the lint enforces the real minimum.
+          const next = Number(v);
+          if (/^\d+$/.test(v) && next >= 1 && next <= KDF_ITERATIONS_MAX) onChange(next);
         }}
       />
       <div id={`${id}-hint`}>

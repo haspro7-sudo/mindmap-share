@@ -52,6 +52,9 @@
   flex: none;
   color: var(--muted);
 }
+.sheet-hide {
+  color: var(--muted);
+}
 .sheet-body {
   flex: 1 1 auto;
   overflow-y: auto;

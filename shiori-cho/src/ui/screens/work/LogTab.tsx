@@ -1,7 +1,7 @@
 // 記録 tab (docs/SPEC.md F13 AC4): 累計時間, 最終プレイ日 and the session list (edit in a sheet, delete with confirm).
 import { useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { SESSION_NOTE_MAX_CHARS, editSession } from '../../../app/sessions';
+import { SESSION_NOTE_MAX_CHARS, deleteSession, editSession } from '../../../app/sessions';
 import { SESSION_MAX_MINUTES } from '../../../core/constants';
 import { formatMinutesJa, totalMinutes } from '../../../core/session';
 import type { Checkpoint, Session } from '../../../core/types';
@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Sheet } from '../../components/Sheet';
 import { useRepo, useUi } from '../../context';
 import { formatDateJa, formatDateTimeJa } from '../../format';
+import { useBackToClose } from './historyLayer';
 import { charCount, errorMessageJa, parseMinutesField } from './workModel';
 import type { WorkData } from './workModel';
 
@@ -20,7 +21,8 @@ export function LogTab({ data }: { data: WorkData }): ReactNode {
   const sessions = data.sessions;
   const ended = sessions.filter((s) => s.endedAt !== undefined);
   const lastEnded = ended.reduce<number | undefined>((acc, s) => (acc === undefined || s.endedAt! > acc ? s.endedAt : acc), undefined);
-  const lastPlayed = data.work.lastPlayedAt ?? lastEnded;
+  // From the sessions themselves, so a deleted or re-timed record never shows here (work.lastPlayedAt follows them).
+  const lastPlayed = lastEnded;
   const cpLabel = (id?: string) => (id ? checkpoints.find((c) => c.id === id)?.label : undefined);
 
   const remove = async (s: Session) => {
@@ -32,7 +34,7 @@ export function LogTab({ data }: { data: WorkData }): ReactNode {
     });
     if (!ok) return;
     try {
-      await repo.deleteSession(s.id);
+      await deleteSession(repo, s.id);
       ui.toast('記録を削除しました');
     } catch (e) {
       ui.toast(errorMessageJa(e), { tone: 'danger' });
@@ -242,9 +244,11 @@ function SessionEditSheet({
   });
   const [minutesError, setMinutesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useBackToClose(true, onClose);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     const parsed = parseMinutesField(values.minutes);
     if (!parsed.ok) {
       setMinutesError(parsed.message);

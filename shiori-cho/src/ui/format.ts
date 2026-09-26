@@ -21,6 +21,16 @@ export const KIND_ORDER: readonly WorkKind[] = ['game', 'voice', 'cg', 'comic', 
 
 export const COVER_COLORS: readonly CoverColor[] = ['paper', 'sky', 'leaf', 'sun', 'rose', 'plum', 'slate'];
 export const COVER_EMOJIS: readonly string[] = ['📘', '📗', '📕', '📙', '🎧', '🖼️', '🌙', '⭐', '🌸', '🍵', '🐈', '🔖'];
+/** Names of the cover colors: one table for every screen that offers them (記録だけ付ける, 作品設定). */
+export const COVER_COLOR_LABEL: Record<CoverColor, string> = {
+  paper: '生成り',
+  sky: '空色',
+  leaf: '若葉色',
+  sun: '山吹色',
+  rose: '桜色',
+  plum: '藤色',
+  slate: '灰色',
+};
 
 export const SPOILER_LABEL: Record<SpoilerLevel, string> = {
   0: '0: 項目名も伏せる',

@@ -1,6 +1,7 @@
 // #/add 作品を追加 (docs/SPEC.md F5 AC1–AC2, F6, F4 AC1, F17 AC1): four entries —
 // しおりファイルを読み込む (file picker, drag & drop, paste → ImportPreview), かんたんしおりを作る (QuickPackForm),
-// 記録だけ付ける (ManualWorkForm) and サンプルを試す. The sub-views are component state, never routes.
+// 記録だけ付ける (ManualWorkForm) and サンプルを試す. The sub-views are component state, never routes, but each
+// is a history layer (work/historyLayer.ts): Back returns to the menu instead of leaving #/add and the input.
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { readClipboard, readFileAsText } from '../../app/platform';
@@ -14,6 +15,7 @@ import { ImportPreview } from './ImportPreview';
 import { MSG_FILE_TOO_LARGE, errorMessageJa, useTrySamples } from './libraryShared';
 import { ManualWorkForm } from './ManualWorkForm';
 import { QuickPackForm } from './QuickPackForm';
+import { useBackToClose } from './work/historyLayer';
 import './AddWork.css';
 
 type View =
@@ -39,6 +41,7 @@ export function AddWorkScreen(): ReactNode {
     setView({ name: 'menu' });
     setReturned(true);
   }, []);
+  useBackToClose(view.name !== 'menu', toMenu);
 
   let body: ReactNode;
   switch (view.name) {

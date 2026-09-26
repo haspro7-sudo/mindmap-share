@@ -28,6 +28,7 @@ import {
   normalizeSettings,
   settingsAfterReplace,
   stripRedemption,
+  withRedemptionCache,
 } from './shared';
 
 export const PLAYER_DB_VERSION = 1;
@@ -156,6 +157,8 @@ export async function openIdbRepo(dbName: string = DB_PLAYER): Promise<ShioriRep
     stores: StoreName[],
     bump: boolean,
     fn: (tx: Tx<'readwrite'>) => Promise<T>,
+    /** whether listeners should hear about this commit (default: always) */
+    notify: (result: T) => boolean = () => true,
   ): Promise<T> {
     const db = await managed.get();
     const names = bump && !stores.includes('meta') ? [...stores, 'meta' as const] : stores;
@@ -182,7 +185,7 @@ export async function openIdbRepo(dbName: string = DB_PLAYER): Promise<ShioriRep
     } catch (e) {
       throw storageFailure(e);
     }
-    emitter.emit();
+    if (notify(result)) emitter.emit();
     return result;
   }
 
@@ -274,6 +277,23 @@ export async function openIdbRepo(dbName: string = DB_PLAYER): Promise<ShioriRep
       assertKeys(r, KEY_FIELDS.redemptions, 'putRedemption');
       await write(['redemptions'], true, (tx) => tx.objectStore('redemptions').put(r));
     },
+    putRedemptionCache: async (workId, goalId, canonical, cache) => {
+      if (typeof workId !== 'string' || typeof goalId !== 'string') return;
+      await write(
+        ['redemptions'],
+        false,
+        async (tx) => {
+          const store = tx.objectStore('redemptions');
+          const current = await store.get([workId, goalId]);
+          if (!current || current.canonical !== canonical) return false;
+          const next = withRedemptionCache(current, cache);
+          if (next === current) return false;
+          await store.put(next);
+          return true;
+        },
+        (changed) => changed,
+      );
+    },
 
     // ── hints ──
     listHints: (workId) =>
@@ -282,6 +302,7 @@ export async function openIdbRepo(dbName: string = DB_PLAYER): Promise<ShioriRep
       assertKeys(h, KEY_FIELDS.hints, 'putHint');
       await write(['hints'], true, (tx) => tx.objectStore('hints').put(h));
     },
+    deleteHint: (workId, goalId) => write(['hints'], true, (tx) => tx.objectStore('hints').delete([workId, goalId])),
 
     // ── sessions ──
     listSessions: (workId) =>

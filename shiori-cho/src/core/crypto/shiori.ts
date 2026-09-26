@@ -17,7 +17,7 @@ export const TAG_BYTES = 16;
 
 const MSG_KDF = '鍵の設定（kdf）が正しくありません';
 const MSG_MASTERS = '合言葉の鍵が正しくありません';
-const MSG_SECRET_INVALID = 'ゴールの秘密情報の形式が正しくありません';
+const MSG_SECRET_INVALID = '目標の秘密情報の形式が正しくありません';
 const MSG_PAYLOAD_INVALID = 'おまけの内容の形式が正しくありません';
 const MSG_RNG = '乱数の生成に失敗しました';
 

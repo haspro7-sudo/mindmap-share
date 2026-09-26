@@ -71,6 +71,9 @@ describe('DemoPcScreen (PC画面シミュレータ, F17 AC3)', () => {
 
     const panel = screen.getByRole('region', { name: 'しおり帳の合言葉：' });
     expect(within(panel).getByText('ST4-RMA-P1X')).toBeTruthy();
+    // there is no in-app scanner: the QR is read with the phone's own camera
+    expect(within(panel).getByText('スマホのカメラでQRを読み取るか、しおり帳の「合言葉」に入力してください。')).toBeTruthy();
+    expect(within(panel).queryByText(/しおり帳でQRを読み取る/)).toBeNull();
     const qr = within(panel).getByRole('img', { name: '合言葉 ST4-RMA-P1X のQRコード' });
     const url = buildUnlockUrl(location.origin + location.pathname, PC_WORK_ID, 'b32:ST4RMAP1X');
     expect(qr.querySelector('path')?.getAttribute('d')).toBe(qrSvgPath(url).path);

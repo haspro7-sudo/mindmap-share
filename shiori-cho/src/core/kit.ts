@@ -26,22 +26,37 @@ const APP_NAME = 'しおり帳';
 // ───────────────────────── CSV ─────────────────────────
 
 const CSV_NEEDS_QUOTES = /[",\r\n]/;
+/** Cells that spreadsheet apps (Excel, LibreOffice, Google Sheets) would read as a formula. */
+const CSV_FORMULA_START = /^[=+\-@\t\r]/;
 
-/** RFC 4180 CSV escaping for one row */
+/**
+ * RFC 4180 CSV escaping for one row. A cell that starts with = + - @ (or a tab / CR) gets a leading apostrophe and
+ * is quoted (OWASP CSV-injection guidance), so a label such as 「-END-」 or 「=真エンド=」 shows as text, not as a formula.
+ */
 export function csvRow(cells: readonly string[]): string {
   return (
     cells
       .map((c) => {
-        const s = String(c ?? '');
-        return CSV_NEEDS_QUOTES.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        const raw = String(c ?? '');
+        const formula = CSV_FORMULA_START.test(raw);
+        const s = formula ? `'${raw}` : raw;
+        return formula || CSV_NEEDS_QUOTES.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       })
       .join(',') + '\r\n'
   );
 }
 
-function codesCsv(codes: readonly CodeRow[]): string {
+/**
+ * True when the app URL is an absolute http(s) URL, so unlock URLs and QR codes can open the app from a phone camera.
+ * Without it an unlock "URL" is only a fragment ('#/u/…'): the kit then has no QR codes and no 解放URL.
+ */
+export function kitHasAppUrl(appUrl: string): boolean {
+  return /^https?:\/\/[^\s/?#]+/i.test(appUrl.trim());
+}
+
+function codesCsv(codes: readonly CodeRow[], withUrls: boolean): string {
   const rows = codes.map((c) =>
-    csvRow([c.goalId, c.label, c.secretTitle, c.codeKind === 'kana' ? 'ひらがな' : '英数字', c.display, c.unlockUrl]),
+    csvRow([c.goalId, c.label, c.secretTitle, c.codeKind === 'kana' ? 'ひらがな' : '英数字', c.display, withUrls ? c.unlockUrl : '']),
   );
   return BOM + csvRow(CODES_CSV_HEADER) + rows.join('');
 }
@@ -160,6 +175,7 @@ const CODE_WHERE: Readonly<Record<WorkKind, string>> = {
 function playerReadme(project: StudioProject, codes: readonly CodeRow[], appUrl: string): string {
   const { work } = project;
   const url = appUrl.trim();
+  const qr = kitHasAppUrl(url);
   const lines = [
     `『${work.title}』しおり帳 対応のご案内`,
     '',
@@ -182,7 +198,7 @@ function playerReadme(project: StudioProject, codes: readonly CodeRow[], appUrl:
   if (codes.length > 0) {
     lines.push(
       `4. ${CODE_WHERE[work.kind]}「合言葉」（英数字9文字、またはひらがな5語）が出てきます。`,
-      `   ${APP_NAME}の「合言葉」画面で入力してください。QRコードがある場合は、スマホのカメラで読み取っても開けます。`,
+      `   ${APP_NAME}の「合言葉」画面で入力してください。${qr ? 'QRコードがある場合は、スマホのカメラで読み取っても開けます。' : ''}`,
     );
   }
   lines.push(
@@ -215,7 +231,7 @@ function spokenCode(row: CodeRow | undefined): string {
   return parts.join('、');
 }
 
-function snippetsText(project: StudioProject, codes: readonly CodeRow[], salt: string | undefined): string {
+function snippetsText(project: StudioProject, codes: readonly CodeRow[], salt: string | undefined, withQr: boolean): string {
   const ex = codes[0];
   const code = ex?.display ?? PLACEHOLDER_B32;
   const goalId = ex?.goalId ?? PLACEHOLDER_GOAL;
@@ -232,21 +248,29 @@ function snippetsText(project: StudioProject, codes: readonly CodeRow[], salt: s
     ex
       ? `例として、目標「${ex.label}」（${ex.goalId}）の合言葉 ${code} を使っています。`
       : `合言葉つきの目標がまだないため、${PLACEHOLDER_B32} を仮の合言葉として使っています。`,
-    'ほかの目標の合言葉は codes.csv に、QRコード画像は qr/<目標ID>.png にあります。',
-    'プラグインは必要ありません。プレイヤーが目標を達成した場面で、合言葉の文字列（またはQRコード画像）を表示するだけです。',
+    withQr
+      ? 'ほかの目標の合言葉は codes.csv に、QRコード画像は qr/<目標ID>.png にあります。'
+      : 'ほかの目標の合言葉は codes.csv にあります。（アプリのURLが未設定のため、QRコード画像は入っていません。工房の「作品」タブでURLを設定して書き出し直すと入ります）',
+    withQr
+      ? 'プラグインは必要ありません。プレイヤーが目標を達成した場面で、合言葉の文字列（またはQRコード画像）を表示するだけです。'
+      : 'プラグインは必要ありません。プレイヤーが目標を達成した場面で、合言葉の文字列を表示するだけです。',
     '',
     heading(ENGINE_SECTIONS[0]!.title, isMine(0)),
     '「文章の表示」に次のように書きます（\\C[3] で文字の色を変えています）。',
     `  しおり帳の合言葉：\\C[3]${code}\\C[0]`,
-    `QRコードも出す場合は、${qr} を img/pictures/${pic} としてコピーし、「ピクチャの表示」で表示します。`,
+    ...(withQr ? [`QRコードも出す場合は、${qr} を img/pictures/${pic} としてコピーし、「ピクチャの表示」で表示します。`] : []),
     '',
     heading(ENGINE_SECTIONS[1]!.title, isMine(1)),
     `  しおり帳の合言葉：${code}[p]`,
-    `QRコードも出す場合は、${qr} を data/fgimage/${pic} としてコピーし、次のように表示します。`,
-    `  [image layer=1 storage="${pic}"]`,
-    'マクロにまとめる例：',
-    '  [macro name="shiori_code"][layopt layer=1 visible=true][image layer=1 storage=%qr x=440 y=120][ptext layer=1 text=%code size=40 x=440 y=560][l][freeimage layer=1][endmacro]',
-    `  [shiori_code code="${code}" qr="${pic}"]`,
+    ...(withQr
+      ? [
+          `QRコードも出す場合は、${qr} を data/fgimage/${pic} としてコピーし、次のように表示します。`,
+          `  [image layer=1 storage="${pic}"]`,
+          'マクロにまとめる例：',
+          '  [macro name="shiori_code"][layopt layer=1 visible=true][image layer=1 storage=%qr x=440 y=120][ptext layer=1 text=%code size=40 x=440 y=560][l][freeimage layer=1][endmacro]',
+          `  [shiori_code code="${code}" qr="${pic}"]`,
+        ]
+      : []),
     '',
     heading(ENGINE_SECTIONS[2]!.title, isMine(2)),
     '「文章表示」コマンドに次のように書きます（\\c[2] で文字の色を変えています）。',
@@ -265,7 +289,7 @@ function snippetsText(project: StudioProject, codes: readonly CodeRow[], salt: s
     '英数字の合言葉は聞き間違えやすいため、音声作品では「ひらがな5語」の合言葉をおすすめします。',
     '',
     heading('CG集・マンガ', project.work.kind === 'cg' || project.work.kind === 'comic'),
-    '最後のページに、合言葉（とQRコード）を載せます。',
+    withQr ? '最後のページに、合言葉（とQRコード）を載せます。' : '最後のページに、合言葉を載せます。',
     `  しおり帳の合言葉：${code}`,
     '',
     '■ 返し合言葉（任意）',
@@ -303,7 +327,7 @@ function storeTemplateText(project: StudioProject): string {
   ]);
 }
 
-function creatorReadme(project: StudioProject, codes: readonly CodeRow[]): string {
+function creatorReadme(project: StudioProject, codes: readonly CodeRow[], withQr: boolean): string {
   const { work } = project;
   return crlf([
     'README_最初に読んでください',
@@ -316,15 +340,20 @@ function creatorReadme(project: StudioProject, codes: readonly CodeRow[]): strin
     `[ ] ${KIT_PATHS.shioriJson} …… しおりファイル。合言葉で開く部分は暗号化されています`,
     `[ ] ${KIT_PATHS.readmePlayer} …… プレイヤー向けの使い方`,
     '',
-    '■ 絶対に同梱・公開しない',
+    '■ 絶対に同梱・公開しない（秘密を含みます）',
     `[ ] ${KIT_PATHS.codesCsv} …… すべての合言葉の一覧です`,
-    `[ ] ${KIT_QR_DIR}/ …… 合言葉のQRコード画像（512×600）。作中の表示場面で使う分だけを組み込みます`,
+    withQr
+      ? `[ ] ${KIT_QR_DIR}/ …… 合言葉のQRコード画像（512×600）。作中の表示場面で使う分だけを組み込みます`
+      : `（${KIT_QR_DIR}/ …… アプリのURLが未設定のため、QRコード画像は入っていません）`,
     `[ ] ${KIT_PATHS.snippets} …… 表示例（合言葉を含みます）`,
     `[ ] ${KIT_PATHS.projectBackup} …… 秘密をすべて含むプロジェクトの控え。安全な場所に保管してください`,
-    `[ ] ${KIT_PATHS.storeTemplate} と、この README`,
+    '',
+    '■ 作品のzipには入れない（手元用・秘密は含みません）',
+    `[ ] ${KIT_PATHS.storeTemplate} …… 告知文のひな形。文章は作品ページの説明文などにそのまま使えます`,
+    `[ ] ${KIT_PATHS.readmeCreator} …… この README`,
     '',
     '■ 手順',
-    `1. 作中でプレイヤーが目標を達成する場面に、合言葉（またはQRコード画像）を表示します（${codes.length}件）。`,
+    `1. 作中でプレイヤーが目標を達成する場面に、合言葉${withQr ? '（またはQRコード画像）' : ''}を表示します（${codes.length}件）。`,
     '   書き方はエンジン別の表示例.txt を見てください。プラグインは不要です。',
     `2. ${MANIFEST_FILE_NAME} と はじめに.txt を作品のzipに入れます。発売済みの作品にはアップデートで追加できます。`,
     `3. ${KIT_PATHS.storeTemplate} を参考に、作品ページで案内します。`,
@@ -349,6 +378,8 @@ function kdfSaltOf(json: string, project: StudioProject): string | undefined {
 }
 
 /**
+ * Without an absolute app URL (kitHasAppUrl) the 解放URL column of codes.csv is left empty and the texts do not
+ * mention QR codes (app/studio.ts then adds no QR PNGs).
  * Returns exactly these paths (all string content):
  *  同梱用_PUBLIC/shiori.json, 同梱用_PUBLIC/はじめに.txt, 非公開_ゲームに埋め込む/codes.csv,
  *  非公開_ゲームに埋め込む/エンジン別の表示例.txt, 非公開_控え/project.shiori-studio.json,
@@ -356,13 +387,14 @@ function kdfSaltOf(json: string, project: StudioProject): string | undefined {
  */
 export function buildKitTextFiles(args: { project: StudioProject; json: string; codes: readonly CodeRow[]; appUrl: string }): KitFile[] {
   const { project, json, codes, appUrl } = args;
+  const withUrls = kitHasAppUrl(appUrl);
   return [
     { path: KIT_PATHS.shioriJson, content: json },
     { path: KIT_PATHS.readmePlayer, content: playerReadme(project, codes, appUrl) },
-    { path: KIT_PATHS.codesCsv, content: codesCsv(codes) },
-    { path: KIT_PATHS.snippets, content: snippetsText(project, codes, kdfSaltOf(json, project)) },
+    { path: KIT_PATHS.codesCsv, content: codesCsv(codes, withUrls) },
+    { path: KIT_PATHS.snippets, content: snippetsText(project, codes, kdfSaltOf(json, project), withUrls) },
     { path: KIT_PATHS.projectBackup, content: JSON.stringify(project, null, 2) },
     { path: KIT_PATHS.storeTemplate, content: storeTemplateText(project) },
-    { path: KIT_PATHS.readmeCreator, content: creatorReadme(project, codes) },
+    { path: KIT_PATHS.readmeCreator, content: creatorReadme(project, codes, withUrls) },
   ];
 }

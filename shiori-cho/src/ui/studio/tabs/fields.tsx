@@ -1,8 +1,10 @@
 // Small form building blocks of the サークル工房 editor: labelled text fields with a 公開/秘密 marker and a
 // character counter, an id field that commits on blur, reorder/delete buttons and inline issue lists.
-import { useId, useState } from 'react';
+// Text fields never store characters the manifest rejects (sanitizeFieldText), so a project backup always restores.
+import { useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { ValidationIssue } from '../../../core/types';
+import { sanitizeFieldText } from './model';
 
 export type Visibility = 'public' | 'secret';
 
@@ -93,7 +95,12 @@ export function TextField(props: TextFieldProps): ReactNode {
         ) : null}
       </div>
       {multiline ? (
-        <textarea {...common} className={`textarea${mono ? ' mono' : ''}`} rows={rows} onChange={(e) => onChange(e.target.value)} />
+        <textarea
+          {...common}
+          className={`textarea${mono ? ' mono' : ''}`}
+          rows={rows}
+          onChange={(e) => onChange(sanitizeFieldText(e.target.value, true))}
+        />
       ) : (
         <input
           {...common}
@@ -101,7 +108,7 @@ export function TextField(props: TextFieldProps): ReactNode {
           type={type}
           inputMode={inputMode === 'latin' ? 'text' : inputMode}
           autoCapitalize={inputMode === 'latin' || inputMode === 'url' ? 'off' : undefined}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(sanitizeFieldText(e.target.value, false))}
         />
       )}
       {hint ? (
@@ -179,8 +186,11 @@ export interface IdFieldProps {
   value: string;
   /** returns a Japanese error for an unacceptable id, or null */
   validate(next: string): string | null;
-  /** called on blur / Enter with a new, valid id */
-  onCommit(next: string): void;
+  /**
+   * Called on blur / Enter with a new, valid id. May ask first (e.g. a confirmation for a released work): returning
+   * false (or a promise of false) keeps the stored id and puts it back into the input.
+   */
+  onCommit(next: string): void | boolean | Promise<boolean>;
   hint?: ReactNode;
   /** extra problem reported by the project lint (e.g. duplicate id in an imported file) */
   issue?: string | null;
@@ -189,13 +199,16 @@ export interface IdFieldProps {
 
 /**
  * An id input that edits locally and commits on blur or Enter, so references are renamed once (not on every
- * keystroke) and a half-typed id never collides with another item. Escape restores the stored id.
+ * keystroke) and a half-typed id never collides with another item. Escape restores the stored id, and so does a
+ * commit that onCommit declines. While an asynchronous commit (a confirmation) is pending, further commits (the
+ * blur caused by the dialog) are ignored.
  */
 export function IdField({ label, value, validate, onCommit, hint, issue, compact = false }: IdFieldProps): ReactNode {
   const id = useId();
   const [text, setText] = useState(value);
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState(value);
+  const pending = useRef(false);
   // The stored id changed (commit, rename elsewhere, reorder): show it and drop the local edit.
   if (shown !== value) {
     setShown(value);
@@ -203,11 +216,16 @@ export function IdField({ label, value, validate, onCommit, hint, issue, compact
     setError(null);
   }
 
+  const revert = () => {
+    setText(value);
+    setError(null);
+  };
+
   const commit = () => {
+    if (pending.current) return;
     const next = text.trim();
     if (next === value) {
-      setText(value);
-      setError(null);
+      revert();
       return;
     }
     const err = validate(next);
@@ -216,7 +234,19 @@ export function IdField({ label, value, validate, onCommit, hint, issue, compact
       return;
     }
     setError(null);
-    onCommit(next);
+    const result = onCommit(next);
+    if (result instanceof Promise) {
+      pending.current = true;
+      void result
+        .then((ok) => {
+          if (!ok) revert();
+        }, revert)
+        .finally(() => {
+          pending.current = false;
+        });
+    } else if (result === false) {
+      revert();
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

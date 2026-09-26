@@ -12,12 +12,16 @@
   --muted: #6f695d;
   --border: #e2dac8;
   --border-strong: #cfc4ad;
+  /* outline of form controls and check rings: ≥ 3:1 against --surface / --surface-2 / --bg (WCAG 1.4.11);
+     --border-strong stays for decorative lines */
+  --control-border: #887e6c;
   --accent: #35557a;
   --accent-ink: #ffffff;
   --accent-soft: #e3eaf3;
-  --ok: #3f7a52;
+  /* ≥ 4.5:1 on their -soft backgrounds (small badge text) */
+  --ok: #356a46;
   --ok-soft: #e2efe5;
-  --warn: #9a6a12;
+  --warn: #85590c;
   --warn-soft: #f6ecd6;
   --danger: #b0413b;
   --danger-soft: #f7e3e1;
@@ -53,6 +57,7 @@
     --muted: #a39c8e;
     --border: #3a3731;
     --border-strong: #4d4940;
+    --control-border: #857d6b;
     --accent: #9dbbe0;
     --accent-ink: #13202f;
     --accent-soft: #273447;
@@ -256,10 +261,17 @@ textarea {
 .btn-block {
   width: 100%;
 }
+/* "small" = smaller type and padding; the tap target stays ≥ 44 px (F18 AC3) */
 .btn-sm {
-  min-height: 36px;
+  min-height: var(--tap);
   padding: 0 12px;
   font-size: 0.9rem;
+}
+/* 「隠す」 (components/HideButton): header, sheets, dialogs, envelope */
+.hide-btn {
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
 }
 .icon-btn {
   display: inline-flex;
@@ -277,7 +289,7 @@ textarea {
 .chip {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
+  min-height: var(--tap);
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
@@ -346,7 +358,7 @@ textarea {
   min-height: var(--tap);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--control-border);
   background: var(--surface);
 }
 .textarea {

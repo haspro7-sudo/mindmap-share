@@ -22,7 +22,7 @@ const ALLOWED_HOSTS = new Set([
 
 /** Hosts allowed only in specific files: library strings that are never requested. */
 const ALLOWED_IN_FILE: ReadonlyArray<{ file: RegExp; host: string }> = [
-  { file: /^dist\/assets\/index-[\w-]+\.js$/, host: 'json-schema.org' }, // zod toJSONSchema `$schema` identifiers
+  { file: /^dist\/assets\/[\w-]+\.js$/, host: 'json-schema.org' }, // zod toJSONSchema `$schema` identifiers (whichever chunk zod lands in)
   { file: /^dist\/workbox-[\w-]+\.js$/, host: 'bit.ly' }, // workbox console.warn help link
 ]
 

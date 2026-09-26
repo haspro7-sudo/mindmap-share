@@ -4,9 +4,11 @@
 // but they are cheap to redo and must never outlive the edits they describe.
 import { useSyncExternalStore } from 'react';
 import { assertBuildMatchesProject, buildAndCheck } from '../../../app/studio';
-import type { CheckReport } from '../../../app/studio';
+import type { CheckReport, OtherProject, StudioCheckOptions } from '../../../app/studio';
 import { isShioriError } from '../../../core/errors';
-import type { BuildResult, StudioProject } from '../../../core/types';
+import type { BuildResult, Settings, StudioProject } from '../../../core/types';
+import type { StudioRepo } from '../../../storage/repo';
+import { projectDisplayTitle } from './model';
 
 export interface CheckEntry {
   projectId: string;
@@ -42,14 +44,31 @@ export function freshCheck(project: Pick<StudioProject, 'id' | 'updatedAt'>): Ch
 }
 
 /**
- * Runs 点検 for this project version, or joins the run already in flight for it. The result replaces the stored
- * entry unless a newer version was checked meanwhile.
+ * The studio's other projects for the 作品ID・合言葉 collision warnings of 点検, named as the list shows them
+ * (the alias in おしのびモード). An unreadable repository just means no collision warnings.
  */
-export function runCheck(project: StudioProject): Promise<CheckEntry> {
+export async function otherProjects(
+  repo: StudioRepo,
+  projectId: string,
+  settings: Pick<Settings, 'discreet'>,
+): Promise<OtherProject[]> {
+  try {
+    const all = await repo.list();
+    return all.filter((p) => p.id !== projectId).map((p) => ({ project: p, name: projectDisplayTitle(p, settings) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Runs 点検 for this project version, or joins the run already in flight for it. The result replaces the stored
+ * entry unless a newer version was checked meanwhile. `opts.others` adds collision warnings (see otherProjects).
+ */
+export function runCheck(project: StudioProject, opts: StudioCheckOptions = {}): Promise<CheckEntry> {
   const running = inflight.get(project.id);
   if (running && running.updatedAt === project.updatedAt) return running.promise;
   const snapshot = project;
-  const promise = buildAndCheck(snapshot)
+  const promise = buildAndCheck(snapshot, opts)
     .then((report) => {
       const entry: CheckEntry = {
         projectId: snapshot.id,

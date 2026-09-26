@@ -1,6 +1,7 @@
 // Bottom navigation: 本棚 (#/), 合言葉 (#/code), 設定 (#/settings). aria-current="page" on the current
 // top-level page; sub-pages highlight their section.
 import type { ReactNode } from 'react';
+import { useHtmlFlag } from '../components/toastLift';
 import { hrefFor, useRoute } from '../router';
 import { sectionOf } from './navigation';
 import type { NavSection } from './navigation';
@@ -36,6 +37,8 @@ const HREF: Record<NavSection, string> = {
 
 export function BottomNav(): ReactNode {
   const route = useRoute();
+  // toasts keep clear of the navigation while it is shown (UiProvider.css)
+  useHtmlFlag('bottom-nav', true);
   const section = sectionOf(route);
   return (
     <nav className="bnav" aria-label="メインメニュー">

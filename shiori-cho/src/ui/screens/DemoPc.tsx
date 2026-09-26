@@ -294,7 +294,7 @@ function EndingCard({
           <p className="dpc-ending-code" translate="no">
             {ending.display}
           </p>
-          <p className="dpc-ending-note">スマホのしおり帳でQRを読み取るか、合言葉を入力してください。</p>
+          <p className="dpc-ending-note">スマホのカメラでQRを読み取るか、しおり帳の「合言葉」に入力してください。</p>
           {link ? (
             <button type="button" className="dpc-choice dpc-choice-primary" onClick={() => onEnter(link.code)} data-autofocus="">
               この端末で入力する

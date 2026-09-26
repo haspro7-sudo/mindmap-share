@@ -30,6 +30,8 @@ jobs:
           cache: npm
           cache-dependency-path: shiori-cho/package-lock.json
       - run: npm ci
+      # public/licenses.txt (third-party notices) must match the installed runtime dependencies
+      - run: npx tsx scripts/gen-licenses.ts --check
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

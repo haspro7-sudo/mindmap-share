@@ -1,14 +1,23 @@
 // @vitest-environment jsdom
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as backup from '../../app/backup';
 import { exportBackupFile } from '../../app/backup';
 import { importBundledDemos } from '../../app/library';
 import * as platform from '../../app/platform';
-import { verifyPin } from '../../core/crypto/pin';
+import { PIN_COOLDOWN_MS } from '../../core/constants';
+import { hashPin, verifyPin } from '../../core/crypto/pin';
 import * as idb from '../../storage/idbRepo';
-import { createMemoryRepo } from '../../storage/memoryRepo';
+import { createMemoryRepo, createMemoryStudioRepo } from '../../storage/memoryRepo';
+import * as studioStorage from '../../storage/studioRepo';
 import { renderWithProviders } from '../../test/renderWithProviders';
+import { RepoContext, StudioRepoContext } from '../context';
+import { SettingsProvider } from '../shell/SettingsProvider';
+import { UiProvider } from '../shell/UiProvider';
 import { SettingsScreen } from './Settings';
+import { MSG_PIN_COOLDOWN } from './settings/LockSection';
 import { restartApp } from './settings/restart';
 
 vi.mock('../../app/platform', async (importOriginal) => {
@@ -20,11 +29,20 @@ vi.mock('../../storage/idbRepo', async (importOriginal) => {
   const m = await importOriginal<typeof import('../../storage/idbRepo')>();
   return { ...m, deleteIdbDatabase: vi.fn(async () => undefined) };
 });
+vi.mock('../../storage/studioRepo', async (importOriginal) => {
+  const m = await importOriginal<typeof import('../../storage/studioRepo')>();
+  return { ...m, deleteIdbStudioDatabase: vi.fn(async () => undefined) };
+});
+vi.mock('../../app/backup', async (importOriginal) => {
+  const m = await importOriginal<typeof import('../../app/backup')>();
+  return { ...m, exportBackupFile: vi.fn(m.exportBackupFile) };
+});
 
 beforeEach(() => {
   window.location.hash = '#/settings';
   vi.mocked(platform.download).mockClear();
   vi.mocked(idb.deleteIdbDatabase).mockClear();
+  vi.mocked(studioStorage.deleteIdbStudioDatabase).mockClear();
   vi.mocked(restartApp).mockClear();
 });
 
@@ -84,6 +102,86 @@ describe('SettingsScreen (設定)', () => {
     expect(await screen.findByText('PINを外しました', undefined, { timeout: 10_000 })).toBeTruthy();
     expect((await repo.getSettings()).pin).toBeUndefined();
     expect(screen.getByRole('button', { name: 'PINを設定する' })).toBeTruthy();
+  });
+
+  it('「いまのPIN」 shares the lock screen’s limit: 5 wrong PINs start the 30 s cooldown (F3 AC3)', async () => {
+    const pin = await hashPin('1234', { iterations: 1000 });
+    const { user, repo } = renderWithProviders(<SettingsScreen />, { settings: { pin, pinFailures: 2 } });
+    await user.click(screen.getByRole('button', { name: 'PINを外す' }));
+    for (let i = 0; i < 2; i++) {
+      await user.type(screen.getByLabelText('いまのPIN'), '9999');
+      await user.click(screen.getByRole('button', { name: 'PINを外す' }));
+      expect(await screen.findByText('いまのPINが違います')).toBeTruthy();
+    }
+    expect((await repo.getSettings()).pinFailures).toBe(4);
+    const before = Date.now();
+    await user.type(screen.getByLabelText('いまのPIN'), '9999');
+    await user.click(screen.getByRole('button', { name: 'PINを外す' }));
+    expect(await screen.findByText(MSG_PIN_COOLDOWN)).toBeTruthy();
+    expect(screen.getByText(/あと(30|29)秒お待ちください/)).toBeTruthy();
+    const s = await repo.getSettings();
+    expect(s.pinCooldownUntil).toBeGreaterThanOrEqual(before + PIN_COOLDOWN_MS);
+    expect(s.pinFailures).toBe(0);
+    // nothing can be tried during the cooldown, not even the right PIN
+    expect((screen.getByLabelText('いまのPIN') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'PINを外す' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await repo.getSettings()).pin).toBeDefined();
+  });
+
+  it('a right 「いまのPIN」 resets the shared failure counter', async () => {
+    const pin = await hashPin('1234', { iterations: 1000 });
+    const { user, repo } = renderWithProviders(<SettingsScreen />, { settings: { pin, pinFailures: 3 } });
+    await user.click(screen.getByRole('button', { name: 'PINを外す' }));
+    await user.type(screen.getByLabelText('いまのPIN'), '1234');
+    await user.click(screen.getByRole('button', { name: 'PINを外す' }));
+    expect(await screen.findByText('PINを外しました')).toBeTruthy();
+    const s = await repo.getSettings();
+    expect(s.pin).toBeUndefined();
+    expect(s.pinFailures ?? 0).toBe(0);
+  });
+
+  it('a backup that finishes after 「隠す」 is not downloaded over the notepad, and the reminder stays', async () => {
+    const real = vi.mocked(backup.exportBackupFile).getMockImplementation()!;
+    let finishExport: () => Promise<unknown> = async () => undefined;
+    vi.mocked(backup.exportBackupFile).mockImplementationOnce(
+      (r, o) =>
+        new Promise((resolve, reject) => {
+          finishExport = () => {
+            const p = real(r, o);
+            p.then(resolve, reject);
+            return p.catch(() => undefined);
+          };
+        }),
+    );
+    const repo = createMemoryRepo({ fullSettings: { ageConfirmedAt: 1, onboardedAt: 1 } });
+    await importBundledDemos(repo);
+    const initial = await repo.getSettings();
+    // the shell's providers, with 「隠す」 switching the UiProvider to the camouflage
+    function Shell() {
+      const [camouflaged, setCamouflaged] = useState(false);
+      return (
+        <RepoContext.Provider value={repo}>
+          <StudioRepoContext.Provider value={createMemoryStudioRepo()}>
+            <SettingsProvider repo={repo} initial={initial}>
+              <UiProvider onHide={() => setCamouflaged(true)} onLock={() => undefined} suspended={camouflaged} camouflaged={camouflaged}>
+                <SettingsScreen />
+              </UiProvider>
+            </SettingsProvider>
+          </StudioRepoContext.Provider>
+        </RepoContext.Provider>
+      );
+    }
+    render(<Shell />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'バックアップを書き出す' }));
+    await user.click(screen.getByRole('button', { name: '隠すを試す' }));
+    await act(async () => {
+      await finishExport();
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'バックアップを書き出す' }).hasAttribute('disabled')).toBe(false));
+    expect(platform.download).not.toHaveBeenCalled();
+    expect(screen.queryByText(/バックアップを書き出しました/)).toBeNull();
+    expect((await repo.getSettings()).lastBackupAt).toBeUndefined();
   });
 
   it('exports a backup as a download with a neutral file name (F15 AC1)', async () => {
@@ -154,9 +252,26 @@ describe('SettingsScreen (設定)', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '次へ' }));
     dialog = await screen.findByRole('alertdialog', { name: '本当に消しますか？' });
     await user.click(within(dialog).getByRole('button', { name: 'すべて消す' }));
-    await waitFor(() => expect(idb.deleteIdbDatabase).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(idb.deleteIdbDatabase).mock.calls.map((c) => c[0])).toEqual(['shiori', 'shiori-studio']);
     await waitFor(() => expect(restartApp).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(idb.deleteIdbDatabase).mock.calls.map((c) => c[0])).toEqual(['shiori']);
+    expect(vi.mocked(studioStorage.deleteIdbStudioDatabase).mock.calls.map((c) => c[0])).toEqual(['shiori-studio']);
+  });
+
+  it('全データを消す keeps the studio data unless asked, and shows a failure instead of restarting', async () => {
+    const { user } = renderWithProviders(<SettingsScreen />);
+    vi.mocked(idb.deleteIdbDatabase).mockRejectedValueOnce(new Error('blocked'));
+    await user.click(screen.getByRole('button', { name: '全データを消す' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '次へ' }));
+    await user.click(within(await screen.findByRole('alertdialog', { name: '本当に消しますか？' })).getByRole('button', { name: 'すべて消す' }));
+    expect(await screen.findByText(/できませんでした|消せませんでした|問題が起きました/)).toBeTruthy();
+    expect(restartApp).not.toHaveBeenCalled();
+    expect(studioStorage.deleteIdbStudioDatabase).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '全データを消す' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '次へ' }));
+    await user.click(within(await screen.findByRole('alertdialog', { name: '本当に消しますか？' })).getByRole('button', { name: 'すべて消す' }));
+    await waitFor(() => expect(restartApp).toHaveBeenCalledTimes(1));
+    expect(studioStorage.deleteIdbStudioDatabase).not.toHaveBeenCalled();
   });
 
   it('年齢確認を取り消す clears the flag after a confirmation (F1 AC3)', async () => {

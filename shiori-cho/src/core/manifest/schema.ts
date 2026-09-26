@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { KDF_ITERATIONS_DEFAULT, KDF_ITERATIONS_MAX, KDF_ITERATIONS_MIN } from '../constants';
 import { b64uDecode } from '../encoding';
 import type { EncBox, Goal, ShioriManifestV1, StudioProject } from '../types';
-import { STORE_CODE_RE, goalSecretSchema, multiline, sealedPayloadSchema, text } from './payloadSchemas';
+import { STORE_CODE_RE, multiline, text } from './payloadSchemas';
 
 // ───────────────────────── Patterns & enums ─────────────────────────
 
@@ -235,11 +235,29 @@ export const manifestSchema: z.ZodType<ShioriManifestV1> = z.object({
 });
 
 // ───────────────────────── Studio project (drafts) ─────────────────────────
-// Drafts may be incomplete while the creator edits them: ids and labels may be empty and are not
-// pattern-checked (buildManifest + validateManifest + lintProject catch that before export).
-// Maximum lengths, collection sizes, enums and number types are still enforced.
+// Drafts may be incomplete while the creator edits them: ids, labels, secret and payload titles may be empty,
+// a return code or store link may be half filled, and store codes are not pattern-checked
+// (lintProject + buildManifest + validateManifest catch all of that before export). Every state the editor can
+// produce must survive exportProjectJson → parseProjectJson (F16 AC7), so nothing stricter than the editor's own
+// input limits belongs here. Maximum lengths, collection sizes, enums and number types are still enforced.
 
 const draftId = text(0, 40);
+
+/** GoalSecret while editing: the title may still be empty (e.g. only the description was typed). */
+const draftSecretSchema = z.object({
+  title: text(0, 60),
+  description: multiline(0, 500).optional(),
+  unlockMessage: multiline(0, 300).optional(),
+});
+
+/** SealedPayload while editing: empty title, half-filled return code / store link, unnormalized store code. */
+const draftPayloadSchema = z.object({
+  title: text(0, 60),
+  body: multiline(0, 20000),
+  from: text(0, 40).optional(),
+  returnCode: z.object({ code: text(0, 40), instruction: multiline(0, 200) }).optional(),
+  storeLink: z.object({ storeCode: text(0, 20), caption: text(0, 60) }).optional(),
+});
 
 const draftWorkSchema = z.object({
   id: text(0, 40),
@@ -258,12 +276,13 @@ const draftGoalSchema = z.object({
   label: text(0, 60),
   teaser: text(0, 120).optional(),
   spoiler: spoilerSchema,
-  hints: z.array(text(0, 200)).max(MANIFEST_LIMITS.hints).default([]),
+  // Multi-line tolerant: a pasted line break must never make a backup unrestorable (lint reports it instead).
+  hints: z.array(multiline(0, 200)).max(MANIFEST_LIMITS.hints).default([]),
   missable: z.object({ before: draftId, warn: text(0, 120) }).optional(),
   unlockType: z.enum(['manual', 'code']),
   codeKind: z.enum(CODE_KINDS).optional(),
   code: text(0, 60).optional(),
-  secret: goalSecretSchema.optional(),
+  secret: draftSecretSchema.optional(),
 });
 
 const draftSealedSchema = z.object({
@@ -273,7 +292,7 @@ const draftSealedSchema = z.object({
   kind: z.enum(SEALED_KINDS),
   mode: z.enum(['allOf', 'anyOf']),
   goals: z.array(draftId).max(MANIFEST_LIMITS.sealedGoals).default([]),
-  payload: sealedPayloadSchema,
+  payload: draftPayloadSchema,
 });
 
 const timestampSchema = z.number().nonnegative();

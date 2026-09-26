@@ -213,7 +213,7 @@ describe('mergeBackup: basics', () => {
 });
 
 describe('mergeBackup: works', () => {
-  it('matches by id; the newer updatedAt wins as a whole, including manifestKey', () => {
+  it('matches by id; the newer updatedAt wins as a whole (manifestKey too when neither side has its record)', () => {
     const local = data({ works: [work(L, { title: '旧', status: 'playing', manifestKey: 'k1', manifestWorkId: MW, updatedAt: T0 })] });
     const newer = work(L, {
       title: '新',
@@ -288,6 +288,78 @@ describe('mergeBackup: works', () => {
   });
 });
 
+describe('mergeBackup: which manifest a merged work keeps', () => {
+  const quick = (id: string): ShioriManifestV1 => manifest(id);
+  const creator = (version: string): ShioriManifestV1 => ({
+    ...manifest(MW, version),
+    author: { kind: 'creator' },
+    checkpoints: [{ id: 'ch1', label: '第1章' }],
+  });
+
+  it('keeps a manifest update made on the other device even when this device\'s record is newer', () => {
+    // Both devices had v1.0 (kA). The other device imported v1.1 (kB) and got a NEW badge; later this device
+    // ended a session, which bumped the work's updatedAt.
+    const mine = work(L, { title: '手元', manifestKey: 'kA', manifestWorkId: MW, lastPlayedAt: T0 + 100, updatedAt: T0 + 100 });
+    const local = data({ works: [mine], manifests: [mrec('kA', L, { manifest: creator('1.0.0') })] });
+    const theirs = work(L, { title: '届いた', manifestKey: 'kB', manifestWorkId: MW, newGoalIds: ['ach-new'], updatedAt: T0 + 60 });
+    const incoming = data({
+      works: [theirs],
+      manifests: [mrec('kB', L, { manifest: creator('1.1.0'), importedAt: T0 + 50 })],
+    });
+    const { merged, stats } = mergeBackup(local, incoming);
+    expect(merged.works).toEqual([{ ...mine, manifestKey: 'kB', newGoalIds: ['ach-new'] }]);
+    expect(stats.worksUpdated).toBe(1);
+    // the other way round the same manifest wins
+    const back = mergeBackup(incoming, local).merged.works[0]!;
+    expect(back.title).toBe('手元');
+    expect(back.manifestKey).toBe('kB');
+  });
+
+  it('keeps a file attached on either side over no file at all', () => {
+    const recordOnly = work(L, { title: '手元', updatedAt: T0 + 100 });
+    const attached = work(L, { manifestKey: 'kQ', manifestWorkId: 'p-quick01', updatedAt: T0 + 1 });
+    const records = [mrec('kQ', L, { manifest: quick('p-quick01'), source: 'quick' })];
+    const a = mergeBackup(data({ works: [recordOnly] }), data({ works: [attached], manifests: records })).merged.works[0]!;
+    expect(a).toMatchObject({ title: '手元', manifestKey: 'kQ', manifestWorkId: 'p-quick01' });
+    const b = mergeBackup(data({ works: [attached], manifests: records }), data({ works: [recordOnly] })).merged.works[0]!;
+    expect(b).toMatchObject({ title: '手元', manifestKey: 'kQ', manifestWorkId: 'p-quick01' });
+  });
+
+  it('prefers the circle\'s file over a player-made one, then the later import', () => {
+    const q = work(L, { manifestKey: 'kQ', manifestWorkId: 'p-quick01', updatedAt: T0 + 100 });
+    const c = work(L, { manifestKey: 'kC', manifestWorkId: MW, updatedAt: T0 });
+    const manifests = [
+      mrec('kQ', L, { manifest: quick('p-quick01'), source: 'player-edit', importedAt: T0 + 90 }),
+      mrec('kC', L, { manifest: creator('1.0.0'), importedAt: T0 + 10 }),
+    ];
+    const merged = mergeBackup(data({ works: [q], manifests: [manifests[0]!] }), data({ works: [c], manifests: [manifests[1]!] }));
+    expect(merged.merged.works[0]).toMatchObject({ manifestKey: 'kC', manifestWorkId: MW });
+    // both player-made: the later import wins, whatever updatedAt says
+    const p1 = work(L, { manifestKey: 'kP1', manifestWorkId: 'p-quick01', updatedAt: T0 + 100 });
+    const p2 = work(L, { manifestKey: 'kP2', manifestWorkId: 'p-quick01', updatedAt: T0 });
+    const both = mergeBackup(
+      data({ works: [p1], manifests: [mrec('kP1', L, { manifest: quick('p-quick01'), importedAt: T0 })] }),
+      data({ works: [p2], manifests: [mrec('kP2', L, { manifest: { ...quick('p-quick01'), groups: [{ id: 'ach', label: '実績！' }] }, importedAt: T0 + 5 })] }),
+    );
+    expect(both.merged.works[0]!.manifestKey).toBe('kP2');
+  });
+
+  it('keeps the checkpoint only when the chosen manifest has it', () => {
+    const mine = work(L, { manifestKey: 'kQ', manifestWorkId: 'p-quick01', currentCheckpointId: 'gone', updatedAt: T0 + 100 });
+    const theirs = work(L, { manifestKey: 'kC', manifestWorkId: MW, currentCheckpointId: 'ch1', updatedAt: T0 });
+    const { merged } = mergeBackup(
+      data({ works: [mine], manifests: [mrec('kQ', L, { manifest: quick('p-quick01') })] }),
+      data({ works: [theirs], manifests: [mrec('kC', L, { manifest: creator('1.0.0') })] }),
+    );
+    expect(merged.works[0]!.currentCheckpointId).toBe('ch1');
+    const none = mergeBackup(
+      data({ works: [mine], manifests: [mrec('kQ', L, { manifest: quick('p-quick01') })] }),
+      data({ works: [{ ...theirs, currentCheckpointId: 'ch9' }], manifests: [mrec('kC', L, { manifest: creator('1.0.0') })] }),
+    );
+    expect(none.merged.works[0]).not.toHaveProperty('currentCheckpointId');
+  });
+});
+
 describe('mergeBackup: remapping by manifestWorkId', () => {
   function incomingForI(): BackupDataV1 {
     return data({
@@ -329,7 +401,12 @@ describe('mergeBackup: remapping by manifestWorkId', () => {
 
   it('keeps the newer local work but still unions the remapped children', () => {
     const mine = work(L, { title: '手元', manifestKey: 'k1', manifestWorkId: MW, updatedAt: T0 + 50 });
-    const local = data({ works: [mine], progress: [prog(L, 'g1', { doneAt: T0 + 10, via: 'manual', hintTierAtDone: 3 })] });
+    const local = data({
+      works: [mine],
+      // this device imported its file after the other device did
+      manifests: [mrec('k1', L, { importedAt: T0 + 40 })],
+      progress: [prog(L, 'g1', { doneAt: T0 + 10, via: 'manual', hintTierAtDone: 3 })],
+    });
     const incoming = incomingForI();
     incoming.progress = [prog(I, 'g1', { doneAt: T0 + 20, via: 'code', hintTierAtDone: 1 }), prog(I, 'g2')];
     const { merged, stats } = mergeBackup(local, incoming);
@@ -495,6 +572,22 @@ describe('mergeBackup: sessions', () => {
   it('keeps the local session on a full tie', () => {
     const mine = sess('s1', L, { endedAt: T0 + MIN, whereNote: '手元' });
     expect(mergeOne(mine, sess('s1', L, { endedAt: T0 + MIN, whereNote: '届いた' }))).toEqual(mine);
+  });
+
+  it('leaves at most one session open: this device\'s, the others are closed at their start with 0 minutes', () => {
+    const mineOpen = sess('s-phone', L, { startedAt: T0 + 60 * MIN });
+    const theirOpen = sess('s-pc', 'w2', { startedAt: T0 + 90 * MIN });
+    const ended = sess('s-old', 'w2', { startedAt: T0, endedAt: T0 + 10 * MIN, minutes: 10 });
+    const { merged } = mergeBackup(data({ sessions: [mineOpen] }), data({ sessions: [theirOpen, ended] }));
+    expect(merged.sessions).toEqual([mineOpen, { ...theirOpen, endedAt: theirOpen.startedAt, minutes: 0 }, ended]);
+    expect(merged.sessions.filter((s) => s.endedAt === undefined)).toHaveLength(1);
+  });
+
+  it('without an open session here, keeps the latest open one from the file', () => {
+    const a = sess('s-a', L, { startedAt: T0 + MIN });
+    const b = sess('s-b', 'w2', { startedAt: T0 + 2 * MIN });
+    const { merged } = mergeBackup(data(), data({ sessions: [a, b] }));
+    expect(merged.sessions).toEqual([{ ...a, endedAt: a.startedAt, minutes: 0 }, b]);
   });
 });
 

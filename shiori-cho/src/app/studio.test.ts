@@ -1,28 +1,38 @@
 import { describe, it, expect, vi } from 'vitest';
 import { unzipSync } from 'fflate';
-import { parseCode } from '../core/codes';
+import { generateCode, parseCode } from '../core/codes';
 import { isShioriError } from '../core/errors';
 import { KDF_ITERATIONS_DEFAULT } from '../core/constants';
 import { b64uDecode, fromUtf8 } from '../core/encoding';
 import type { Rng } from '../core/encoding';
-import { KIT_PATHS, KIT_QR_DIR } from '../core/kit';
+import { CODES_CSV_HEADER, KIT_PATHS, KIT_QR_DIR } from '../core/kit';
 import { WORK_ID_RE } from '../core/manifest/schema';
 import { counterRng, FIXTURE_CODES, fixtureProject } from '../core/manifest/testFixtures';
 import type { Bytes, StudioProject } from '../core/types';
+import amaotoProjectText from '../demo/amaoto.project.json?raw';
+import { DEMO_APP_CODES, DEMO_RETURN_CODE } from '../demo/demoCodes';
+import hoshiyomiProjectText from '../demo/hoshiyomi.project.json?raw';
 import {
+  DEMO_KDF_SALTS,
   MAX_PROJECT_BYTES,
   MSG_STALE_BUILD,
   buildAndCheck,
+  demoIdentityIssues,
   exportKitZip,
   exportProjectJson,
   findLeakPath,
   generateGoalCode,
+  identityCollisionIssues,
+  isDemoReturnCode,
   kitZipFileName,
+  lintStudioProject,
   markExported,
   newStudioProject,
   newStudioWorkId,
   parseProjectJson,
+  projectBackupFileName,
   withBuildSalt,
+  withNewWorkIdentity,
 } from './studio';
 
 const T0 = 1_790_000_000_000;
@@ -61,6 +71,26 @@ function smallProject(): StudioProject {
     },
   ];
   return p;
+}
+
+/** Codes of studioFixture() that are not public demo codes (the core fixture reuses two of the demos' codes). */
+const CODE_B = generateCode('b32', counterRng(40)).display;
+const CODE_KANA = generateCode('kana', counterRng(90)).display;
+const RETURN_CODE = 'とびらのことば';
+
+/** The core fixture (b32 + kana, allOf + anyOf, returnCode) without any code or return code of the bundled demos. */
+function studioFixture(overrides: Partial<StudioProject> = {}): StudioProject {
+  const p = fixtureProject(overrides);
+  p.goals[1]!.code = CODE_B;
+  p.goals[2]!.code = CODE_KANA;
+  p.sealed[2]!.payload.returnCode = { code: RETURN_CODE, instruction: 'タイトル画面の「扉の合言葉」に入力してください' };
+  return p;
+}
+
+function sampleProject(): StudioProject {
+  const r = parseProjectJson(hoshiyomiProjectText);
+  if (!r.ok) throw new Error('sample project is invalid');
+  return r.project;
 }
 
 function fakePng(url: string, caption: string): Uint8Array {
@@ -197,11 +227,11 @@ describe('buildAndCheck', () => {
   });
 
   it('passes the full fixture (b32 + kana, allOf + anyOf, returnCode)', async () => {
-    const report = await buildAndCheck(fixtureProject());
+    const report = await buildAndCheck(studioFixture());
     expect(report.errors).toEqual([]);
     expect(report.exportable).toBe(true);
     expect(report.selfTest?.checks.length).toBeGreaterThan(5);
-    expect(report.build?.salt).toBe(fixtureProject().kdfSalt);
+    expect(report.build?.salt).toBe(studioFixture().kdfSalt);
   });
 
   it('stops at lint errors without building (no PBKDF2)', async () => {
@@ -232,19 +262,40 @@ describe('buildAndCheck', () => {
     expect(report.warnings.map((w) => w.code)).toContain('emptyGroup');
   });
 
-  it('turns a build failure into an error issue', async () => {
+  it('turns every build pre-check failure into an error with its path (lint does not check lengths)', async () => {
     const p = smallProject();
-    p.sealed[0]!.payload.title = ''; // lint does not check payload lengths; the build does
+    p.sealed[0]!.payload.body = 'あ'.repeat(20_001);
+    p.goals[0]!.secret = { title: '雨上がりの約束', description: 'い'.repeat(501) };
+    const deriveBits = vi.spyOn(globalThis.crypto.subtle, 'deriveBits');
+    try {
+      const report = await buildAndCheck(p);
+      expect(report.exportable).toBe(false);
+      expect(report.build).toBeUndefined();
+      expect(report.errors.map((e) => [e.path, e.code])).toEqual([
+        ['goals[0].secret.description', 'tooLong'],
+        ['sealed[0].payload.body', 'tooLong'],
+      ]);
+      expect(report.errors[1]!.messageJa).toContain('letter');
+      expect(deriveBits).not.toHaveBeenCalled();
+    } finally {
+      deriveBits.mockRestore();
+    }
+  });
+
+  it('lists every manifest validation error with its path, not just the first three', async () => {
+    const p = studioFixture();
+    p.work.title = 'あ'.repeat(101);
+    p.checkpoints[0]!.label = 'い'.repeat(41);
+    p.groups[0]!.label = 'う'.repeat(21);
+    p.goals[3]!.label = 'え'.repeat(61);
     const report = await buildAndCheck(p);
     expect(report.exportable).toBe(false);
-    expect(report.build).toBeUndefined();
-    expect(report.errors).toHaveLength(1);
-    expect(report.errors[0]).toMatchObject({ code: 'build', severity: 'error' });
-    expect(report.errors[0]!.messageJa).toContain('letter');
+    expect(report.errors.map((e) => e.path)).toEqual(['work.title', 'checkpoints[0].label', 'groups[0].label', 'goals[3].label']);
+    expect(report.errors.every((e) => e.severity === 'error' && JA_RE.test(e.messageJa))).toBe(true);
   });
 
   it('treats a leaked secret as a hard error and points at the field', async () => {
-    const p = fixtureProject();
+    const p = studioFixture();
     p.goals[3]!.teaser = `合言葉は${FIXTURE_CODES['end-a']}です`;
     const report = await buildAndCheck(p);
     expect(report.build).toBeDefined();
@@ -253,6 +304,27 @@ describe('buildAndCheck', () => {
     const leak = report.errors.find((e) => e.code === 'leak');
     expect(leak).toMatchObject({ path: 'goals[3].teaser', severity: 'error' });
     expect(leak?.messageJa).toContain(FIXTURE_CODES['end-a']);
+  });
+
+  it('finds a code written in another spelling (full width, other separators) and points at the field', async () => {
+    const p = studioFixture();
+    p.changelog[0]!.notes = '合言葉 Ｋ７Ｑ－Ｍ２Ｘ－ＲＡＰ の表示を修正'; // typed with a Japanese IME
+    const report = await buildAndCheck(p);
+    expect(report.leaks).toEqual([FIXTURE_CODES['end-a']]);
+    expect(report.errors.find((e) => e.code === 'leak')?.path).toBe('changelog[0].notes');
+    expect(report.exportable).toBe(false);
+  });
+
+  it('reports a letter signature that also appears in public text as a warning, not a leak', async () => {
+    const p = studioFixture();
+    p.sealed[1]!.payload.from = 'ミナ';
+    p.sealed[1]!.label = 'ミナからの手紙';
+    const report = await buildAndCheck(p);
+    expect(report.leaks).toEqual([]);
+    expect(report.exportable).toBe(true);
+    const w = report.warnings.filter((i) => i.code === 'fromInPublic');
+    expect(w).toEqual([expect.objectContaining({ path: 'sealed[1].label', severity: 'warning' })]);
+    expect(w[0]!.messageJa).toContain('ミナ');
   });
 
   it('reports a leaked sealed body', async () => {
@@ -274,14 +346,20 @@ describe('findLeakPath', () => {
     expect(findLeakPath({ a: 1, ひみつの鍵: 2 }, 'ひみつ')).toBe('["ひみつの鍵"]');
     expect(findLeakPath('ひみつ', 'ひみつ')).toBe('');
   });
+
+  it('finds other spellings of a code and folded secret texts', () => {
+    const m = { goals: [{ hints: ['夜へ', 'ｋ７ｑ・ｍ２ｘ・ｒａｐ'] }], changelog: [{ notes: 'ひ み つ' }] };
+    expect(findLeakPath(m, 'K7Q-M2X-RAP')).toBe('goals[0].hints[1]');
+    expect(findLeakPath(m, 'ひみつ')).toBe('changelog[0].notes');
+  });
 });
 
 describe('exportKitZip', () => {
   it('zips the kit text files and one QR PNG per code, in a fixed order', async () => {
-    const report = await buildAndCheck(fixtureProject());
+    const report = await buildAndCheck(studioFixture());
     const build = report.build!;
     const render = vi.fn(async (url: string, caption: string) => fakePng(url, caption));
-    const zip = await exportKitZip(fixtureProject(), build, render);
+    const zip = await exportKitZip(studioFixture(), build, render);
     const files = unzipSync(zip);
 
     expect(Object.keys(files)).toEqual([
@@ -299,9 +377,10 @@ describe('exportKitZip', () => {
     expect(Object.keys(files)).toContain('非公開_ゲームに埋め込む/qr/voice-1.png');
 
     expect(render.mock.calls).toEqual(build.codes.map((c) => [c.unlockUrl, c.display]));
+    const kana = parseCode(CODE_KANA);
     expect(render.mock.calls[2]).toEqual([
-      `${APP_URL}#/u/w-test00001/${encodeURIComponent('ほたるかえでつばめこだますずめ')}`,
-      FIXTURE_CODES['voice-1'],
+      `${APP_URL}#/u/w-test00001/${encodeURIComponent(kana.ok ? kana.canonical.slice('kana:'.length) : '')}`,
+      CODE_KANA,
     ]);
     const endA = build.codes[0]!;
     expect(files[`${KIT_QR_DIR}/end-a.png`]).toEqual(fakePng(endA.unlockUrl, endA.display));
@@ -313,8 +392,8 @@ describe('exportKitZip', () => {
   });
 
   it('stores PNGs uncompressed and text compressed', async () => {
-    const build = (await buildAndCheck(fixtureProject())).build!;
-    const zip = await exportKitZip(fixtureProject(), build, async (url, caption) => fakePng(url, caption));
+    const build = (await buildAndCheck(studioFixture())).build!;
+    const zip = await exportKitZip(studioFixture(), build, async (url, caption) => fakePng(url, caption));
     const png = fakePng(build.codes[1]!.unlockUrl, build.codes[1]!.display);
     expect(indexOfBytes(zip, png)).toBeGreaterThan(0);
   });
@@ -350,13 +429,13 @@ describe('exportKitZip', () => {
   });
 
   it('is deterministic for the same input and time', async () => {
-    const build = (await buildAndCheck(fixtureProject())).build!;
+    const build = (await buildAndCheck(studioFixture())).build!;
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       vi.setSystemTime(T0);
       const render = async (url: string, caption: string) => fakePng(url, caption);
-      const a = await exportKitZip(fixtureProject(), build, render);
-      const b = await exportKitZip(fixtureProject(), build, render);
+      const a = await exportKitZip(studioFixture(), build, render);
+      const b = await exportKitZip(studioFixture(), build, render);
       expect(b).toEqual(a);
     } finally {
       vi.useRealTimers();
@@ -376,7 +455,7 @@ describe('exportKitZip', () => {
   });
 
   it('refuses a build that no longer matches the project', async () => {
-    const p = fixtureProject();
+    const p = studioFixture();
     const build = (await buildAndCheck(p)).build!;
     const render = vi.fn(async (url: string, caption: string) => fakePng(url, caption));
     const stale = async (changed: StudioProject) => {
@@ -384,25 +463,25 @@ describe('exportKitZip', () => {
       expect(isShioriError(e) && e.code).toBe('conflict');
       expect(isShioriError(e) && e.messageJa).toBe(MSG_STALE_BUILD);
     };
-    const recoded = fixtureProject();
+    const recoded = studioFixture();
     recoded.goals[0]!.code = 'M00-NDE-SKR';
     await stale(recoded);
-    await stale(fixtureProject({ work: { ...p.work, id: 'w-other0001' } }));
-    await stale(fixtureProject({ kdfSalt: 'AQEBAQEBAQEBAQEBAQEBAQ' }));
-    const fewer = fixtureProject();
+    await stale(studioFixture({ work: { ...p.work, id: 'w-other0001' } }));
+    await stale(studioFixture({ kdfSalt: 'AQEBAQEBAQEBAQEBAQEBAQ' }));
+    const fewer = studioFixture();
     fewer.goals = fewer.goals.filter((g) => g.id !== 'voice-1');
     await stale(fewer);
     expect(render).not.toHaveBeenCalled();
     // label edits are not codes: still accepted
-    const relabeled = fixtureProject();
+    const relabeled = studioFixture();
     relabeled.goals[0]!.label = 'END 1（改）';
     await expect(exportKitZip(relabeled, build, render)).resolves.toBeInstanceOf(Uint8Array);
   });
 
   it('propagates a renderer failure', async () => {
-    const build = (await buildAndCheck(fixtureProject())).build!;
+    const build = (await buildAndCheck(studioFixture())).build!;
     await expect(
-      exportKitZip(fixtureProject(), build, async () => {
+      exportKitZip(studioFixture(), build, async () => {
         throw new Error('canvas unavailable');
       }),
     ).rejects.toThrow('canvas unavailable');
@@ -411,9 +490,184 @@ describe('exportKitZip', () => {
   it('names the kit after the opaque work id', () => {
     expect(kitZipFileName(fixtureProject())).toBe('shiori-kit-w-test00001.zip');
   });
+
+  it('adds no QR images and no unlock URLs without an absolute app URL', async () => {
+    const p = smallProject();
+    p.appUrl = '';
+    const report = await buildAndCheck(p);
+    expect(report.exportable).toBe(true);
+    expect(report.warnings.map((w) => w.code)).toContain('appUrlMissing');
+    const build = report.build!;
+    expect(build.codes[0]!.unlockUrl.startsWith('#/u/')).toBe(true);
+    const render = vi.fn(async (url: string, caption: string) => fakePng(url, caption));
+    const files = unzipSync(await exportKitZip(p, build, render));
+    expect(render).not.toHaveBeenCalled();
+    expect(Object.keys(files).some((f) => f.startsWith(KIT_QR_DIR))).toBe(false);
+    const csv = fromUtf8(files[KIT_PATHS.codesCsv]!);
+    const row = csv.split('\r\n')[1]!.split(',');
+    expect(row).toHaveLength(CODES_CSV_HEADER.length);
+    expect(row[4]).toBe('K7Q-M2X-RAP');
+    expect(row[5]).toBe('');
+    expect(csv).not.toContain('#/u/');
+    expect(fromUtf8(files[KIT_PATHS.readmePlayer]!)).not.toContain('QRコード');
+  });
+});
+
+describe('project backup file name', () => {
+  it('is neutral: no work id or title (F2 AC1)', () => {
+    expect(projectBackupFileName(new Date(2026, 8, 5, 23, 59))).toBe('shiori-studio-project-20260905.json');
+    expect(projectBackupFileName()).toMatch(/^shiori-studio-project-\d{8}\.json$/);
+  });
+});
+
+describe('sample and duplicate identity', () => {
+  it('keeps DEMO_KDF_SALTS in sync with the bundled demo projects', () => {
+    const salts = [hoshiyomiProjectText, amaotoProjectText].map((t) => (JSON.parse(t) as StudioProject).kdfSalt);
+    expect([...DEMO_KDF_SALTS].sort()).toEqual([...salts].sort());
+  });
+
+  it('a project that keeps the sample identity is not exportable, and no PBKDF2 runs', async () => {
+    const p = { ...sampleProject(), appUrl: APP_URL };
+    const deriveBits = vi.spyOn(globalThis.crypto.subtle, 'deriveBits');
+    try {
+      const report = await buildAndCheck(p);
+      expect(report.exportable).toBe(false);
+      expect(report.build).toBeUndefined();
+      expect(report.errors.map((e) => [e.path, e.code])).toEqual([
+        ['work.id', 'demoWorkId'],
+        ['kdfSalt', 'demoSalt'],
+        ['goals[0].code', 'demoCode'],
+        ['goals[1].code', 'demoCode'],
+        ['goals[2].code', 'demoCode'],
+        ['goals[3].code', 'demoCode'],
+        ['sealed[2].payload.returnCode.code', 'demoReturnCode'],
+      ]);
+      expect(report.errors.every((e) => JA_RE.test(e.messageJa))).toBe(true);
+      expect(deriveBits).not.toHaveBeenCalled();
+    } finally {
+      deriveBits.mockRestore();
+    }
+  });
+
+  it('flags any spelling of a demo code, including the kana one and the return code', () => {
+    const p = studioFixture();
+    p.goals[0]!.code = 'st4 rma p1x';
+    p.goals[2]!.code = 'ホタル カエデ ツバメ コダマ スズメ';
+    p.sealed[2]!.payload.returnCode!.code = 'ホシ アカリ';
+    expect(demoIdentityIssues(p).map((i) => [i.path, i.severity])).toEqual([
+      ['goals[0].code', 'error'],
+      ['goals[2].code', 'error'],
+      ['sealed[2].payload.returnCode.code', 'error'],
+    ]);
+    expect(demoIdentityIssues(studioFixture())).toEqual([]);
+    // the same checks guard the work id and salt of the other sample
+    const amaoto = JSON.parse(amaotoProjectText) as StudioProject;
+    expect(demoIdentityIssues({ ...studioFixture(), work: { ...studioFixture().work, id: amaoto.work.id }, kdfSalt: amaoto.kdfSalt }).map((i) => i.code)).toEqual([
+      'demoWorkId',
+      'demoSalt',
+    ]);
+  });
+
+  it('withNewWorkIdentity keeps a creator\'s own return code', () => {
+    const p = withNewWorkIdentity(studioFixture());
+    expect(p.sealed).toEqual(studioFixture().sealed);
+  });
+
+  it('withNewWorkIdentity gives the sample its own work id, no salt and new codes', async () => {
+    const sample = sampleProject();
+    const p = withNewWorkIdentity({ ...sample, lastExportedAt: T0 });
+    expect(p.work.id).not.toBe(sample.work.id);
+    expect(WORK_ID_RE.test(p.work.id)).toBe(true);
+    expect('kdfSalt' in p).toBe(false);
+    expect('lastExportedAt' in p).toBe(false);
+    const demo = new Set(DEMO_APP_CODES.map((c) => (parseCode(c.display) as { canonical: string }).canonical));
+    const codes = p.goals.filter((g) => g.unlockType === 'code').map((g) => parseCode(g.code ?? ''));
+    expect(codes).toHaveLength(4);
+    for (const [i, c] of codes.entries()) {
+      expect(c.ok).toBe(true);
+      if (!c.ok) continue;
+      expect(c.kind).toBe(sample.goals[i]!.codeKind);
+      expect(demo.has(c.canonical)).toBe(false);
+    }
+    expect(new Set(codes.map((c) => (c.ok ? c.canonical : ''))).size).toBe(4);
+    // the sample's public return code is replaced (two words of the kana list); everything else is the sample's
+    const door = p.sealed.findIndex((s) => s.kind === 'returnCode');
+    const rc = p.sealed[door]!.payload.returnCode!;
+    expect(rc.code).not.toBe(DEMO_RETURN_CODE);
+    expect(rc.code).toMatch(/^[ぁ-ゖ]{6}$/);
+    expect(isDemoReturnCode(rc.code)).toBe(false);
+    expect(rc.instruction).toBe(sample.sealed[door]!.payload.returnCode!.instruction);
+    expect(p.sealed.map((s, i) => (i === door ? { ...s, payload: { ...s.payload, returnCode: undefined } } : s))).toEqual(
+      sample.sealed.map((s, i) => (i === door ? { ...s, payload: { ...s.payload, returnCode: undefined } } : s)),
+    );
+    expect(p.goals.map((g) => g.secret)).toEqual(sample.goals.map((g) => g.secret));
+    expect(sample.work.id).toBe('demo-hoshiyomi');
+
+    // exportable, and a character signature that is also named in public text is only a warning
+    const q = { ...p, appUrl: APP_URL, kdfIterations: 100_000 };
+    q.sealed = q.sealed.map((s) => (s.id === 'letter-mina' ? { ...s, payload: { ...s.payload, from: 'ミナ' } } : s));
+    const report = await buildAndCheck(q);
+    expect(report.errors).toEqual([]);
+    expect(report.exportable).toBe(true);
+    const codesOf = report.warnings.map((w) => w.code);
+    expect(codesOf.filter((c) => c === 'fromInPublic')).toHaveLength(1);
+  });
+
+  it('warns about another project with the same work id, salt or codes', () => {
+    const a = studioFixture();
+    const b = { ...studioFixture(), id: 'proj-other' };
+    const c = { ...withNewWorkIdentity(studioFixture()), id: 'proj-third', kdfSalt: a.kdfSalt };
+    c.goals[1]!.code = CODE_B;
+    const issues = identityCollisionIssues(a, [
+      { project: a, name: '自分' },
+      { project: b, name: 'テストB' },
+      { project: c, name: 'テストC' },
+    ]);
+    expect(issues.map((i) => [i.path, i.code])).toEqual([
+      ['work.id', 'workIdShared'],
+      ['goals[0].code', 'codeShared'],
+      ['goals[1].code', 'codeShared'],
+      ['goals[2].code', 'codeShared'],
+      ['kdfSalt', 'saltShared'],
+      ['goals[1].code', 'codeShared'],
+    ]);
+    expect(issues.every((i) => i.severity === 'warning')).toBe(true);
+    expect(issues[0]!.messageJa).toContain('テストB');
+    expect(identityCollisionIssues(a, [{ project: withNewWorkIdentity(a), name: 'x' }])).toEqual([]);
+    // 点検 lists them as warnings
+    expect(lintStudioProject(a, { others: [{ project: b, name: 'テストB' }] }).filter((i) => i.code === 'workIdShared')).toHaveLength(1);
+  });
+
+  it('warns about a local test app URL (not in core lint: the demos use one)', () => {
+    const local = lintStudioProject(studioFixture({ appUrl: 'http://localhost:5173/', kdfIterations: 200_000 }));
+    expect(local).toEqual([expect.objectContaining({ path: 'appUrl', code: 'appUrlLocal', severity: 'warning' })]);
+    expect(lintStudioProject(studioFixture({ kdfIterations: 200_000 }))).toEqual([]);
+  });
 });
 
 describe('exportProjectJson / parseProjectJson', () => {
+  it('round-trips every intermediate editor state (F16 AC7)', () => {
+    const p = studioFixture();
+    p.goals[0]!.secret = { title: '', description: '説明だけ先に書いた' };
+    p.goals[0]!.hints = ['一行目\n二行目'];
+    p.goals[3]!.secret = { title: '', description: '手動に切り替える前の残り' };
+    p.sealed[0]!.payload = { title: '', body: '' };
+    p.sealed[1]!.payload = { ...p.sealed[1]!.payload, returnCode: { code: 'ひみつ', instruction: '' } };
+    p.sealed[2]!.payload = { ...p.sealed[2]!.payload, returnCode: { code: '', instruction: '入力場所' }, storeLink: { storeCode: 'rj01234567', caption: '' } };
+    expect(parseProjectJson(exportProjectJson(p))).toEqual({ ok: true, project: p });
+  });
+
+  it('restores the kit backup of an exportable project whose manual goal keeps a leftover secret', async () => {
+    const p = studioFixture();
+    p.goals[3]!.secret = { title: '', description: 'まだ合言葉つきだったころの説明' };
+    const report = await buildAndCheck(p);
+    expect(report.exportable).toBe(true);
+    const zip = await exportKitZip(p, report.build!, async (url, caption) => fakePng(url, caption));
+    const restored = parseProjectJson(fromUtf8(unzipSync(zip)[KIT_PATHS.projectBackup]!));
+    expect(restored.ok).toBe(true);
+    if (restored.ok) expect(restored.project.goals[3]!.secret).toEqual({ title: '', description: 'まだ合言葉つきだったころの説明' });
+  });
+
   it('round-trips a full project', () => {
     const p = { ...fixtureProject(), lastExportedAt: T0 };
     const text = exportProjectJson(p);

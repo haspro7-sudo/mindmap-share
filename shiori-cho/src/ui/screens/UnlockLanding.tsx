@@ -1,16 +1,22 @@
 // #/u/<manifestWorkId>/<code> deep-link landing (docs/SPEC.md F11).
-// Runs handleDeepLink exactly once (a ref guards against StrictMode's double effect), then replaces the
-// history entry so the code never stays in the address bar:
+// Inside the app the shell has already moved the link out of the address bar (shell/deepLinkStash.ts) and
+// renders this screen from the stash once the app is visible; `onSettled` then clears the stash.
+// Runs handleDeepLink once per link (a ref guards against StrictMode's double effect, and a per-repository
+// in-flight map makes a remount — after 「隠す」 or an auto-lock during the key derivation — wait for the SAME
+// run instead of starting a second one that would report 「入力済み」), then replaces the history entry so
+// the code never stays in the address bar:
 //   unlocked / already → #/w/<localId> (envelopes queued, toast)
 //   pending / noMatch / invalid (or an error) → #/code with a toast; the code screen picks up a one-shot
 //   hand-off (codeHandoff.ts) to show the result, and on iOS Safari outside the home-screen app the
 //   「コピー → 貼り付け」 notice with a copy button (F11 AC3).
+// A result that arrives while this screen is not mounted is kept until the next mount shows it.
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { isIosSafariNotStandalone, vibrate, writeClipboard } from '../../app/platform';
 import { handleDeepLink } from '../../app/unlock';
 import { codeErrorMessageJa, displayFromCanonical } from '../../core/codes';
 import type { UnlockOutcome } from '../../core/types';
+import type { ShioriRepo } from '../../storage/repo';
 import { useLatest } from '../components/useLatest';
 import { useRepo, useUi } from '../context';
 import { navigate } from '../router';
@@ -20,12 +26,44 @@ import './UnlockLanding.css';
 
 export const IOS_COPY_NOTICE = 'ホーム画面のしおり帳で使う場合：合言葉をコピー → しおり帳の『合言葉』で貼り付け';
 
-export function UnlockLanding({ manifestWorkId, code }: { manifestWorkId: string; code: string }): ReactNode {
+/** Deep-link runs whose result has not been shown yet, per repository and link. */
+const inflight = new WeakMap<ShioriRepo, Map<string, Promise<UnlockOutcome>>>();
+
+function runDeepLink(repo: ShioriRepo, manifestWorkId: string, code: string): { promise: Promise<UnlockOutcome>; done(): void } {
+  let runs = inflight.get(repo);
+  if (!runs) {
+    runs = new Map();
+    inflight.set(repo, runs);
+  }
+  const key = `${manifestWorkId}\u0000${code}`;
+  let promise = runs.get(key);
+  if (!promise) {
+    promise = handleDeepLink(repo, manifestWorkId, code);
+    runs.set(key, promise);
+  }
+  const mine = promise;
+  return {
+    promise: mine,
+    done: () => {
+      if (runs.get(key) === mine) runs.delete(key);
+    },
+  };
+}
+
+export interface UnlockLandingProps {
+  manifestWorkId: string;
+  code: string;
+  /** called once the result was shown and the route replaced (the shell clears its stash) */
+  onSettled?(): void;
+}
+
+export function UnlockLanding({ manifestWorkId, code, onSettled }: UnlockLandingProps): ReactNode {
   const repo = useRepo();
   const ui = useUi();
   const started = useRef(false);
   const mounted = useRef(false);
   const uiRef = useLatest(ui);
+  const onSettledRef = useLatest(onSettled);
 
   useEffect(() => {
     mounted.current = true;
@@ -39,9 +77,11 @@ export function UnlockLanding({ manifestWorkId, code }: { manifestWorkId: string
     started.current = true;
     const ios = isIosSafariNotStandalone();
 
+    const settle = () => onSettledRef.current?.();
     const toCode = (status: 'pending' | 'noMatch' | 'invalid', handoffCode: string) => {
       writeCodeHandoff({ status, code: handoffCode, ios: ios && status !== 'invalid' });
       navigate({ name: 'code' }, { replace: true });
+      settle();
     };
 
     const finish = (outcome: UnlockOutcome) => {
@@ -78,6 +118,7 @@ export function UnlockLanding({ manifestWorkId, code }: { manifestWorkId: string
             });
           }
           navigate({ name: 'work', id: workId, tab: 'progress' }, { replace: true });
+          settle();
           return;
         }
         case 'pending':
@@ -94,17 +135,22 @@ export function UnlockLanding({ manifestWorkId, code }: { manifestWorkId: string
       }
     };
 
-    handleDeepLink(repo, manifestWorkId, code).then(
+    const run = runDeepLink(repo, manifestWorkId, code);
+    run.promise.then(
       (outcome) => {
-        if (mounted.current) finish(outcome);
+        // Unmounted meanwhile (hidden / locked): the run stays in `inflight` for the next mount.
+        if (!mounted.current) return;
+        run.done();
+        finish(outcome);
       },
       (e: unknown) => {
         if (!mounted.current) return;
+        run.done();
         uiRef.current.toast(errorMessageJa(e), { tone: 'danger' });
         toCode('invalid', code);
       },
     );
-  }, [repo, manifestWorkId, code, uiRef]);
+  }, [repo, manifestWorkId, code, uiRef, onSettledRef]);
 
   return (
     <main className="screen ulp" aria-busy="true">

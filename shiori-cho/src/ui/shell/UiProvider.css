@@ -1,9 +1,17 @@
-/* ───────── toasts ───────── */
+/* ───────── toasts ─────────
+ * Toasts sit just above whatever fixed UI is at the bottom of the screen, from two explicit signals on <html>
+ * (no :has() needed):
+ * - data-bottom-nav (set by the bottom navigation while it is shown): lift by the nav height;
+ * - --toast-lift (published by sticky bottom bars through components/toastLift.ts, e.g. the work page's
+ *   session bar): lift by that bar's measured height. A sheet covers such bars, so it resets the lift
+ *   (data-sheet-open, set by Sheet while open).
+ */
 .ui-toasts {
+  --toast-base: 0px;
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));
+  bottom: calc(var(--toast-base) + var(--toast-lift, 0px) + 12px + env(safe-area-inset-bottom));
   z-index: 250;
   display: flex;
   flex-direction: column;
@@ -14,6 +22,12 @@
 }
 .ui-toasts:empty {
   display: none;
+}
+html[data-bottom-nav] .ui-toasts {
+  --toast-base: var(--nav-h);
+}
+html[data-sheet-open] .ui-toasts {
+  --toast-lift: 0px;
 }
 .ui-toast {
   pointer-events: auto;
@@ -130,7 +144,14 @@
 .ui-dialog-title {
   font-size: 1.05rem;
   margin: 0 0 8px;
+  padding-right: 88px; /* room for 「隠す」 */
   overflow-wrap: anywhere;
+}
+.ui-dialog-hide {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--muted);
 }
 .ui-dialog-body {
   margin: 0 0 12px;

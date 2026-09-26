@@ -204,6 +204,83 @@ export function nextStoreLink(
   return merged.storeCode === '' && merged.caption === '' ? undefined : merged;
 }
 
+// Characters the manifest (and the project file) reject: control characters ('\n' is allowed in multi-line fields)
+// and bidi overrides / isolates. The editor never stores them, so every draft survives 控え → 読み込み (F16 AC7).
+// eslint-disable-next-line no-control-regex
+const FIELD_CONTROL_SINGLELINE = /[\u0000-\u001F\u007F-\u009F]+/g;
+// eslint-disable-next-line no-control-regex
+const FIELD_CONTROL_MULTILINE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]+/g;
+const FIELD_BIDI = /[\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Text typed or pasted into an editor field, cleaned of what the manifest rejects: a run of control characters
+ * (line breaks and tabs in a single-line field; tabs and other controls in a multi-line one, where CRLF becomes
+ * '\n') becomes one space, and bidi override / isolate characters are removed.
+ */
+export function sanitizeFieldText(value: string, multiline: boolean): string {
+  const cleaned = multiline
+    ? value.replace(/\r\n?/g, '\n').replace(FIELD_CONTROL_MULTILINE, ' ')
+    : value.replace(FIELD_CONTROL_SINGLELINE, ' ');
+  return cleaned.replace(FIELD_BIDI, '');
+}
+
+/** Hints are single-line (the manifest rejects control characters): line breaks and tabs become spaces. */
+export function sanitizeHint(value: string): string {
+  return sanitizeFieldText(value, false);
+}
+
+// ───────────────────────── saving next to other tabs ─────────────────────────
+
+/** What tells whether a stored project changed: edits bump updatedAt; 点検 and exports set kdfSalt / lastExportedAt. */
+function saveStamp(p: StudioProject): string {
+  return `${p.updatedAt}|${p.kdfSalt ?? ''}|${p.lastExportedAt ?? ''}`;
+}
+
+/** True when `stored` is no longer what the editor last loaded or saved (`base`). */
+export function storedChanged(base: StudioProject, stored: StudioProject | undefined): boolean {
+  return stored === undefined || saveStamp(stored) !== saveStamp(base);
+}
+
+/**
+ * What the editor may save, given what is stored now (another tab or window may have saved the same project since
+ * the editor loaded or last saved it as `base`):
+ * - nothing changed there → `snapshot` as it is;
+ * - only bookkeeping changed there (updatedAt equal: kdfSalt after a 点検, lastExportedAt after an export) →
+ *   `snapshot` with it merged in (the salt that was set, the later export time), so a release is never forgotten;
+ * - content edited there, the project deleted there, or two different salts → 'conflict': nothing is overwritten.
+ */
+export function reconcileWithStored(
+  base: StudioProject,
+  stored: StudioProject | undefined,
+  snapshot: StudioProject,
+): StudioProject | 'conflict' {
+  if (stored === undefined) return 'conflict';
+  if (!storedChanged(base, stored)) return snapshot;
+  if (stored.updatedAt !== base.updatedAt) return 'conflict';
+  let kdfSalt = snapshot.kdfSalt;
+  if (stored.kdfSalt !== base.kdfSalt) {
+    if (snapshot.kdfSalt === base.kdfSalt) kdfSalt = stored.kdfSalt;
+    else if (snapshot.kdfSalt !== stored.kdfSalt) return 'conflict';
+  }
+  return withBookkeeping(snapshot, { kdfSalt, lastExportedAt: laterTime(snapshot.lastExportedAt, stored.lastExportedAt) });
+}
+
+function laterTime(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return Math.max(a, b);
+}
+
+/** `p` with kdfSalt / lastExportedAt replaced (absent keys when undefined). Not an edit: updatedAt is kept. */
+export function withBookkeeping(p: StudioProject, from: Pick<StudioProject, 'kdfSalt' | 'lastExportedAt'>): StudioProject {
+  const { kdfSalt: _salt, lastExportedAt: _exported, ...rest } = p;
+  return {
+    ...rest,
+    ...(from.kdfSalt !== undefined ? { kdfSalt: from.kdfSalt } : {}),
+    ...(from.lastExportedAt !== undefined ? { lastExportedAt: from.lastExportedAt } : {}),
+  };
+}
+
 /** Optional text field value: undefined when empty. */
 export function optionalText(v: string): string | undefined {
   return v === '' ? undefined : v;
@@ -219,7 +296,10 @@ export function defaultAppUrl(): string {
   return `${location.origin}${location.pathname}`;
 }
 
-/** A copy of a project under a new local id (timestamps set to `now`). */
+/**
+ * A copy of a project under a new local id (timestamps set to `now`). It keeps the work identity (work id, salt,
+ * codes): use withNewWorkIdentity (app/studio.ts) when the copy is meant to become another work.
+ */
 export function cloneProject(p: StudioProject, now: number, patch: Partial<StudioProject> = {}): StudioProject {
   const copy = structuredClone(p);
   return { ...copy, id: globalThis.crypto.randomUUID(), createdAt: now, updatedAt: now, ...patch };
@@ -263,7 +343,13 @@ export function tabForPath(path: string): 'work' | 'structure' | 'goals' | 'extr
   if (path.startsWith('goals')) return 'goals';
   if (path.startsWith('sealed')) return 'extras';
   if (path.startsWith('checkpoints') || path.startsWith('groups')) return 'structure';
-  if (path.startsWith('work') || path.startsWith('appUrl') || path.startsWith('kdf') || path.startsWith('changelog')) {
+  if (
+    path.startsWith('work') ||
+    path.startsWith('appUrl') ||
+    path.startsWith('authorName') ||
+    path.startsWith('kdf') ||
+    path.startsWith('changelog')
+  ) {
     return 'work';
   }
   return null;

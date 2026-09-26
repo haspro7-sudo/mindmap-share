@@ -1,12 +1,18 @@
 // Play sessions (プレイ記録・前回の続き). docs/SPEC.md F13, §5.2.
 //
-// Only one session may be open app-wide. Calls are serialized per repository, so a double tap on
-// 「始める」 cannot open two sessions even though the repo has no cross-call transactions.
+// Only one session may be open app-wide. Every call runs under the per-repository lock shared with the
+// library and unlock services (repoLock.ts), so a double tap on 「始める」 cannot open two sessions, and a
+// session cannot be written back for a work that 「削除」 removed meanwhile, even though the repo has no
+// cross-call transactions.
+//
+// WorkRecord.lastPlayedAt always follows the sessions: endSession sets it, and editing or deleting a session
+// recomputes it as the latest end of the work's remaining ended sessions (absent when there is none).
 import { SESSION_MAX_MINUTES } from '../core/constants';
 import { ShioriError } from '../core/errors';
 import { sessionMinutes } from '../core/session';
 import type { Session, WorkRecord } from '../core/types';
 import type { ShioriRepo } from '../storage/repo';
+import { withRepoLock } from './repoLock';
 
 /** Maximum length of 「どこまで進んだ？」 and 「次にやること」, in characters (code points). */
 export const SESSION_NOTE_MAX_CHARS = 100;
@@ -23,20 +29,9 @@ const MSG_MINUTES = 'プレイ時間が正しくありません';
 
 // ───────────────────────── helpers ─────────────────────────
 
-/** Per-repo queue: each call starts after the previous one settled (fulfilled or rejected). */
-const queues = new WeakMap<ShioriRepo, Promise<void>>();
-
+/** Runs `fn` under the shared repository lock (none of the session services call another locked service). */
 function serialized<T>(repo: ShioriRepo, fn: () => Promise<T>): Promise<T> {
-  // The stored tail never rejects, so `fn` always runs.
-  const run = (queues.get(repo) ?? Promise.resolve()).then(fn);
-  queues.set(
-    repo,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
+  return withRepoLock(repo, fn);
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -86,6 +81,30 @@ async function resolveCheckpoint(
   if (typeof checkpointId !== 'string' || checkpointId === '' || !work?.manifestKey) return undefined;
   const record = await repo.getManifest(work.manifestKey);
   return record?.manifest.checkpoints.some((c) => c.id === checkpointId) ? checkpointId : undefined;
+}
+
+/** Latest endedAt among the work's ended sessions, or undefined when it has none. */
+async function latestEnd(repo: ShioriRepo, workId: string): Promise<number | undefined> {
+  let latest: number | undefined;
+  for (const s of await repo.listSessions(workId)) {
+    if (typeof s.endedAt === 'number' && (latest === undefined || s.endedAt > latest)) latest = s.endedAt;
+  }
+  return latest;
+}
+
+/**
+ * Makes work.lastPlayedAt match the work's sessions after one was edited or deleted (最終プレイ日, 「N日前」 and
+ * 最近遊んだ順 must never show a session that is gone or was re-timed). Writes only when it changed.
+ */
+async function syncLastPlayed(repo: ShioriRepo, workId: string, now: number): Promise<void> {
+  const work = await repo.getWork(workId);
+  if (!work) return;
+  const latest = await latestEnd(repo, workId);
+  if (work.lastPlayedAt === latest) return;
+  const next: WorkRecord = { ...work, updatedAt: Math.max(now, work.updatedAt) };
+  if (latest === undefined) delete next.lastPlayedAt;
+  else next.lastPlayedAt = latest;
+  await repo.putWork(next);
 }
 
 /** A Session without undefined-valued keys (IndexedDB and structuredClone keep them otherwise). */
@@ -173,9 +192,10 @@ export function endSession(
  * - An ended session always has minutes: a given value is rounded and clamped to 0..720 (a non-finite value is a
  *   validation error), a missing one becomes sessionMinutes(startedAt, endedAt). An open session has none.
  * - Re-opening a session while another one is open is a ShioriError('conflict').
- * - Notes and the checkpoint are normalized like endSession. The work record is not changed.
+ * - Notes and the checkpoint are normalized like endSession. The work's lastPlayedAt is recomputed from its
+ *   sessions (see syncLastPlayed); nothing else of the work record changes.
  */
-export function editSession(repo: ShioriRepo, session: Session): Promise<void> {
+export function editSession(repo: ShioriRepo, session: Session, now: number = Date.now()): Promise<void> {
   return serialized(repo, async () => {
     if (typeof session.id !== 'string' || session.id.trim() === '') throw new ShioriError('validation', MSG_SESSION_ID);
     const work = await requireWork(repo, session.workId);
@@ -198,6 +218,7 @@ export function editSession(repo: ShioriRepo, session: Session): Promise<void> {
       if (minutes === undefined) throw new ShioriError('validation', MSG_MINUTES);
     }
 
+    const previous = await findSession(repo, session.id);
     await repo.putSession(
       compactSession({
         id: session.id,
@@ -210,5 +231,21 @@ export function editSession(repo: ShioriRepo, session: Session): Promise<void> {
         nextTodo: normalizeSessionNote(session.nextTodo),
       }),
     );
+    // A session moved to another work leaves its old work too.
+    if (previous && previous.workId !== session.workId) await syncLastPlayed(repo, previous.workId, now);
+    await syncLastPlayed(repo, session.workId, now);
+  });
+}
+
+/**
+ * Deletes a session (記録タブの削除) and recomputes its work's lastPlayedAt from the remaining sessions.
+ * Deleting an unknown session is harmless.
+ */
+export function deleteSession(repo: ShioriRepo, sessionId: string, now: number = Date.now()): Promise<void> {
+  return serialized(repo, async () => {
+    const session = await findSession(repo, sessionId);
+    if (!session) return;
+    await repo.deleteSession(session.id);
+    await syncLastPlayed(repo, session.workId, now);
   });
 }

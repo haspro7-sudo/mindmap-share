@@ -251,7 +251,7 @@
   height: 28px;
   margin: -14px 0 0 -14px;
   border-radius: 50%;
-  border: 2px solid var(--border-strong);
+  border: 2px solid var(--control-border);
   background: var(--surface);
   transition: background 120ms ease-out, border-color 120ms ease-out;
 }
@@ -533,6 +533,45 @@ button.wk-check:hover::before {
   gap: 12px;
 }
 
+/* ───────── しおりファイルを読み込む (attach to this work) ───────── */
+.wk-attach-labelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wk-attach-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.wk-attach-meta > div {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.wk-attach-meta dt {
+  font-weight: 600;
+  color: var(--muted);
+}
+.wk-attach-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.wk-attach-issues {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
 /* ───────── session bar ───────── */
 .wk-sessionbar {
   position: sticky;
@@ -579,7 +618,7 @@ button.wk-check:hover::before {
 .wk-sb-other a {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: var(--tap);
 }
 @keyframes wk-pulse {
   0%,
@@ -664,15 +703,3 @@ button.wk-check:hover::before {
   margin-top: 6px;
 }
 
-/*
- * Toasts (shell/UiProvider) normally sit just above the bottom nav, exactly where the sticky session bar is,
- * and would cover 「終える」 for a few seconds. While a work page is shown (and no sheet covers the bar) they
- * move above the bar.
- * (bar = 8px padding ×2 + 48px button + 2px border, 10px above the nav; + 28px when 「ほかの作品を記録中」 shows)
- */
-body:has(.wk-sessionbar):not(:has(.sheet-root)) .ui-toasts {
-  bottom: calc(var(--nav-h) + 12px + 76px + env(safe-area-inset-bottom));
-}
-body:has(.wk-sessionbar.has-other):not(:has(.sheet-root)) .ui-toasts {
-  bottom: calc(var(--nav-h) + 12px + 110px + env(safe-area-inset-bottom));
-}

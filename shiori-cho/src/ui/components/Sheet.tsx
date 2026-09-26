@@ -1,9 +1,14 @@
 // Bottom sheet modal (role="dialog", aria-modal, focus trap, Escape/backdrop closes, scroll lock,
 // safe-area padding). On wide screens it becomes a centered panel (max 560 px).
-import { useId, useRef } from 'react';
+// The sheet covers the header, so it carries its own 「隠す」 (F2 AC3: hiding is one tap from every screen)
+// whenever it is rendered inside the app's UiProvider.
+import { useContext, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { UiContext } from '../context';
+import { HideButton } from './HideButton';
 import { useFocusTrap, useOverlayLayer, useScrollLock } from './overlay';
+import { useHtmlFlag } from './toastLift';
 import './Sheet.css';
 
 export interface SheetProps {
@@ -19,10 +24,13 @@ export function Sheet(props: SheetProps): ReactNode {
   const { open, onClose, title, children, footer } = props;
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const ui = useContext(UiContext);
 
   useOverlayLayer(open, onClose);
   useScrollLock(open);
   useFocusTrap(panelRef, open);
+  // toasts drop back to their normal place while a sheet covers sticky bottom bars (UiProvider.css)
+  useHtmlFlag('sheet-open', open);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -47,6 +55,7 @@ export function Sheet(props: SheetProps): ReactNode {
           ) : (
             <span className="spacer" />
           )}
+          {ui ? <HideButton onHide={() => ui.hide()} className="btn-ghost sheet-hide" /> : null}
           <button type="button" className="icon-btn sheet-close" onClick={onClose} aria-label="閉じる">
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />

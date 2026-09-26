@@ -40,6 +40,11 @@ export interface ToastOptions {
   /** default 3000 ms (5000 ms when an action is given) */
   durationMs?: number;
   tone?: 'default' | 'ok' | 'danger';
+  /**
+   * Show it even while the lock screen is up (only the lock screen's own messages). Without it, a toast asked
+   * for while the app is locked or camouflaged is dropped; nothing is ever shown over the camouflage.
+   */
+  whileSuspended?: boolean;
 }
 export interface ConfirmOptions {
   title: string;
@@ -47,6 +52,11 @@ export interface ConfirmOptions {
   okLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /**
+   * Allow it while the lock screen is up (only the lock screen's own questions). Without it, a dialog asked
+   * for while the app is locked or camouflaged resolves as cancelled at once (confirm → false, prompt → null).
+   */
+  whileSuspended?: boolean;
 }
 export interface PromptOptions extends ConfirmOptions {
   label: string;
@@ -68,6 +78,12 @@ export interface UiApi {
   hide(): void;
   /** lock now (only meaningful when a PIN is set) */
   lockNow(): void;
+  /**
+   * true while the camouflage notepad is shown. Toasts are dropped and confirm/prompt resolve as cancelled
+   * then (see `whileSuspended`); long-running work that finishes afterwards can check this before
+   * downloading a file. (Optional so that other implementations stay valid.)
+   */
+  isCamouflaged?(): boolean;
 }
 export const UiContext = createContext<UiApi | null>(null);
 

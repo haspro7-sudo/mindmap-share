@@ -21,19 +21,54 @@ import type {
   ManifestWork,
   ManualGoal,
   SealedItem,
+  SealedKind,
   SealedPayload,
   ShioriManifestV1,
   StudioProject,
   ValidationIssue,
 } from '../types';
+import { formatPath, zodIssuesToValidationIssues } from './messagesJa';
 import { goalSecretSchema, sealedPayloadSchema } from './payloadSchemas';
 import { validateManifest } from './validate';
 
 /** How many validation issues the build error message lists. */
 const ISSUES_IN_MESSAGE = 3;
 
-function invalid(messageJa: string, cause?: unknown): never {
-  throw new ShioriError('validation', messageJa, cause === undefined ? undefined : { cause });
+type Path = ReadonlyArray<string | number>;
+
+/**
+ * The build refused the project: a ShioriError('validation') whose message summarizes the first issues, carrying
+ * every issue with its path ('goals[2].hints[0]'), so 点検 can list them all and link each one to its tab.
+ */
+export class BuildValidationError extends ShioriError {
+  readonly issues: readonly ValidationIssue[];
+
+  constructor(issues: readonly ValidationIssue[]) {
+    super('validation', issuesMessage(issues));
+    this.issues = issues;
+  }
+}
+
+export function isBuildValidationError(e: unknown): e is BuildValidationError {
+  return e instanceof BuildValidationError;
+}
+
+/** Collects the pre-check issues of a build (they are all reported together, before any PBKDF2). */
+class Issues {
+  readonly list: ValidationIssue[] = [];
+
+  add(path: Path, code: string, messageJa: string): void {
+    this.list.push({ path: formatPath(path), code, messageJa, severity: 'error' });
+  }
+
+  /** zod issues below `path`, each message prefixed with the item's name. */
+  addZod(path: Path, name: string, zodIssues: ReadonlyArray<unknown>): void {
+    for (const i of zodIssuesToValidationIssues(zodIssues, path)) this.list.push({ ...i, messageJa: `${name}：${i.messageJa}` });
+  }
+
+  throwIfAny(): void {
+    if (this.list.length > 0) throw new BuildValidationError(this.list);
+  }
 }
 
 function isBlank(s: string | undefined): boolean {
@@ -58,12 +93,17 @@ export function normalizeGoalSecret(secret: GoalSecret): GoalSecret {
 /**
  * SealedPayload with empty optional parts dropped: an empty `from`, a returnCode / storeLink whose fields are
  * all empty (the editor's "unset" state). A store code is normalized (ｒｊ０１… → RJ01…) when it parses.
+ * With `kind`, a return code is kept only for kind 'returnCode' (the editor says a return code left on another kind
+ * is not shown; the player's reader would otherwise show it, and the kit would not list it).
  */
-export function normalizePayload(p: SealedPayload): SealedPayload {
+export function normalizePayload(p: SealedPayload, kind?: SealedKind): SealedPayload {
   const out: SealedPayload = { title: p.title, body: p.body };
   if (!isBlank(p.from)) out.from = p.from;
   const rc = p.returnCode;
-  if (rc && !(isBlank(rc.code) && isBlank(rc.instruction))) out.returnCode = { code: rc.code, instruction: rc.instruction };
+  const keepReturnCode = kind === undefined || kind === 'returnCode';
+  if (keepReturnCode && rc && !(isBlank(rc.code) && isBlank(rc.instruction))) {
+    out.returnCode = { code: rc.code, instruction: rc.instruction };
+  }
   const sl = p.storeLink;
   if (sl && !(isBlank(sl.storeCode) && isBlank(sl.caption))) {
     out.storeLink = { storeCode: parseStoreCode(sl.storeCode)?.code ?? sl.storeCode, caption: sl.caption };
@@ -118,30 +158,52 @@ interface PreparedCodeGoal {
   secret: GoalSecret;
 }
 
-function prepareCodeGoal(d: DraftGoal): PreparedCodeGoal {
+/** Checks a code goal (no KDF). Returns undefined after adding its issues when it cannot be built. */
+function prepareCodeGoal(d: DraftGoal, index: number, issues: Issues): PreparedCodeGoal | undefined {
   const name = `目標「${d.id}」`;
-  if (isBlank(d.code)) invalid(`${name}の合言葉が設定されていません`);
-  const parsed = parseCode(d.code ?? '');
-  if (!parsed.ok) invalid(`${name}の合言葉が正しくありません：${codeErrorMessageJa(parsed.error)}`);
-  const kind = d.codeKind ?? parsed.kind;
-  if (parsed.kind !== kind) {
-    invalid(`${name}の合言葉の種類が設定（${kind === 'kana' ? 'ひらがな5語' : '英数字'}）と一致しません`);
+  const at = (...rest: (string | number)[]): Path => ['goals', index, ...rest];
+  let ok = true;
+  let parsedCode: { kind: CodeKind; canonical: string; display: string } | undefined;
+  if (isBlank(d.code)) {
+    issues.add(at('code'), 'codeMissing', `${name}の合言葉が設定されていません`);
+    ok = false;
+  } else {
+    const parsed = parseCode(d.code ?? '');
+    if (!parsed.ok) {
+      issues.add(at('code'), 'codeInvalid', `${name}の合言葉が正しくありません：${codeErrorMessageJa(parsed.error)}`);
+      ok = false;
+    } else {
+      parsedCode = parsed;
+      const kind = d.codeKind ?? parsed.kind;
+      if (parsed.kind !== kind) {
+        issues.add(at('codeKind'), 'codeKindMismatch', `${name}の合言葉の種類が設定（${kind === 'kana' ? 'ひらがな5語' : '英数字'}）と一致しません`);
+        ok = false;
+      }
+    }
   }
-  if (!d.secret || isBlank(d.secret.title)) invalid(`${name}の秘密タイトルを入力してください`);
+  if (!d.secret || isBlank(d.secret.title)) {
+    issues.add(at('secret', 'title'), 'secretTitleMissing', `${name}の秘密タイトルを入力してください`);
+    return undefined;
+  }
   const secret = normalizeGoalSecret(d.secret);
-  const checked = goalSecretSchema.safeParse(secret);
+  const checked = goalSecretSchema.safeParse(secret, { reportInput: true });
   if (!checked.success) {
-    invalid(`${name}の秘密タイトル・説明・解放メッセージの長さや文字を確かめてください`, checked.error);
+    issues.addZod(at('secret'), `${name}の秘密タイトル・説明・解放メッセージ`, checked.error.issues);
+    ok = false;
   }
-  return { draft: d, kind, canonical: parsed.canonical, display: parsed.display, secret };
+  if (!ok || !parsedCode) return undefined;
+  return { draft: d, kind: parsedCode.kind, canonical: parsedCode.canonical, display: parsedCode.display, secret };
 }
 
-function checkDuplicateCodes(codeGoals: readonly PreparedCodeGoal[]): void {
+function checkDuplicateCodes(codeGoals: ReadonlyArray<{ index: number; goal: PreparedCodeGoal }>, issues: Issues): void {
   const owner = new Map<string, string>();
-  for (const g of codeGoals) {
+  for (const { index, goal: g } of codeGoals) {
     const first = owner.get(g.canonical);
-    if (first !== undefined) invalid(`目標「${first}」と「${g.draft.id}」に同じ合言葉が設定されています`);
-    owner.set(g.canonical, g.draft.id);
+    if (first !== undefined) {
+      issues.add(['goals', index, 'code'], 'duplicateCode', `目標「${first}」と「${g.draft.id}」に同じ合言葉が設定されています`);
+    } else {
+      owner.set(g.canonical, g.draft.id);
+    }
   }
 }
 
@@ -151,22 +213,47 @@ interface PreparedSealed {
   payload: SealedPayload;
 }
 
-function prepareSealed(s: DraftSealed, codeGoalIds: ReadonlySet<string>, allGoalIds: ReadonlySet<string>): PreparedSealed {
+function prepareSealed(
+  s: DraftSealed,
+  index: number,
+  codeGoalIds: ReadonlySet<string>,
+  allGoalIds: ReadonlySet<string>,
+  issues: Issues,
+): PreparedSealed | undefined {
   const name = `おまけ「${s.id}」`;
-  if (s.mode !== 'allOf' && s.mode !== 'anyOf') invalid(`${name}の条件（すべて／どれか）が正しくありません`);
-  const goals = [...new Set(s.goals ?? [])];
-  if (goals.length === 0) invalid(`${name}の条件に、合言葉つきの目標を1つ以上指定してください`);
-  for (const g of goals) {
-    if (!allGoalIds.has(g)) invalid(`${name}の条件の目標「${g}」が見つかりません`);
-    if (!codeGoalIds.has(g)) invalid(`${name}の条件の目標「${g}」は合言葉つきの目標ではありません`);
+  const at = (...rest: (string | number)[]): Path => ['sealed', index, ...rest];
+  let ok = true;
+  if (s.mode !== 'allOf' && s.mode !== 'anyOf') {
+    issues.add(at('mode'), 'sealedMode', `${name}の条件（すべて／どれか）が正しくありません`);
+    ok = false;
   }
-  const payload = normalizePayload(s.payload);
-  const checked = sealedPayloadSchema.safeParse(payload);
-  if (!checked.success) invalid(`${name}の内容（タイトル・本文など）の長さや文字を確かめてください`, checked.error);
-  return { draft: s, goals, payload };
+  const goals = [...new Set(s.goals ?? [])];
+  if (goals.length === 0) {
+    issues.add(at('goals'), 'sealedNoGoals', `${name}の条件に、合言葉つきの目標を1つ以上指定してください`);
+    ok = false;
+  }
+  const checked = new Set<string>();
+  (s.goals ?? []).forEach((g, j) => {
+    if (checked.has(g)) return;
+    checked.add(g);
+    if (!allGoalIds.has(g)) {
+      issues.add(at('goals', j), 'danglingGoal', `${name}の条件の目標「${g}」が見つかりません`);
+      ok = false;
+    } else if (!codeGoalIds.has(g)) {
+      issues.add(at('goals', j), 'sealedRefersManual', `${name}の条件の目標「${g}」は合言葉つきの目標ではありません`);
+      ok = false;
+    }
+  });
+  const payload = normalizePayload(s.payload, s.kind);
+  const parsed = sealedPayloadSchema.safeParse(payload, { reportInput: true });
+  if (!parsed.success) {
+    issues.addZod(at('payload'), `${name}の内容`, parsed.error.issues);
+    ok = false;
+  }
+  return ok ? { draft: s, goals, payload } : undefined;
 }
 
-function resolveSalt(project: StudioProject, rng: Rng): string {
+function resolveSalt(project: StudioProject, rng: Rng, issues: Issues): string | undefined {
   if (project.kdfSalt !== undefined) {
     let bytes: Bytes | undefined;
     try {
@@ -174,7 +261,10 @@ function resolveSalt(project: StudioProject, rng: Rng): string {
     } catch {
       bytes = undefined;
     }
-    if (!bytes || bytes.length !== KDF_SALT_BYTES) invalid('鍵のソルト（kdfSalt）が正しくありません');
+    if (!bytes || bytes.length !== KDF_SALT_BYTES) {
+      issues.add(['kdfSalt'], 'kdfSalt', '鍵のソルト（kdfSalt）が正しくありません');
+      return undefined;
+    }
     return project.kdfSalt;
   }
   const bytes = rng(KDF_SALT_BYTES);
@@ -197,30 +287,45 @@ function issuesMessage(issues: readonly ValidationIssue[]): string {
 
 /**
  * Builds the public manifest. Uses project.kdfSalt if set (else generates 16 random bytes → returned as `salt`).
- * Throws ShioriError('validation') if the project is not buildable (e.g. code goal without a valid code).
+ * Throws BuildValidationError (a ShioriError('validation') carrying every issue with its path) if the project is
+ * not buildable (e.g. code goal without a valid code, or a manifest that does not validate).
  *
  * Every cheap check (codes, secrets, sealed conditions, payloads, iterations, salt) runs before the first
- * PBKDF2. One master is derived per code goal. `kdf` is included only when there is at least one code goal or
- * sealed item. The result is re-validated with validateManifest; `manifest` and `json` are the validated form.
+ * PBKDF2, and all their issues are reported together. One master is derived per code goal. `kdf` is included
+ * only when there is at least one code goal or sealed item. A return code is sealed only for kind 'returnCode'.
+ * The result is re-validated with validateManifest; `manifest` and `json` are the validated form.
  */
 export async function buildManifest(project: StudioProject, opts: { rng?: Rng } = {}): Promise<BuildResult> {
   const rng = opts.rng ?? randomBytes;
   const workId = project.work.id;
+  const issues = new Issues();
 
-  const codeGoals = project.goals.filter((g) => g.unlockType === 'code').map(prepareCodeGoal);
-  checkDuplicateCodes(codeGoals);
-  const codeGoalIds = new Set(codeGoals.map((g) => g.draft.id));
+  const codeDrafts = project.goals.flatMap((g, index) => (g.unlockType === 'code' ? [{ g, index }] : []));
+  const preparedCodes = codeDrafts.flatMap(({ g, index }) => {
+    const goal = prepareCodeGoal(g, index, issues);
+    return goal ? [{ index, goal }] : [];
+  });
+  checkDuplicateCodes(preparedCodes, issues);
+  const codeGoals = preparedCodes.map((c) => c.goal);
+  const codeGoalIds = new Set(codeDrafts.map(({ g }) => g.id));
   const allGoalIds = new Set(project.goals.map((g) => g.id));
-  const sealed = project.sealed.map((s) => prepareSealed(s, codeGoalIds, allGoalIds));
+  const sealed = project.sealed.flatMap((s, index) => {
+    const prepared = prepareSealed(s, index, codeGoalIds, allGoalIds, issues);
+    return prepared ? [prepared] : [];
+  });
 
-  const salt = resolveSalt(project, rng);
-  const needsKdf = codeGoals.length > 0 || sealed.length > 0;
+  const salt = resolveSalt(project, rng, issues);
+  const needsKdf = codeDrafts.length > 0 || project.sealed.length > 0;
   const iterations = project.kdfIterations;
   if (needsKdf && (!Number.isInteger(iterations) || iterations < KDF_ITERATIONS_MIN || iterations > KDF_ITERATIONS_MAX)) {
-    invalid(
+    issues.add(
+      ['kdfIterations'],
+      'kdfIterations',
       `反復回数は${formatIterations(KDF_ITERATIONS_MIN)}〜${formatIterations(KDF_ITERATIONS_MAX)}の整数にしてください`,
     );
   }
+  issues.throwIfAny();
+  if (salt === undefined) throw new ShioriError('internal', '鍵のソルトを用意できませんでした');
   const kdf: KdfParams = { alg: 'PBKDF2-SHA256', iterations, salt };
 
   // PBKDF2 once per code goal (in parallel; no randomness involved).
@@ -281,7 +386,7 @@ export async function buildManifest(project: StudioProject, opts: { rng?: Rng } 
   };
 
   const result = validateManifest(draft);
-  if (!result.ok) throw new ShioriError('validation', issuesMessage(result.errors));
+  if (!result.ok) throw new BuildValidationError(result.errors);
   const manifest = result.manifest;
 
   const codes: CodeRow[] = codeGoals.map((g) => ({

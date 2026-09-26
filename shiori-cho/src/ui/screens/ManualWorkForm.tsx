@@ -5,8 +5,9 @@ import { createWork, defaultCoverEmoji } from '../../app/library';
 import type { CoverColor } from '../../core/types';
 import { EmojiCover } from '../components/EmojiCover';
 import { useRepo, useSettings, useUi } from '../context';
-import { COVER_COLORS, COVER_EMOJIS, coverColorVar } from '../format';
+import { COVER_COLOR_LABEL, COVER_COLORS, COVER_EMOJIS, coverColorVar } from '../format';
 import { navigate } from '../router';
+import { leaveLayersThen } from './work/historyLayer';
 import { FocusHeading, WorkBasicsFields } from './AddWorkFields';
 import { errorMessageJa, focusFirst, useNextAlias, validateWorkBasics } from './libraryShared';
 import type { WorkBasics, WorkBasicsErrors } from './libraryShared';
@@ -17,15 +18,6 @@ export interface ManualWorkFormProps {
   onCancel(): void;
 }
 
-const COLOR_LABEL: Record<CoverColor, string> = {
-  paper: '生成り',
-  sky: '空色',
-  leaf: '若葉色',
-  sun: '山吹色',
-  rose: '桜色',
-  plum: '藤色',
-  slate: '灰色',
-};
 
 const ID = 'mw';
 
@@ -78,7 +70,8 @@ export function ManualWorkForm({ onCancel }: ManualWorkFormProps): ReactNode {
       if (basics.storeCode.trim() !== '') input.storeCode = basics.storeCode;
       const work = await createWork(repo, input);
       ui.toast('本棚に追加しました', { tone: 'ok' });
-      navigate({ name: 'work', id: work.id, tab: 'progress' }, { replace: true });
+      // #/add's sub-view is a history layer: leave it first so the replace takes #/add's own entry.
+      leaveLayersThen(() => navigate({ name: 'work', id: work.id, tab: 'progress' }, { replace: true }));
     } catch (err) {
       ui.toast(errorMessageJa(err), { tone: 'danger' });
       busyRef.current = false;
@@ -149,7 +142,7 @@ export function ManualWorkForm({ onCancel }: ManualWorkFormProps): ReactNode {
                   value={c}
                   checked={color === c}
                   onChange={() => setColor(c)}
-                  aria-label={COLOR_LABEL[c]}
+                  aria-label={COVER_COLOR_LABEL[c]}
                 />
                 <span className="aw-swatch-face" aria-hidden="true" style={{ background: coverColorVar(c) }} />
               </label>

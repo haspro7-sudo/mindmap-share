@@ -84,6 +84,23 @@ describe('studioProjectSchema', () => {
     expect(r.data.goals[2]).toEqual({ id: 'draft', group: '', label: '', spoiler: 0, hints: [''], unlockType: 'code' });
   });
 
+  it('accepts every intermediate editor state of secrets, payloads and hints (F16 AC7 round trip)', () => {
+    const p: any = project();
+    p.goals[0].secret = { title: '', description: '説明だけ先に書いた' };
+    p.goals[0].hints = ['一行目\n二行目'];
+    p.goals[1].secret = { title: '', description: '手動に切り替える前の残り' };
+    p.sealed[0].payload = {
+      title: '',
+      body: '',
+      returnCode: { code: 'ひみつ', instruction: '' },
+      storeLink: { storeCode: 'rj01234567', caption: '' },
+    };
+    p.sealed.push({ ...p.sealed[0], id: 'x2', payload: { title: 't', body: '', returnCode: { code: '', instruction: '案内' }, storeLink: { storeCode: '', caption: '次回作' } } });
+    const r = studioProjectSchema.safeParse(p);
+    expect(r.success, JSON.stringify(paths(r))).toBe(true);
+    if (r.success) expect(r.data).toEqual(p);
+  });
+
   it('strips unknown keys', () => {
     const p: any = project();
     p.extra = 1;
@@ -101,12 +118,14 @@ describe('studioProjectSchema', () => {
       [(p) => (p.work.kind = 'movie'), 'work.kind', 'invalidValue'],
       [(p) => (p.goals[0].unlockType = 'auto'), 'goals[0].unlockType', 'invalidValue'],
       [(p) => (p.goals[0].codeKind = 'hex'), 'goals[0].codeKind', 'invalidValue'],
-      [(p) => (p.goals[0].secret.title = ''), 'goals[0].secret.title', 'tooShort'],
+      [(p) => (p.goals[0].secret.title = 'あ'.repeat(61)), 'goals[0].secret.title', 'tooLong'],
       [(p) => (p.goals[0].label = 'あ'.repeat(61)), 'goals[0].label', 'tooLong'],
       [(p) => (p.goals[0].hints = ['a', 'b', 'c', 'd']), 'goals[0].hints', 'tooMany'],
       [(p) => (p.sealed[0].mode = 'someOf'), 'sealed[0].mode', 'invalidValue'],
       [(p) => (p.sealed[0].payload.body = 'a\u202Eb'), 'sealed[0].payload.body', 'bidiChar'],
-      [(p) => (p.sealed[0].payload.storeLink = { storeCode: 'XX1', caption: '次回作' }), 'sealed[0].payload.storeLink.storeCode', 'invalidFormat'],
+      [(p) => (p.sealed[0].payload.storeLink = { storeCode: 'R'.repeat(21), caption: '次回作' }), 'sealed[0].payload.storeLink.storeCode', 'tooLong'],
+      [(p) => (p.goals[0].hints = ['a\tb']), 'goals[0].hints[0]', 'controlChar'],
+      [(p) => (p.goals[0].hints = ['a'.repeat(201)]), 'goals[0].hints[0]', 'tooLong'],
       [(p) => (p.kdfSalt = bin(8)), 'kdfSalt', 'saltLength'],
       [(p) => (p.kdfIterations = 1.5), 'kdfIterations', 'invalidType'],
       [(p) => (p.createdAt = -1), 'createdAt', 'tooSmall'],

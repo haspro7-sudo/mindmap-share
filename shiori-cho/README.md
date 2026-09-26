@@ -78,7 +78,8 @@
 ## プライバシー
 
 - 通信なし：解析・広告・外部フォント・CDN を使いません。ビルド時に CSP（`connect-src 'self'`）を埋め込み、`npm run check:dist` で外部ホストが混入していないことを検査します。
-- 保存先：ブラウザの IndexedDB（プレイヤー用 `shiori`、工房用 `shiori-studio`）のみ。
+- 保存先：ブラウザの IndexedDB（プレイヤー用 `shiori`、工房用 `shiori-studio`）。このほか、合言葉の受け渡し・本棚の絞り込み・「隠す」の状態を、タブを閉じると消える sessionStorage に一時的に置きます。アプリ本体のファイルは、オフライン用に Service Worker のキャッシュに入ります。
+- QRのアドレス（`#/u/<作品ID>/<合言葉>`）はブラウザの履歴に残ることがあります。作品IDは作者が付けた識別子なので、中身と関係のない文字列にしておくのがおすすめです（アプリは開いてすぐにアドレスを書き換えます）。
 - PINは画面ロックです。保存データ自体は暗号化されません（パスフレーズ付きバックアップは暗号化されます）。
 - iPhone では Safari とホーム画面のアプリで保存領域が別になります。バックアップの利用をおすすめします。
 
@@ -94,8 +95,9 @@ npm test             # vitest（コア・ストレージ・サービス・UI）
 npm run typecheck    # tsc -b（strict）
 npm run lint         # oxlint（react/no-danger など）
 npm run build        # 本番ビルド（PWA + CSP）
-npm run check:dist   # dist に外部ホストや生HTML APIが無いか検査
+npm run check:dist   # dist に許可外の外部ホストが無いか、src に生HTML API（innerHTML など）が無いか検査
 npm run demo:build   # サンプル作品の shiori.json を再生成
+npx tsx scripts/gen-licenses.ts  # 第三者ライセンス表示 public/licenses.txt を再生成（依存を追加・更新したら実行してコミット）
 ```
 
 - 技術：Vite + React 19 + TypeScript（strict）、zod 4、idb、fflate、qrcode-generator、vite-plugin-pwa
@@ -106,4 +108,6 @@ npm run demo:build   # サンプル作品の shiori.json を再生成
   - `src/ui/`：画面
   - `src/demo/`：サンプル作品
 - 仕様：[`docs/SPEC.md`](docs/SPEC.md)
-- GitHub Pages：Actions の `shiori-cho` ワークフローを手動実行（deploy にチェック）すると公開されます。相対パスとハッシュルーティングなので、サブパスでも動きます。
+- CI：リポジトリ直下の `.github/workflows/shiori-cho.yml`（`npm ci` → ライセンス表示の更新確認 → typecheck → lint → test → build → check:dist）。
+- GitHub Pages：リポジトリの Settings → Pages で Source を「GitHub Actions」にしておき、Actions の `shiori-cho` ワークフローを手動実行（deploy にチェック）すると公開されます。相対パスとハッシュルーティングなので、サブパスでも動きます。
+- ライセンス：利用しているオープンソースソフトウェアの著作権表示とライセンス全文は `public/licenses.txt`（アプリ内ではヘルプ →「このアプリについて」から開けます）。

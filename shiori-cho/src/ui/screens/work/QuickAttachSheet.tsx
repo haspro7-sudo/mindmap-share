@@ -11,6 +11,7 @@ import type { QuickCounts, WorkRecord } from '../../../core/types';
 import type { ShioriRepo } from '../../../storage/repo';
 import { Sheet } from '../../components/Sheet';
 import { useRepo, useUi } from '../../context';
+import { useBackToClose } from './historyLayer';
 import { errorMessageJa } from './workModel';
 
 const FIELDS: ReadonlyArray<keyof QuickCounts> = ['endings', 'cg', 'achievements', 'tracks', 'chapters'];
@@ -44,6 +45,7 @@ export function QuickAttachSheet({ work, onClose }: { work: WorkRecord; onClose(
   }));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useBackToClose(true, onClose);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

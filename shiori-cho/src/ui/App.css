@@ -58,3 +58,14 @@
   color: var(--muted);
   text-align: center;
 }
+
+/* focus moved to the new screen after navigation (App.tsx focusScreen): no ring for a programmatic focus */
+.app-main:focus,
+.app-main :is(h1, h2)[tabindex='-1']:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* a screen that failed to render (ErrorBoundary fallback) */
+.app-screen-error-actions {
+  justify-content: center;
+}

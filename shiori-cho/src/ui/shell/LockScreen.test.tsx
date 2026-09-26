@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PIN_COOLDOWN_MS } from '../../core/constants';
 import { hashPin } from '../../core/crypto/pin';
@@ -53,6 +53,37 @@ describe('LockScreen (F3)', () => {
     await setup({ pinCooldownUntil: Date.now() + 12_000 });
     expect(screen.getByText(/あと1[12]秒お待ちください/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '解除' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('a cooldown stored while the clock was ahead lasts at most 30 s (and is stored that way)', async () => {
+    const { repo } = await setup({ pinCooldownUntil: Date.now() + 86_400_000 });
+    expect(screen.getByText(/あと(30|29)秒お待ちください/)).toBeTruthy();
+    await waitFor(async () => expect((await repo.getSettings()).pinCooldownUntil).toBeLessThanOrEqual(Date.now() + PIN_COOLDOWN_MS));
+  });
+
+  it('「PINを忘れた」 says exactly what the wipe erases: the studio projects too', async () => {
+    const { user } = await setup();
+    await user.click(screen.getByRole('button', { name: 'PINを忘れた' }));
+    expect(screen.getByText(/サークル工房のプロジェクトがすべて消えます/)).toBeTruthy();
+    expect(screen.queryByText(/PINは端末の中にだけ保存されていて/)).toBeNull();
+    await user.click(screen.getByRole('button', { name: '全データを消して初期化' }));
+    expect(within(screen.getByRole('alertdialog')).getByText(/サークル工房のプロジェクト/)).toBeTruthy();
+  });
+
+  it('a failed wipe is shown on the page (no silent reload into the same PIN pad)', async () => {
+    const pin = await hashPin('1357', FAST);
+    const onWipe = vi.fn(async () => {
+      throw new Error('blocked');
+    });
+    const { user } = renderWithProviders(<LockScreen onUnlock={() => undefined} onWipe={onWipe} />, { settings: { pin } });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await user.click(screen.getByRole('button', { name: 'PINを忘れた' }));
+    await user.click(screen.getByRole('button', { name: '全データを消して初期化' }));
+    await user.click(screen.getByRole('button', { name: '次へ' }));
+    await user.click(await screen.findByRole('button', { name: '消して初期化する' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('データを消せませんでした');
+    expect((screen.getByRole('button', { name: '全データを消して初期化' }) as HTMLButtonElement).disabled).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it('「PINを忘れた」 offers only the wipe, behind a double confirmation', async () => {

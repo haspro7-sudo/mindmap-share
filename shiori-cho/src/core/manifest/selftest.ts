@@ -94,7 +94,7 @@ async function checkSealed(
     return [check(id, false, `${name}を確かめられません（目標「${missing.join('」「')}」の合言葉が確認できていません）`)];
   }
 
-  const expected = normalizePayload(draft.payload);
+  const expected = normalizePayload(draft.payload, draft.kind);
   const workId = manifest.work.id;
   const all = Object.create(null) as Record<string, Uint8Array>;
   for (const g of item.unlock.goals) all[g] = masters.get(g)!;

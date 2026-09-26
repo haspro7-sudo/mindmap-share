@@ -12,6 +12,7 @@ import { KIND_LABEL, displayTitle } from '../format';
 import { navigate } from '../router';
 import { FocusHeading } from './AddWorkFields';
 import { errorMessageJa } from './libraryShared';
+import { leaveLayersThen } from './work/historyLayer';
 import './ImportPreview.css';
 
 export interface ImportPreviewProps {
@@ -32,7 +33,8 @@ type State =
 const LOADING: State = { status: 'loading' };
 
 function openWork(workId: string): void {
-  navigate({ name: 'work', id: workId, tab: 'progress' }, { replace: true });
+  // #/add's sub-view is a history layer: leave it first so the replace takes #/add's own entry.
+  leaveLayersThen(() => navigate({ name: 'work', id: workId, tab: 'progress' }, { replace: true }));
 }
 
 const AUTHOR_KIND_LABEL: Record<ShioriManifestV1['author']['kind'], string> = {

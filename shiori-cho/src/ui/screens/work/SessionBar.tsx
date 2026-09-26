@@ -1,14 +1,16 @@
 // Sticky bottom session bar 「▶ 始める」 / 「■ 終える 00:42」 and the end sheet (docs/SPEC.md F13 AC1–AC2).
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { endSession } from '../../../app/sessions';
 import { formatMinutesJa, sessionMinutes } from '../../../core/session';
 import type { Checkpoint, Session, WorkRecord } from '../../../core/types';
 import { Sheet } from '../../components/Sheet';
+import { useToastLift } from '../../components/toastLift';
 import { useRepo, useUi } from '../../context';
 import { hrefFor } from '../../router';
 import { SessionFields } from './LogTab';
 import type { SessionFieldValues } from './LogTab';
+import { useBackToClose } from './historyLayer';
 import { errorMessageJa, formatElapsed, parseMinutesField, useNow } from './workModel';
 
 export interface SessionBarProps {
@@ -25,10 +27,14 @@ export function SessionBar({ work, openSession, checkpoints, preview, starting, 
   const other = openSession !== undefined && !mine;
   const now = useNow(mine ? 1000 : null);
   const [ending, setEnding] = useState(false);
+  // Keep toasts above this sticky bar so they never cover 「終える」 (UiProvider.css adds --toast-lift).
+  const barRef = useRef<HTMLDivElement>(null);
+  useToastLift(barRef);
 
   // One stable <button> for both states, so keyboard focus stays on it when 始める turns into 終える.
   return (
     <div
+      ref={barRef}
       className={`wk-sessionbar${mine ? ' is-recording' : ''}${other ? ' has-other' : ''}`}
       role="region"
       aria-label="プレイ記録"
@@ -94,6 +100,8 @@ export function EndSessionSheet({
   }));
   const [minutesError, setMinutesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Android Back closes the sheet (the typed notes stay until it is closed) instead of leaving the work page.
+  useBackToClose(true, onClose);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

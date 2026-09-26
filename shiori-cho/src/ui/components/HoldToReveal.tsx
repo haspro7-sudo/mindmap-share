@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { HOLD_TO_REVEAL_MS } from '../../core/constants';
 import { useUi } from '../context';
+import { useFocusRescue } from './overlay';
 import { useLatest } from './useLatest';
 import './HoldToReveal.css';
 
@@ -40,6 +41,9 @@ export function HoldToReveal({ label, onReveal, disabled = false, confirm, holdM
   const suppressClick = useRef(false);
   const mounted = useRef(true);
   const propsRef = useLatest({ onReveal, confirm, disabled });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Revealing usually replaces this button with the hint: keep focus in the sheet, not on <body>.
+  useFocusRescue(buttonRef);
 
   const stopHold = () => {
     if (timer.current !== undefined) clearTimeout(timer.current);
@@ -127,6 +131,7 @@ export function HoldToReveal({ label, onReveal, disabled = false, confirm, holdM
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         className={`htr${holding ? ' is-holding' : ''}`}
         disabled={disabled}

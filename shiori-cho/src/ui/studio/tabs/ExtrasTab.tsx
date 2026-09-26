@@ -3,7 +3,7 @@
 // optional store link card).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { lintProject } from '../../../core/manifest/lint';
+import { lintStudioProject } from '../../../app/studio';
 import { MANIFEST_LIMITS, SEALED_KINDS } from '../../../core/manifest/schema';
 import { STORE_CODE_INVALID_JA, parseStoreCode } from '../../../core/storeCode';
 import type { DraftSealed, SealedKind, SealedPayload } from '../../../core/types';
@@ -29,7 +29,7 @@ export function ExtrasTab({ project, update }: StudioTabProps): ReactNode {
   const [selected, setSelected] = useState<number | null>(null);
   const returnFocus = useRef<number | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
-  const issues = useMemo(() => lintProject(project), [project]);
+  const issues = useMemo(() => lintStudioProject(project), [project]);
   const items = project.sealed;
   const keys = itemKeys(items);
 
@@ -325,7 +325,9 @@ function SealedForm({ project, update, index, item, issues, onClose, onDeleted }
           </div>
           <p className="field-hint">おまけを開いたプレイヤーに表示され、ゲームの中に入力してもらう言葉です。判定はゲーム側で行います。</p>
           {item.kind !== 'returnCode' ? (
-            <p className="stu-field-warn">種類が「返し合言葉」ではないため、この欄は表示されません。種類を変えるか、欄を空にしてください。</p>
+            <p className="stu-field-warn">
+              種類が「返し合言葉」ではないため、この欄はしおりファイルに書き出されず、プレイヤーにも表示されません。使うときは種類を「返し合言葉」にしてください。
+            </p>
           ) : null}
           <TextField
             label="返し合言葉"
@@ -334,7 +336,10 @@ function SealedForm({ project, update, index, item, issues, onClose, onDeleted }
             value={payload.returnCode?.code ?? ''}
             maxLength={40}
             onChange={(v) => setPayload({ returnCode: nextReturnCode(payload.returnCode, { code: v }) })}
-            error={pathIssue('.payload.returnCode') && (payload.returnCode?.code ?? '').trim() === '' ? pathIssue('.payload.returnCode') : null}
+            error={
+              pathIssue('.payload.returnCode.code') ??
+              (pathIssue('.payload.returnCode') && (payload.returnCode?.code ?? '').trim() === '' ? pathIssue('.payload.returnCode') : null)
+            }
           />
           <TextField
             label="入力する場所の案内"

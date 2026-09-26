@@ -11,6 +11,7 @@ import {
   WORK_ALIAS_MAX,
   WORK_TITLE_MAX,
   defaultCoverEmoji,
+  deleteWork,
   exportPlayerManifest,
   manifestStats,
 } from '../../../app/library';
@@ -32,6 +33,7 @@ import { ExternalLinkButton } from '../../components/ExternalLinkButton';
 import { useRepo, useRepoQuery, useSettings, useUi } from '../../context';
 import {
   COVER_COLORS,
+  COVER_COLOR_LABEL,
   COVER_EMOJIS,
   KIND_LABEL,
   KIND_ORDER,
@@ -42,18 +44,10 @@ import {
   displayTitle,
 } from '../../format';
 import { hrefFor, navigate } from '../../router';
+import { AttachManifestSheet } from './AttachManifestSheet';
 import { charCount, errorMessageJa, patchWork } from './workModel';
 import './WorkEdit.css';
 
-const COLOR_LABEL: Record<CoverColor, string> = {
-  paper: '生成り',
-  sky: '空',
-  leaf: '若葉',
-  sun: 'ひだまり',
-  rose: '桜',
-  plum: '藤',
-  slate: '灰',
-};
 
 const SOURCE_LABEL: Record<ManifestSource, string> = {
   bundled: 'サンプル',
@@ -76,6 +70,22 @@ export function WorkEditScreen({ workId }: { workId: string }): ReactNode {
     [workId],
   );
 
+  if (q.data === undefined && q.error !== undefined) {
+    return (
+      <main className="screen we">
+        <EmptyState
+          icon="⚠️"
+          title="読み込めませんでした"
+          body="もう一度お試しください。"
+          action={
+            <button type="button" className="btn" onClick={q.reload}>
+              もう一度読み込む
+            </button>
+          }
+        />
+      </main>
+    );
+  }
   if (q.data === undefined) {
     return (
       <main className="screen we">
@@ -156,6 +166,8 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
   const [titleShown, setTitleShown] = useState(false);
   const [customEmoji, setCustomEmoji] = useState(() => (COVER_EMOJIS.includes(work.coverEmoji) ? '' : work.coverEmoji));
   const [busy, setBusy] = useState(false);
+  /** the 「しおりファイルを読み込む」 / 「更新を読み込む」 sheet (attaches to THIS work, never adds another one) */
+  const [attachTitle, setAttachTitle] = useState<string | null>(null);
   const dirty = !sameDraft(draft, baseline);
   const aliasOnly = settings.discreet.aliasOnly;
   const showTitle = !aliasOnly || titleShown;
@@ -255,7 +267,7 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
     });
     if (!second) return;
     try {
-      await repo.deleteWork(work.id);
+      await deleteWork(repo, work.id);
       ui.toast('作品を削除しました');
       navigate({ name: 'home' }, { replace: true });
     } catch (err) {
@@ -385,7 +397,7 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
                     onChange={() => set({ coverColor: c })}
                   />
                   <span className="we-swatch" style={{ background: coverColorVar(c) }} aria-hidden="true" />
-                  <span className="we-color-name">{COLOR_LABEL[c]}</span>
+                  <span className="we-color-name">{COVER_COLOR_LABEL[c]}</span>
                 </label>
               ))}
             </div>
@@ -528,9 +540,15 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
               </details>
             ) : null}
             <div className="row-wrap">
-              <a className="btn" href={hrefFor({ name: 'add' })}>
-                更新を読み込む
-              </a>
+              {m.author.kind === 'player' ? (
+                <button type="button" className="btn" onClick={() => setAttachTitle('しおりファイルを読み込む')}>
+                  サークルのしおりファイルを読み込む
+                </button>
+              ) : (
+                <button type="button" className="btn" onClick={() => setAttachTitle('更新を読み込む')}>
+                  更新を読み込む
+                </button>
+              )}
               {m.author.kind === 'player' ? (
                 <button type="button" className="btn" onClick={() => void exportManifest()}>
                   しおりファイルとして書き出す
@@ -542,9 +560,9 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
           <>
             <p className="small">この作品にはしおりファイルがありません（記録だけ）。</p>
             <div>
-              <a className="btn" href={hrefFor({ name: 'add' })}>
+              <button type="button" className="btn" onClick={() => setAttachTitle('しおりファイルを読み込む')}>
                 しおりファイルを読み込む
-              </a>
+              </button>
             </div>
           </>
         )}
@@ -559,6 +577,7 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
           </button>
         </div>
       </section>
+      {attachTitle !== null ? <AttachManifestSheet work={work} title={attachTitle} onClose={() => setAttachTitle(null)} /> : null}
     </main>
   );
 }

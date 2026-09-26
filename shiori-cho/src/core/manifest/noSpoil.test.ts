@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { codeSecretForms, collectSecrets, findLeaks } from './noSpoil';
+import { codeSecretForms, collectSecrets, collectSignatures, findLeaks, foldText, leakMatcher } from './noSpoil';
 import { fixtureProject } from './testFixtures';
 
 describe('codeSecretForms', () => {
@@ -50,12 +50,24 @@ describe('collectSecrets', () => {
       '聞いてくれてありがとう。',
       '最後まで遊んでくれて、ありがとうございました。\n次回作もよろしくお願いします。',
       '感謝をこめて',
-      '司書ミナより',
       '図書館の扉',
       'ほしあかり',
     ]) {
       expect(s).toContain(x);
     }
+  });
+
+  it('does not treat a `from` signature as a hard secret (F16 AC4 does not list it)', () => {
+    expect(collectSecrets(fixtureProject())).not.toContain('司書ミナより');
+  });
+
+  it('skips a title equal to its label up to width, case and spaces', () => {
+    const p = fixtureProject();
+    p.goals[0]!.label = '星図 の 果て';
+    p.sealed[1]!.label = ' 感謝をこめて ';
+    const s = collectSecrets(p);
+    expect(s).not.toContain('星図の果て');
+    expect(s).not.toContain('感謝をこめて');
   });
 
   it('skips a title identical to its public label, a from equal to the circle, and empty or 1-char strings', () => {
@@ -74,7 +86,7 @@ describe('collectSecrets', () => {
   it('ignores manual goals, trims and deduplicates', () => {
     const p = fixtureProject();
     p.goals[3]!.code = 'NEK-0T0-M0E'; // manual goal: its (stray) code is not collected
-    p.sealed[1]!.payload.from = '  星図の果て  ';
+    p.sealed[1]!.payload.body = '  星図の果て  ';
     const s = collectSecrets(p);
     expect(s).not.toContain('NEK-0T0-M0E');
     expect(s.filter((x) => x === '星図の果て')).toHaveLength(1);
@@ -132,5 +144,77 @@ describe('findLeaks', () => {
   it('skips secrets shorter than 2 characters and reports each leak once', () => {
     expect(findLeaks('{"a":"x"}', ['x', ''])).toEqual([]);
     expect(findLeaks('{"a":"ほしあかり ほしあかり"}', ['ほしあかり', 'ほしあかり'])).toEqual(['ほしあかり']);
+  });
+});
+
+describe('collectSignatures', () => {
+  it('lists letter signatures, except the public circle / author name', () => {
+    const p = fixtureProject();
+    expect(collectSignatures(p)).toEqual([{ index: 1, label: '司書からの手紙', from: '司書ミナより' }]);
+    p.sealed[1]!.payload.from = ' テスト工房（架空） ';
+    p.sealed[2]!.payload.from = 'ミナ';
+    expect(collectSignatures(p)).toEqual([{ index: 2, label: '扉の合言葉', from: 'ミナ' }]);
+    p.sealed[2]!.payload.from = 'ミ';
+    expect(collectSignatures(p)).toEqual([]);
+  });
+});
+
+describe('findLeaks: normalized spellings (F16 AC4: any spelling the parser accepts is a plaintext code)', () => {
+  const b32 = 'AMA-0T0-N1J';
+  const kana = 'ほたる・かえで・つばめ・こだま・すずめ';
+  const secrets = [...codeSecretForms(b32), ...codeSecretForms(kana), '星図の果て'];
+  const inHint = (hint: string) => findLeaks(JSON.stringify({ goals: [{ label: 'END 1', hints: [hint] }] }), secrets);
+
+  it.each([
+    ['full width (IME default)', '合言葉 ＡＭＡ－０Ｔ０－Ｎ１Ｊ の表示を修正'],
+    ['middle dots', 'AMA・0T0・N1J'],
+    ['O instead of 0', 'AMA-OTO-N1J'],
+    ['lower case with spaces', 'ama 0t0 n1j'],
+    ['mixed separators', 'AMA0T0 N1J'],
+    ['I and L aliases', 'AMA-0T0-NIJ'],
+    ['long dash', 'AMA—0T0—N1J'],
+  ])('finds a Base32 code written %s', (_, hint) => {
+    expect(inHint(hint)).toEqual([b32]);
+  });
+
+  it.each([
+    ['katakana with spaces', 'ホタル カエデ ツバメ コダマ スズメ'],
+    ['half-width katakana', 'ﾎﾀﾙ ｶｴﾃﾞ ﾂﾊﾞﾒ ｺﾀﾞﾏ ｽｽﾞﾒ'],
+    ['comma and space', 'ほたる、 かえで、 つばめ、 こだま、 すずめ'],
+    ['long vowel marks', 'ほたるーかえでーつばめーこだまーすずめ'],
+    ['inside a sentence', '合言葉は「ほたる かえで つばめ こだま すずめ」です'],
+  ])('finds a kana code written in %s', (_, hint) => {
+    expect(inHint(hint)).toEqual([kana]);
+  });
+
+  it('finds secret texts with other width, case or spaces', () => {
+    expect(inHint('星図 の 果て を目指そう')).toEqual(['星図の果て']);
+    expect(findLeaks('{"a":"ＨＥＬＬＯ ｗｏｒｌｄ"}', ['hello world'])).toEqual(['hello world']);
+  });
+
+  it('compares keys and fixed-vocabulary values (kind, engine, mode…) with the exact secret only', () => {
+    const json = JSON.stringify({ work: { kind: 'game', engine: 'rpgmaker-mz' }, sealed: [{ kind: 'afterword', label: 'あとがき' }] });
+    expect(findLeaks(json, ['After', 'Label', 'GAME'])).toEqual([]);
+    // exact matches are still reported there, and free text is still folded
+    expect(findLeaks(json, ['afterword'])).toEqual(['afterword']);
+    expect(findLeaks(JSON.stringify({ goals: [{ teaser: 'after the rain' }] }), ['After'])).toEqual(['After']);
+    expect(leakMatcher('After')('afterword', true)).toBe(false);
+    expect(leakMatcher('After')('afterword')).toBe(true);
+  });
+
+  it('does not report unrelated text', () => {
+    expect(inHint('AMA-0T0-N1K と ほたる かえで')).toEqual([]);
+    expect(inHint('END 1 から END 3 まで見よう')).toEqual([]);
+  });
+
+  it('leakMatcher agrees with findLeaks', () => {
+    const m = leakMatcher(b32);
+    expect(m('ａｍａ・ｏｔｏ・ｎｉｊ')).toBe(true);
+    expect(m('ほかの文章')).toBe(false);
+    expect(leakMatcher('星図の果て')('星図　の果て')).toBe(true);
+  });
+
+  it('foldText folds width, case and whitespace', () => {
+    expect(foldText('Ａ Ｂ\tc　Ｄ')).toBe('abcd');
   });
 });

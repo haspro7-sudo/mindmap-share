@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { importBundledDemos } from '../../app/library';
 import { buildQuickManifest } from '../../core/manifest/quick';
@@ -189,6 +189,34 @@ describe('AddWorkScreen — かんたんしおり (F6)', () => {
     await user.click(screen.getByRole('button', { name: 'かんたんしおりを作る' }));
     await user.click(screen.getByRole('button', { name: 'やめる' }));
     expect(screen.getByRole('heading', { name: '作品を追加' })).toBeTruthy();
+  });
+});
+
+describe('AddWorkScreen — Back and the sub-views', () => {
+  it('Back from a sub-view returns to the menu and keeps #/add', async () => {
+    window.history.replaceState({ probe: 'add-entry' }, '', '#/add');
+    const { user } = renderWithProviders(<AddWorkScreen />);
+    await user.click(screen.getByRole('button', { name: 'かんたんしおりを作る' }));
+    expect(screen.queryByRole('heading', { name: '作品を追加' })).toBeNull();
+    expect((window.history.state as Record<string, unknown>).shioriLayer).toBeDefined();
+    act(() => window.history.back());
+    expect(await screen.findByRole('heading', { name: '作品を追加' })).toBeTruthy();
+    expect(window.location.hash).toBe('#/add');
+    expect(window.history.state).toEqual({ probe: 'add-entry' });
+  });
+
+  it('after an import the new work takes #/add\'s own history entry (Back does not return to #/add)', async () => {
+    window.history.replaceState({ probe: 'add-entry' }, '', '#/add');
+    const { user, repo } = renderWithProviders(<AddWorkScreen />);
+    await pasteAndCheck(user, HOSHIYOMI_TEXT);
+    expect((window.history.state as Record<string, unknown>).shioriLayer).toBeDefined();
+    await user.click(await screen.findByRole('button', { name: '読み込む' }));
+    await waitFor(async () => expect((await repo.listWorks()).length).toBe(1));
+    const [work] = await repo.listWorks();
+    await waitFor(() => expect(window.location.hash).toBe(`#/w/${work!.id}`));
+    // the entry that was #/add now shows the work
+    expect((window.history.state as Record<string, unknown>).probe).toBe('add-entry');
+    expect((window.history.state as Record<string, unknown>).shioriLayer).toBeUndefined();
   });
 });
 

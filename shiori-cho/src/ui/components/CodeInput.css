@@ -20,7 +20,9 @@
   padding: 8px 10px;
 }
 .ci-input::placeholder {
-  color: color-mix(in srgb, var(--muted) 55%, transparent);
+  /* the format hint is text: ≥ 4.5:1 (--muted); the lighter weight tells it apart from a typed code */
+  color: var(--muted);
+  opacity: 1;
   font-weight: 400;
 }
 .ci-input.is-ok {

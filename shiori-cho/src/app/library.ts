@@ -29,6 +29,7 @@ import type { ShioriRepo } from '../storage/repo';
 import { withRepoLock } from './repoLock';
 import {
   MSG_GOAL_NOT_FOUND,
+  MSG_WORK_NOT_FOUND,
   collectMastersInLock,
   evaluateSealedInLock,
   isCodeGoal,
@@ -56,6 +57,9 @@ export const MSG_PLAYER_ONLY_EXPORT = 'プレイヤーが作ったしおりだ�
 export const MSG_WORK_ID_LOCKED = 'しおりのIDは変更できません';
 export const MSG_AUTHOR_LOCKED = 'しおりの作成者の種類は変更できません';
 export const MSG_DEMO_BROKEN = 'サンプルのしおりを読み込めませんでした';
+export const MSG_ATTACH_OTHER_WORK = 'このしおりファイルは、本棚の別の作品で使っています';
+export const MSG_ATTACH_OTHER_MANIFEST =
+  'この作品には、別の作品のサークルのしおりファイルが付いています。この作品のしおりファイルを選んでください';
 
 /** The bundled SFW demos (docs/SPEC.md §4.6, §7.4), validated before use. */
 const BUNDLED_DEMOS: readonly unknown[] = [hoshiyomiManifest, amaotoManifest];
@@ -176,10 +180,19 @@ function blankLike(m: ShioriManifestV1): ShioriManifestV1 {
 }
 
 /**
- * Replaces a work's manifest (import update or player edit): stores the new record, carries progress
+ * Replaces a work's manifest (import update, attach or player edit): stores the new record, carries progress
  * over by goal id (archive / un-archive), updates newGoalIds, re-derives cached masters when the kdf
  * changed, points the work at the new key and deletes the work's other manifest records.
  * Caller holds the lock.
+ *
+ * The repository has no multi-store transaction, so the steps are ordered so that stopping after any of them
+ * (a quota error, the page being closed) leaves a consistent library:
+ * 1. the new record is stored (until step 3 it is an unused extra record, removed by the next import);
+ * 2. goals present in the new manifest are un-archived (harmless under the old manifest: it either has the
+ *    goal too, or ignores it);
+ * 3. the work points at the new record (from here on progress of goals missing from it is ignored anyway);
+ * 4. goals missing from the new manifest are archived;
+ * 5. the work's other records are deleted, and masters are re-derived when the kdf changed.
  */
 async function replaceManifestInLock(
   repo: ShioriRepo,
@@ -193,13 +206,11 @@ async function replaceManifestInLock(
   const oldM = old?.manifest;
   await repo.putManifest({ key: next.key, workId: work.id, manifest: newM, source: next.source, importedAt: now });
 
-  // Progress: archive goals that are gone, un-archive goals that came back.
   const progress = await repo.listProgress(work.id);
   const upgraded = upgradeProgress(oldM ?? newM, newM, progress);
   for (let i = 0; i < progress.length; i++) {
-    const before = progress[i]!;
     const after = upgraded.progress[i]!;
-    if (before.archived !== after.archived) await repo.putProgress(after);
+    if (progress[i]!.archived && !after.archived) await repo.putProgress(after);
   }
 
   // NEW badges: still-present old badges plus the goals this update added.
@@ -213,6 +224,11 @@ async function replaceManifestInLock(
   }
   if (updated.storeCode === undefined && newM.work.storeCode !== undefined) updated.storeCode = newM.work.storeCode;
   await repo.putWork(updated);
+
+  for (let i = 0; i < progress.length; i++) {
+    const after = upgraded.progress[i]!;
+    if (!progress[i]!.archived && after.archived) await repo.putProgress(after);
+  }
 
   for (const rec of await repo.listManifests(work.id)) {
     if (rec.key !== next.key) await repo.deleteManifest(rec.key);
@@ -309,6 +325,126 @@ export function commitImport(
 }
 
 /**
+ * What a shiori.json would do to an existing work (作品ページ・作品設定の「しおりファイルを読み込む」):
+ * - 'attach': the work has no manifest (記録だけ) — the file becomes its checklist;
+ * - 'replacePlayer': the work has a player-made manifest (かんたんしおり) — the circle's file replaces it;
+ * - 'update': the file has the same manifest work id as the work's current file — a normal update.
+ * `blocked` says why the file cannot be used here: another local work already uses its manifest work id
+ * ('otherWork'), or the work already has a circle's file for another work ('otherManifest').
+ */
+export type AttachPreview =
+  | { kind: 'invalid'; errors: ValidationIssue[] }
+  | {
+      kind: 'ready';
+      manifest: ShioriManifestV1;
+      warnings: ValidationIssue[];
+      stats: { goals: number; codeGoals: number; sealed: number };
+      work: WorkRecord;
+      mode: 'attach' | 'replacePlayer' | 'update';
+      /** goal changes against the current manifest (every goal counts as added when there is none) */
+      diff: ManifestDiff;
+      /** the work already uses exactly this file */
+      alreadyAttached: boolean;
+      blocked?: { reason: 'otherWork'; other: WorkRecord } | { reason: 'otherManifest' };
+    };
+
+interface AttachPlan {
+  mode: 'attach' | 'replacePlayer' | 'update';
+  current?: ManifestRecord;
+  blocked?: { reason: 'otherWork'; other: WorkRecord } | { reason: 'otherManifest' };
+}
+
+/** Decides how `manifest` would attach to `work` (see AttachPreview). */
+async function planAttach(repo: ShioriRepo, work: WorkRecord, manifest: ShioriManifestV1): Promise<AttachPlan> {
+  const current = work.manifestKey ? await repo.getManifest(work.manifestKey) : undefined;
+  const other = (await repo.listWorks()).find((w) => w.id !== work.id && w.manifestWorkId === manifest.work.id);
+  let mode: AttachPlan['mode'] = 'attach';
+  let blocked: AttachPlan['blocked'];
+  if (current) {
+    if (current.manifest.work.id === manifest.work.id) mode = 'update';
+    else if (current.manifest.author.kind === 'player') mode = 'replacePlayer';
+    else blocked = { reason: 'otherManifest' };
+  }
+  if (other && !blocked) blocked = { reason: 'otherWork', other };
+  const plan: AttachPlan = { mode };
+  if (current) plan.current = current;
+  if (blocked) plan.blocked = blocked;
+  return plan;
+}
+
+/**
+ * Parses and validates a shiori.json text for attaching it to the existing work `workId` (see AttachPreview).
+ * Throws ShioriError('notFound') for an unknown work.
+ */
+export async function previewAttach(repo: ShioriRepo, workId: string, text: string): Promise<AttachPreview> {
+  const work = await repo.getWork(workId);
+  if (!work) throw new ShioriError('notFound', MSG_WORK_NOT_FOUND);
+  const r = parseManifestText(text);
+  if (!r.ok) return { kind: 'invalid', errors: r.errors };
+  const manifest = r.manifest;
+  const plan = await planAttach(repo, work, manifest);
+  const out: AttachPreview = {
+    kind: 'ready',
+    manifest,
+    warnings: r.warnings,
+    stats: manifestStats(manifest),
+    work,
+    mode: plan.mode,
+    diff: diffManifests(plan.current?.manifest ?? blankLike(manifest), manifest),
+    alreadyAttached: plan.current !== undefined && plan.current.key === (await manifestKey(manifest)),
+  };
+  if (plan.blocked) out.blocked = plan.blocked;
+  return out;
+}
+
+/**
+ * Attaches a shiori.json to the existing work `workId` instead of adding a new work, so its sessions, notes,
+ * resume info and status stay where they are (a 記録だけ work gets its checklist; a かんたんしおり is replaced by
+ * the circle's file; a file of the same manifest work id is a normal update, with NEW badges).
+ * The manifest is validated again and every check is repeated under the lock. Refused with
+ * ShioriError('conflict') when another local work already uses the file's manifest work id, or when the work
+ * already has a circle's file for another work. Progress carries over by goal id (goals of a replaced
+ * かんたんしおり are archived unless the new file uses the same ids). Then the pending codes are tried against
+ * the work and newly satisfied sealed items are opened. Attaching the file the work already uses is a no-op.
+ */
+export function attachManifest(
+  repo: ShioriRepo,
+  workId: string,
+  input: ShioriManifestV1,
+  opts: { source: ManifestSource; now?: number },
+): Promise<{ workId: string; pendingOutcomes: UnlockOutcome[]; openedSealedIds: string[] }> {
+  return withRepoLock(repo, async () => {
+    const now = opts.now ?? Date.now();
+    const work = await repo.getWork(workId);
+    if (!work) throw new ShioriError('notFound', MSG_WORK_NOT_FOUND);
+    const v = validateManifest(input);
+    if (!v.ok) throw issuesError(v.errors);
+    const manifest = v.manifest;
+    const plan = await planAttach(repo, work, manifest);
+    if (plan.blocked) {
+      throw new ShioriError('conflict', plan.blocked.reason === 'otherWork' ? MSG_ATTACH_OTHER_WORK : MSG_ATTACH_OTHER_MANIFEST);
+    }
+    const key = await manifestKey(manifest);
+    if (plan.current?.key === key) return { workId, pendingOutcomes: [], openedSealedIds: [] };
+    await replaceManifestInLock(repo, work, plan.current, { key, manifest, source: opts.source }, now, {
+      markNew: plan.mode === 'update',
+    });
+    const pendingOutcomes = await processPendingInLock(repo, now, workId);
+    const openedSealedIds = await evaluateSealedInLock(repo, workId, now);
+    return { workId, pendingOutcomes, openedSealedIds };
+  });
+}
+
+/**
+ * Deletes a work and everything that belongs to it (repo.deleteWork cascades), under the shared lock so that
+ * a service still working on the work (e.g. a background master re-derivation) cannot write rows for it
+ * afterwards.
+ */
+export function deleteWork(repo: ShioriRepo, workId: string): Promise<void> {
+  return withRepoLock(repo, () => repo.deleteWork(workId));
+}
+
+/**
  * 記録だけ付ける: a work without a manifest. Title 1..100 (trimmed), alias ≤40 (default nextAlias),
  * store code RJ/VJ/BJ + 6 or 8 digits in any width or case. Throws ShioriError('validation').
  */
@@ -396,10 +532,37 @@ export function updatePlayerManifest(
     if (next.author.kind !== 'player') throw new ShioriError('conflict', MSG_AUTHOR_LOCKED);
     const key = await manifestKey(next);
     if (key === record.key) return;
-    await replaceManifestInLock(repo, work, record, { key, manifest: next, source: 'player-edit' }, now ?? Date.now(), {
+    const t = now ?? Date.now();
+    await clearRecordsOfAddedGoalsInLock(repo, work.id, current, next, t);
+    await replaceManifestInLock(repo, work, record, { key, manifest: next, source: 'player-edit' }, t, {
       markNew: false,
     });
   });
+}
+
+/**
+ * A goal the player adds is always new, so records still keyed by its id (left by an earlier, deleted item
+ * with the same id) must not carry over: its progress and hint reveal are removed and its notes are kept as
+ * notes of the work (no longer tied to a goal). Caller holds the lock.
+ */
+async function clearRecordsOfAddedGoalsInLock(
+  repo: ShioriRepo,
+  workId: string,
+  current: ShioriManifestV1,
+  next: ShioriManifestV1,
+  now: number,
+): Promise<void> {
+  const before = new Set(current.goals.map((g) => g.id));
+  const added = new Set(next.goals.map((g) => g.id).filter((id) => !before.has(id)));
+  if (added.size === 0) return;
+  const [progress, hints, notes] = await Promise.all([repo.listProgress(workId), repo.listHints(workId), repo.listNotes(workId)]);
+  for (const p of progress) if (added.has(p.goalId)) await repo.deleteProgress(workId, p.goalId);
+  for (const h of hints) if (added.has(h.goalId)) await repo.deleteHint(workId, h.goalId);
+  for (const n of notes) {
+    if (n.goalId === undefined || !added.has(n.goalId)) continue;
+    const { goalId: _goalId, ...rest } = n;
+    await repo.putNote({ ...rest, updatedAt: Math.max(now, n.updatedAt) });
+  }
 }
 
 /** The player-owned manifest as a shiori.json text (F6 AC4). Throws ShioriError('conflict') for creator files. */

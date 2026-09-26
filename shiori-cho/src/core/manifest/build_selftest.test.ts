@@ -5,7 +5,7 @@ import { b64uDecode, b64uEncode } from '../encoding';
 import { ShioriError } from '../errors';
 import { buildUnlockUrl } from '../route';
 import type { BuildResult, CodeGoal, CodeRow, ShioriManifestV1, StudioProject } from '../types';
-import { buildManifest, normalizeGoalSecret, normalizePayload } from './build';
+import { BuildValidationError, buildManifest, isBuildValidationError, normalizeGoalSecret, normalizePayload } from './build';
 import { collectSecrets, findLeaks } from './noSpoil';
 import { jsonEqual, selfTest } from './selftest';
 import { FIXTURE_CODES, FIXTURE_ITERATIONS, FIXTURE_SALT, counterRng, fixtureProject } from './testFixtures';
@@ -322,6 +322,60 @@ describe('buildManifest', () => {
       q.goals[3]!.group = 'missing-group';
       await expectValidationError(buildManifest(q), 'goals[3].group');
     });
+
+    it('carries every issue with its path (BuildValidationError), pre-checks all together before any PBKDF2', async () => {
+      const p = fixtureProject();
+      p.goals[0]!.code = '';
+      p.goals[2]!.secret = { title: '' };
+      p.sealed[0]!.goals = ['end-a', 'ach-cat', 'ghost'];
+      p.sealed[1]!.payload = { title: '', body: '本文' };
+      const e = await expectValidationError(buildManifest(p));
+      expect(e).toBeInstanceOf(BuildValidationError);
+      expect(isBuildValidationError(e)).toBe(true);
+      if (!isBuildValidationError(e)) return;
+      expect(e.issues.map((i) => [i.path, i.code])).toEqual([
+        ['goals[0].code', 'codeMissing'],
+        ['goals[2].secret.title', 'secretTitleMissing'],
+        ['sealed[0].goals[1]', 'sealedRefersManual'],
+        ['sealed[0].goals[2]', 'danglingGoal'],
+        ['sealed[1].payload.title', 'tooShort'],
+      ]);
+      expect(e.issues[4]!.messageJa).toContain('letter');
+      expect(e.messageJa).toContain('（ほか2件）');
+
+      const q = fixtureProject();
+      q.work = { ...q.work, title: '', version: '' };
+      q.checkpoints[0]!.label = '';
+      q.groups[0]!.label = '';
+      const v = await caught(buildManifest(q));
+      expect(isBuildValidationError(v) && v.issues.map((i) => i.path)).toEqual([
+        'work.title',
+        'work.version',
+        'checkpoints[0].label',
+        'groups[0].label',
+      ]);
+    });
+  });
+
+  it('seals a return code only for kind 返し合言葉 (the editor says it is not shown otherwise)', async () => {
+    const p = fixtureProject();
+    p.sealed[1]!.payload.returnCode = { code: 'ひみつ', instruction: 'どこかで入力' };
+    const r = await buildManifest(p);
+    const report = await selfTest(r.manifest, r.codes, p);
+    expect(report.ok).toBe(true);
+    const masters = Object.fromEntries(
+      await Promise.all(
+        r.codes.map(async (c) => [c.goalId, await deriveMaster(c.canonical, r.manifest.kdf!)] as const),
+      ),
+    );
+    const letter = r.manifest.sealed.find((s) => s.id === 'letter')!;
+    const opened = await openItem({ workId: r.manifest.work.id, kdf: r.manifest.kdf!, item: letter, masters: { 'end-a': masters['end-a']! } });
+    expect(opened).not.toBeNull();
+    expect(opened!.returnCode).toBeUndefined();
+    const door = r.manifest.sealed.find((s) => s.id === 'door')!;
+    const doorOpened = await openItem({ workId: r.manifest.work.id, kdf: r.manifest.kdf!, item: door, masters: { 'end-b': masters['end-b']! } });
+    expect(doorOpened!.returnCode?.code).toBe('ほしあかり');
+    expect(normalizePayload({ title: 't', body: '', returnCode: { code: 'c', instruction: 'i' } }, 'letter')).toEqual({ title: 't', body: '' });
   });
 });
 
@@ -380,7 +434,9 @@ describe('selfTest', () => {
     m.sealed[0]!.teaser = project.sealed[1]!.payload.body.slice(0, 60);
     m.changelog[0]!.notes = '返し合言葉「ほしあかり」を追加';
     const leaks = findLeaks(JSON.stringify(m, null, 2), secrets);
-    expect(leaks).toContain('st4-rma-p1x');
+    // a code is reported once, in its first (display) form, whatever spelling leaked
+    expect(leaks).toContain('ST4-RMA-P1X');
+    expect(leaks).not.toContain('st4-rma-p1x');
     expect(leaks).toContain(project.sealed[1]!.payload.body);
     expect(leaks).toContain('ほしあかり');
   });

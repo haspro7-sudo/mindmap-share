@@ -48,8 +48,7 @@ describe('UnlockLanding (#/u/…, F11)', () => {
     expect(screen.getByText('合言葉を確かめています…')).toBeTruthy();
 
     await waitFor(() => expect(window.location.hash).toBe('#/code'));
-    expect(replace).toHaveBeenCalled();
-    expect(String(replace.mock.calls.at(-1)?.[2])).toMatch(/#\/code$/);
+    expect(replace.mock.calls.some((c) => /#\/code$/.test(String(c[2])))).toBe(true);
     expect(window.history.length).toBe(lengthBefore);
     expect(window.location.href).not.toContain('ST4RMAP1X');
     // ran once despite StrictMode's double effect
@@ -70,8 +69,39 @@ describe('UnlockLanding (#/u/…, F11)', () => {
     await waitFor(() => expect(window.location.hash).toBe(`#/w/${hoshiyomi}`), { timeout: 10_000 });
     expect(await screen.findByText('合言葉が通りました：星図の果て')).toBeTruthy();
     expect((await repo.listProgress(hoshiyomi!)).find((p) => p.goalId === 'end-a')?.via).toBe('code');
-    expect(await screen.findByText('おまけが開きました')).toBeTruthy();
+    expect(await screen.findByText('おまけが届きました')).toBeTruthy();
     expect(peekCodeHandoff()).toBeNull();
+  });
+
+  it('a remount while the code is being checked shows the SAME result (no second run, no 「入力済み」)', async () => {
+    const repo = createMemoryRepo();
+    const [hoshiyomi] = await importBundledDemos(repo);
+    const real = (await vi.importActual<typeof import('../../app/unlock')>('../../app/unlock')).handleDeepLink;
+    let release: () => void = () => undefined;
+    vi.mocked(unlock.handleDeepLink).mockImplementationOnce(
+      (r, id, c) =>
+        new Promise((resolve, reject) => {
+          release = () => void real(r, id, c).then(resolve, reject);
+        }),
+    );
+    open('demo-hoshiyomi', 'ST4RMAP1X');
+    const onSettled = vi.fn();
+    const first = renderWithProviders(<UnlockLanding manifestWorkId="demo-hoshiyomi" code="ST4RMAP1X" onSettled={onSettled} />, { repo });
+    // 「隠す」 unmounts the app frame while the key derivation runs
+    first.unmount();
+    release();
+    await waitFor(async () => expect((await repo.listProgress(hoshiyomi!)).some((p) => p.goalId === 'end-a')).toBe(true), {
+      timeout: 10_000,
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+
+    // back from the camouflage: a new landing for the same link
+    renderWithProviders(<UnlockLanding manifestWorkId="demo-hoshiyomi" code="ST4RMAP1X" onSettled={onSettled} />, { repo });
+    expect(await screen.findByText('合言葉が通りました：星図の果て', undefined, { timeout: 10_000 })).toBeTruthy();
+    expect(screen.queryByText('この合言葉は入力済みです')).toBeNull();
+    expect(unlock.handleDeepLink).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(window.location.hash).toBe(`#/w/${hoshiyomi}`));
+    expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
   it('sends an invalid code to #/code with its error message', async () => {

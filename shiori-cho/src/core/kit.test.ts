@@ -6,6 +6,7 @@ import {
   KIT_PATHS,
   buildKitTextFiles,
   csvRow,
+  kitHasAppUrl,
   returnCodeHashHex,
   sha256HexSync,
   storeTemplateJa,
@@ -87,6 +88,24 @@ describe('csvRow', () => {
   it('round-trips through an RFC 4180 parser', () => {
     const cells = ['end-a', 'END, 1', '「星図」の"果て"', 'x\r\ny', ''];
     expect(parseCsv(csvRow(cells))).toEqual([cells]);
+  });
+
+  it('neutralizes cells a spreadsheet would read as a formula (CSV injection)', () => {
+    expect(csvRow(['-END-', '=x', '+α', '@here', '\tA', 'ok-'])).toBe(`"'-END-","'=x","'+α","'@here","'\tA",ok-\r\n`);
+    expect(csvRow(['=SUM(A1,"b")'])).toBe(`"'=SUM(A1,""b"")"\r\n`);
+    expect(parseCsv(csvRow(['-END-', '=真エンド=']))).toEqual([["'-END-", "'=真エンド="]]);
+    // ordinary cells are unchanged
+    expect(csvRow(['END 1', 'K7Q-M2X-RAP', 'https://x.example/#/u/w-1/K7QM2XRAP'])).toBe('END 1,K7Q-M2X-RAP,https://x.example/#/u/w-1/K7QM2XRAP\r\n');
+  });
+});
+
+describe('kitHasAppUrl', () => {
+  it('accepts absolute http(s) URLs only', () => {
+    expect(kitHasAppUrl('https://example.github.io/shiori-cho/')).toBe(true);
+    expect(kitHasAppUrl(' http://localhost:5173/ ')).toBe(true);
+    expect(kitHasAppUrl('')).toBe(false);
+    expect(kitHasAppUrl('example.com')).toBe(false);
+    expect(kitHasAppUrl('#/u/w-1/X')).toBe(false);
   });
 });
 
@@ -274,20 +293,54 @@ describe('buildKitTextFiles', () => {
     expect(t).toContain(DISCLAIMER_JA);
   });
 
-  it('README lists what to ship and what never to ship', () => {
+  it('README lists what to ship, what never to ship, and what stays local (the store template is not secret)', () => {
     const t = text(files, KIT_PATHS.readmeCreator);
     const ship = t.indexOf('作品に同梱する');
     const never = t.indexOf('絶対に同梱・公開しない');
+    const local = t.indexOf('作品のzipには入れない');
     expect(ship).toBeGreaterThan(-1);
     expect(never).toBeGreaterThan(ship);
+    expect(local).toBeGreaterThan(never);
     expect(t.indexOf('同梱用_PUBLIC/shiori.json')).toBeGreaterThan(ship);
     expect(t.indexOf('同梱用_PUBLIC/shiori.json')).toBeLessThan(never);
     for (const p of [KIT_PATHS.codesCsv, KIT_PATHS.projectBackup, KIT_PATHS.snippets, '非公開_ゲームに埋め込む/qr/']) {
       expect(t.indexOf(p)).toBeGreaterThan(never);
+      expect(t.indexOf(p)).toBeLessThan(local);
     }
+    // the store template is meant for the store page: never listed as secret
+    expect(t.indexOf(`[ ] ${KIT_PATHS.storeTemplate}`)).toBeGreaterThan(local);
+    expect(t.indexOf(`[ ] ${KIT_PATHS.readmeCreator}`)).toBeGreaterThan(local);
+    expect(t).toContain('作品ページの説明文などにそのまま使えます');
     expect(t).toContain(NOT_DRM_JA);
     expect(t).toContain(DISCLAIMER_JA);
     expect(t).toContain('発売後は合言葉を変えないでください');
+  });
+
+  it('without an absolute app URL: no unlock URLs in codes.csv and no QR promises', () => {
+    const p = fixtureProject({ appUrl: '' });
+    const codes = built.codes.map((c) => ({ ...c, unlockUrl: `#/u/${p.work.id}/${c.canonical.slice(c.canonical.indexOf(':') + 1)}` }));
+    const noUrl = buildKitTextFiles({ project: p, json: built.json, codes, appUrl: '' });
+    const rows = parseCsv(text(noUrl, KIT_PATHS.codesCsv).slice(1));
+    expect(rows.slice(1).map((r) => r[5])).toEqual(codes.map(() => ''));
+    expect(text(noUrl, KIT_PATHS.codesCsv)).not.toContain('#/u/');
+    expect(text(noUrl, KIT_PATHS.readmePlayer)).not.toContain('QRコード');
+    const snippets = text(noUrl, KIT_PATHS.snippets);
+    expect(snippets).toContain('QRコード画像は入っていません');
+    expect(snippets).not.toContain('qr/end-a.png');
+    const readme = text(noUrl, KIT_PATHS.readmeCreator);
+    expect(readme).toContain('QRコード画像は入っていません');
+    expect(readme).not.toContain('[ ] 非公開_ゲームに埋め込む/qr/');
+    // with a URL the QR text is there
+    expect(text(files, KIT_PATHS.readmePlayer)).toContain('QRコード');
+    expect(text(files, KIT_PATHS.snippets)).toContain('qr/end-a.png');
+  });
+
+  it('lists a return code only for kind 返し合言葉 (the build drops it elsewhere)', () => {
+    const p = fixtureProject();
+    p.sealed[1]!.payload.returnCode = { code: 'ひみつ', instruction: 'どこかで入力' };
+    const t = text(buildKitTextFiles({ project: p, json: built.json, codes: built.codes, appUrl: p.appUrl }), KIT_PATHS.snippets);
+    expect(t).not.toContain('ひみつ');
+    expect(t).toContain('返し合言葉：ほしあかり');
   });
 
   it('no public kit file contains a code', () => {

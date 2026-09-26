@@ -65,6 +65,11 @@ describe('CodeEntryScreen (合言葉, F10)', () => {
     await user.type(input, 'AMA-0T0-N1J');
     await user.click(screen.getByRole('button', { name: '確かめる' }));
     await screen.findByText('合言葉が通りました', undefined, { timeout: 10_000 });
+    // the extra it opened arrives first (the envelope covers the screen and keeps the focus)
+    await user.click(within(await screen.findByTestId('envelope-reveal')).getByRole('button', { name: /おまけが届きました/ }));
+    const reader = await screen.findByRole('dialog', { name: 'おまけが届きました' }, { timeout: 3000 });
+    await user.click(within(reader).getByRole('button', { name: '閉じる' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await user.type(input, 'ama0t0n1j');
     await user.click(screen.getByRole('button', { name: '確かめる' }));
     expect(await screen.findByRole('heading', { name: 'この合言葉は入力済みです' }, { timeout: 10_000 })).toBeTruthy();
@@ -149,5 +154,19 @@ describe('CodeEntryScreen (合言葉, F10)', () => {
     expect(await screen.findByText('合言葉をコピーしました')).toBeTruthy();
     // read once
     expect(window.sessionStorage.length).toBe(0);
+  });
+  it('says so when the works and pending codes cannot be read, with 「もう一度読み込む」', async () => {
+    const { repo, hoshiyomi } = await demoRepo();
+    await addPending(repo, 'NEK-0T0-M0E', hoshiyomi);
+    const listPending = vi.spyOn(repo, 'listPending').mockRejectedValueOnce(new Error('read failed'));
+    const { user } = renderWithProviders(<CodeEntryScreen />, { repo });
+    const alert = await screen.findByText('作品の一覧と保留中の合言葉を読み込めませんでした。');
+    expect(alert).toBeTruthy();
+    // the code can still be entered meanwhile
+    expect(screen.getByRole('button', { name: '確かめる' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'もう一度読み込む' }));
+    expect(await screen.findByRole('region', { name: /保留中の合言葉/ })).toBeTruthy();
+    expect(screen.queryByText('作品の一覧と保留中の合言葉を読み込めませんでした。')).toBeNull();
+    expect(listPending).toHaveBeenCalledTimes(2);
   });
 });

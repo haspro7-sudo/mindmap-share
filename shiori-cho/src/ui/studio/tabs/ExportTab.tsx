@@ -11,10 +11,11 @@ import {
   exportProjectJson,
   kitZipFileName,
   markExported,
+  projectBackupFileName,
   withBuildSalt,
 } from '../../../app/studio';
 import { MANIFEST_FILE_NAME } from '../../../core/constants';
-import { KIT_PATHS, KIT_QR_DIR, storeTemplateJa } from '../../../core/kit';
+import { KIT_PATHS, KIT_QR_DIR, kitHasAppUrl, storeTemplateJa } from '../../../core/kit';
 import type { BuildResult, StudioProject } from '../../../core/types';
 import { useUi } from '../../context';
 import { formatDateTimeJa } from '../../format';
@@ -83,7 +84,7 @@ export function ExportTab({ project, update, flush }: ExportTabProps): ReactNode
       const snapshot = matching ? withBuildSalt(project, matching) : project;
       if (matching && snapshot !== project) update((p) => withBuildSalt(p, matching), { edit: false, immediate: true });
       await flush();
-      download(`project-${project.work.id || 'draft'}.shiori-studio.json`, exportProjectJson(snapshot), 'application/json');
+      download(projectBackupFileName(), exportProjectJson(snapshot), 'application/json');
       ui.toast('プロジェクトの控えを書き出しました', { tone: 'ok' });
     } catch (e) {
       ui.toast(errorMessageJa(e, '書き出せませんでした'), { tone: 'danger' });
@@ -164,6 +165,7 @@ export function ExportTab({ project, update, flush }: ExportTabProps): ReactNode
         </div>
         <p className="small muted">
           キットには、同梱用のしおりファイル・はじめに.txt、作中に埋め込む合言葉の一覧とQRコード画像、プロジェクトの控えが入っています。
+          {kitHasAppUrl(project.appUrl) ? '' : '（アプリのURLが未設定のため、QRコード画像は入りません）'}
         </p>
       </section>
 
@@ -191,17 +193,32 @@ export function ExportTab({ project, update, flush }: ExportTabProps): ReactNode
   );
 }
 
+function FileList({ files }: { files: ReadonlyArray<readonly [string, string]> }): ReactNode {
+  return (
+    <ul className="stu-files">
+      {files.map(([path, note]) => (
+        <li key={path}>
+          <code className="stu-path">{path}</code>
+          <span className="small muted">{note}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ShipChecklist(): ReactNode {
   const ship: ReadonlyArray<readonly [string, string]> = [
     [KIT_PATHS.shioriJson, 'しおりファイル（合言葉で開く部分は暗号化済み）'],
     [KIT_PATHS.readmePlayer, 'プレイヤー向けの使い方'],
   ];
-  const keep: ReadonlyArray<readonly [string, string]> = [
+  const secret: ReadonlyArray<readonly [string, string]> = [
     [KIT_PATHS.codesCsv, 'すべての合言葉の一覧'],
     [`${KIT_QR_DIR}/`, '合言葉のQRコード画像（作中の表示場面にだけ使う）'],
     [KIT_PATHS.snippets, '制作ツール別の表示例（合言葉を含む）'],
     [KIT_PATHS.projectBackup, 'プロジェクトの控え（秘密をすべて含む）'],
-    [KIT_PATHS.storeTemplate, '告知文のひな形'],
+  ];
+  const local: ReadonlyArray<readonly [string, string]> = [
+    [KIT_PATHS.storeTemplate, '告知文のひな形（秘密なし。文章は作品ページにそのまま使えます）'],
     [KIT_PATHS.readmeCreator, 'このチェックリスト'],
   ];
   return (
@@ -213,27 +230,19 @@ function ShipChecklist(): ReactNode {
         <h3 className="stu-h3 stu-ship-ok">
           <span aria-hidden="true">✓ </span>作品に同梱する（公開してよい）
         </h3>
-        <ul className="stu-files">
-          {ship.map(([path, note]) => (
-            <li key={path}>
-              <code className="stu-path">{path}</code>
-              <span className="small muted">{note}</span>
-            </li>
-          ))}
-        </ul>
+        <FileList files={ship} />
       </div>
       <div className="stu-ship">
         <h3 className="stu-h3 stu-ship-ng">
-          <span aria-hidden="true">✗ </span>絶対に同梱・公開しない
+          <span aria-hidden="true">✗ </span>絶対に同梱・公開しない（秘密を含む）
         </h3>
-        <ul className="stu-files">
-          {keep.map(([path, note]) => (
-            <li key={path}>
-              <code className="stu-path">{path}</code>
-              <span className="small muted">{note}</span>
-            </li>
-          ))}
-        </ul>
+        <FileList files={secret} />
+      </div>
+      <div className="stu-ship">
+        <h3 className="stu-h3">
+          <span aria-hidden="true">– </span>作品のzipには入れない（手元用）
+        </h3>
+        <FileList files={local} />
       </div>
       <p className="small muted">合言葉による封印はネタバレ防止のしくみで、コピー防止（DRM）ではありません。有料の本編をおまけに入れないでください。</p>
     </section>
@@ -242,6 +251,7 @@ function ShipChecklist(): ReactNode {
 
 function CodeSheet({ gate, project }: { gate: ExportGate; project: StudioProject }): ReactNode {
   const build = gate.ok ? gate.build : undefined;
+  const withQr = kitHasAppUrl(project.appUrl);
   return (
     <section className="card-flat stack" aria-labelledby="stu-codes">
       <div className="row">
@@ -260,7 +270,9 @@ function CodeSheet({ gate, project }: { gate: ExportGate; project: StudioProject
         <details className="stu-codes-details">
           <summary className="stu-adv-summary">合言葉とQRコードを表示（{build.codes.length}件）</summary>
           <p className="small muted">
-            画面のQRコードをスマホのカメラで読み取ると、動作を確かめられます（読み取り先：{project.appUrl || '未設定'}）。
+            {withQr
+              ? `画面のQRコードをスマホのカメラで読み取ると、動作を確かめられます（読み取り先：${project.appUrl}）。`
+              : 'アプリのURLが未設定のため、QRコードはありません。「作品」タブでURLを設定してください。'}
           </p>
           <ul className="stu-codes">
             {build.codes.map((row) => (
@@ -274,7 +286,9 @@ function CodeSheet({ gate, project }: { gate: ExportGate; project: StudioProject
                   <p className="stu-code-value mono">{row.display}</p>
                   <p className="small muted">{row.codeKind === 'kana' ? 'ひらがな5語' : '英数字'}</p>
                 </div>
-                <QrCode text={row.unlockUrl} label={`「${row.label}」の合言葉のQRコード`} size={132} className="stu-code-qr" />
+                {withQr ? (
+                  <QrCode text={row.unlockUrl} label={`「${row.label}」の合言葉のQRコード`} size={132} className="stu-code-qr" />
+                ) : null}
               </li>
             ))}
           </ul>

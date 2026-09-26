@@ -105,7 +105,7 @@ export function SealedReader({ workId, sealedId }: SealedReaderProps): ReactNode
         <div className="sr-content-inner" aria-hidden={blurred ? 'true' : undefined}>
           {payload.body !== '' ? <div className="sr-body pre">{payload.body}</div> : null}
           {payload.from ? <p className="sr-from">{payload.from}</p> : null}
-          {payload.returnCode ? (
+          {payload.returnCode && item.kind === 'returnCode' ? (
             <section className="sr-return" aria-label="返し合言葉">
               <p className="sr-return-label">返し合言葉</p>
               <p className="sr-return-code mono">{payload.returnCode.code}</p>

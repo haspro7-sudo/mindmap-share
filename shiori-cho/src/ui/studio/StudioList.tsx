@@ -1,14 +1,16 @@
 // #/studio サークル工房: project list (docs/SPEC.md F16 AC1, AC7, §6). A persistent banner reminds that studio
-// data holds secrets. New project, 「サンプルを開く」 (a copy of the bundled 星読みの図書館 project), import of a
-// project file (with a secret warning), and per project: open, duplicate, backup and delete.
-import { useRef, useState } from 'react';
+// data holds secrets. New project, 「サンプルを開く」 (a copy of the bundled 星読みの図書館 project under a new work
+// identity: the sample's codes are public in ヘルプ), import of a project file (with a secret warning), and per
+// project: open, duplicate (as a template for another work, or as a copy of the same work), backup and delete.
+import { useId, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { download, readFileAsText } from '../../app/platform';
-import { exportProjectJson, newStudioProject, parseProjectJson } from '../../app/studio';
+import { exportProjectJson, newStudioProject, parseProjectJson, projectBackupFileName, withNewWorkIdentity } from '../../app/studio';
 import { MAX_ISSUES_SHOWN } from '../../core/constants';
 import type { StudioProject, ValidationIssue } from '../../core/types';
 import hoshiyomiProjectText from '../../demo/hoshiyomi.project.json?raw';
 import { EmptyState } from '../components/EmptyState';
+import { Sheet } from '../components/Sheet';
 import { useSettings, useStudioQuery, useStudioRepo, useUi } from '../context';
 import { formatDateJa, formatDateTimeJa } from '../format';
 import { hrefFor, navigate } from '../router';
@@ -19,6 +21,9 @@ import './Studio.css';
 const COPY_SUFFIX = '（コピー）';
 const TITLE_MAX = 100;
 
+/** 「複製」: a template for another work (new work id, salt and codes), or a copy of the same work. */
+export type DuplicateMode = 'newWork' | 'sameWork';
+
 export function StudioListScreen(): ReactNode {
   const repo = useStudioRepo();
   const ui = useUi();
@@ -27,6 +32,7 @@ export function StudioListScreen(): ReactNode {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [importErrors, setImportErrors] = useState<ValidationIssue[] | null>(null);
+  const [duplicating, setDuplicating] = useState<StudioProject | null>(null);
 
   const run = async (fn: () => Promise<void>) => {
     if (busy) return;
@@ -52,9 +58,10 @@ export function StudioListScreen(): ReactNode {
       const parsed = parseProjectJson(hoshiyomiProjectText);
       if (!parsed.ok) throw new Error('sample project is invalid');
       const now = Date.now();
-      const p = cloneProject(parsed.project, now, { appUrl: defaultAppUrl(), lastExportedAt: undefined });
+      // The sample's work id, salt and codes are public (ヘルプ →「サンプルの合言葉」): the copy gets its own.
+      const p = withNewWorkIdentity(cloneProject(parsed.project, now, { appUrl: defaultAppUrl() }));
       await repo.put(p);
-      ui.toast('サンプル「星読みの図書館」を開きました', { tone: 'ok' });
+      ui.toast('サンプル「星読みの図書館」を開きました（作品IDと合言葉は新しく作ってあります）', { tone: 'ok' });
       navigate({ name: 'studioProject', id: p.id, tab: 'work' });
     });
 
@@ -86,12 +93,21 @@ export function StudioListScreen(): ReactNode {
     });
   };
 
-  const duplicate = (p: StudioProject) =>
+  const duplicate = (p: StudioProject, mode: DuplicateMode) =>
     run(async () => {
+      setDuplicating(null);
       const title = p.work.title === '' ? '' : [...`${p.work.title}${COPY_SUFFIX}`].slice(0, TITLE_MAX).join('');
-      const copy = cloneProject(p, Date.now());
+      const clone = cloneProject(p, Date.now());
+      // A template for another work must not share the work id, salt or codes (players' devices would treat it as
+      // an update of the original, and the original's codes would open it); it has never been exported either.
+      const copy = mode === 'newWork' ? withNewWorkIdentity(clone) : clone;
       await repo.put({ ...copy, work: { ...copy.work, title } });
-      ui.toast('複製しました', { tone: 'ok' });
+      ui.toast(
+        mode === 'newWork'
+          ? '別の作品のひな形として複製しました（作品IDと合言葉は新しく作ってあります）'
+          : '同じ作品の控えとして複製しました。作品IDと合言葉が元と同じなので、別の作品として配らないでください',
+        { tone: 'ok', durationMs: mode === 'newWork' ? undefined : 6000 },
+      );
     });
 
   const backup = async (p: StudioProject) => {
@@ -101,7 +117,7 @@ export function StudioListScreen(): ReactNode {
       okLabel: '書き出す',
     });
     if (!ok) return;
-    download(`project-${p.work.id || 'draft'}.shiori-studio.json`, exportProjectJson(p), 'application/json');
+    download(projectBackupFileName(), exportProjectJson(p), 'application/json');
   };
 
   const remove = async (p: StudioProject) => {
@@ -209,7 +225,7 @@ export function StudioListScreen(): ReactNode {
                 <a className="stu-project-link" href={hrefFor({ name: 'studioProject', id: p.id, tab: 'work' })}>
                   <span className="stu-project-title">{name}</span>
                   <span className="stu-project-meta small muted">
-                    <span className="mono">{p.work.id}</span>
+                    {settings.discreet.aliasOnly ? null : <span className="mono">{p.work.id}</span>}
                     <span>
                       目標 {stats.goals}・合言葉 {stats.codeGoals}・おまけ {stats.sealed}
                     </span>
@@ -220,7 +236,7 @@ export function StudioListScreen(): ReactNode {
                   </span>
                 </a>
                 <div className="stu-project-actions">
-                  <button type="button" className="btn btn-sm" onClick={() => void duplicate(p)} disabled={busy} aria-label={`「${name}」を複製`}>
+                  <button type="button" className="btn btn-sm" onClick={() => setDuplicating(p)} disabled={busy} aria-label={`「${name}」を複製`}>
                     複製
                   </button>
                   <button type="button" className="btn btn-sm" onClick={() => void backup(p)} disabled={busy} aria-label={`「${name}」の控えを書き出す`}>
@@ -241,6 +257,52 @@ export function StudioListScreen(): ReactNode {
           })}
         </ul>
       )}
+      <DuplicateSheet
+        project={duplicating}
+        name={duplicating ? projectDisplayTitle(duplicating, settings) : ''}
+        onChoose={(mode) => {
+          if (duplicating) void duplicate(duplicating, mode);
+        }}
+        onClose={() => setDuplicating(null)}
+      />
     </main>
+  );
+}
+
+/** Asks how to duplicate: as a template for another work (default) or as a copy of the same work. */
+function DuplicateSheet(props: {
+  project: StudioProject | null;
+  name: string;
+  onChoose(mode: DuplicateMode): void;
+  onClose(): void;
+}): ReactNode {
+  const { project, name, onChoose, onClose } = props;
+  const newId = useId();
+  const sameId = useId();
+  return (
+    <Sheet open={project !== null} onClose={onClose} title={`「${name}」を複製`}>
+      <div className="stack stu-dup">
+        <p className="small">複製したプロジェクトの使いみちを選んでください。</p>
+        <div className="stack-sm">
+          <button type="button" className="btn btn-primary btn-block" onClick={() => onChoose('newWork')} aria-describedby={newId}>
+            別の作品のひな形として複製
+          </button>
+          <p id={newId} className="field-hint">
+            次回作などに。作品IDと合言葉を新しく作り直します（プレイヤーの端末では別の作品になります）。
+          </p>
+        </div>
+        <div className="stack-sm">
+          <button type="button" className="btn btn-block" onClick={() => onChoose('sameWork')} aria-describedby={sameId}>
+            同じ作品の控えとして複製
+          </button>
+          <p id={sameId} className="field-hint">
+            作品IDと合言葉は元のままです。同じ作品の別案として使い、別の作品として配らないでください。
+          </p>
+        </div>
+        <button type="button" className="btn btn-ghost btn-block" onClick={onClose}>
+          キャンセル
+        </button>
+      </div>
+    </Sheet>
   );
 }

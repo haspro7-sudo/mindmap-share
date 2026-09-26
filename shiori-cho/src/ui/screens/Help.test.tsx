@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { DISCLAIMER_JA } from '../../core/constants';
 import { DEMO_CODES } from '../../demo/demoCodes';
 import { renderWithProviders } from '../../test/renderWithProviders';
-import { HelpScreen } from './Help';
+import { HelpScreen, LICENSES_HREF } from './Help';
 
 describe('HelpScreen (ヘルプ, F19)', () => {
   it('links every section and marks the current one', () => {
@@ -31,6 +31,26 @@ describe('HelpScreen (ヘルプ, F19)', () => {
     expect(within(table).queryByText('星読みの図書館')).toBeNull();
     expect(within(table).getAllByText('サンプルA').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'PC画面シミュレータを開く' }).getAttribute('href')).toBe('#/demo-pc');
+  });
+
+  it('links the full third-party license notices from このアプリについて', () => {
+    renderWithProviders(<HelpScreen section="about" />);
+    const link = screen.getByRole('link', { name: /ライセンスの全文を見る/ });
+    // same-origin static file (public/licenses.txt, checked by scripts/gen-licenses.test.ts), opened outside
+    // the app window so an installed app is never left on a page without its navigation
+    expect(link.getAttribute('href')).toBe('./licenses.txt');
+    expect(LICENSES_HREF).toBe('./licenses.txt');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(screen.getByText(/Scheduler/)).toBeTruthy();
+  });
+
+  it('describes what is stored and what a QR address holds without overstating it', () => {
+    renderWithProviders(<HelpScreen section="privacy" />);
+    expect(screen.getByText(/IndexedDB/)).toBeTruthy();
+    expect(screen.getByText(/タブを閉じると消える一時的な保存場所（sessionStorage）/)).toBeTruthy();
+    expect(screen.getByText(/作品のID（作者が付けた識別子）と合言葉だけ/)).toBeTruthy();
+    expect(screen.queryByText(/意味のない番号/)).toBeNull();
   });
 
   it('shows the disclaimer and defaults to 使い方', () => {

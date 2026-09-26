@@ -39,11 +39,12 @@ export function Onboarding({ onDone }: { onDone(): void }): ReactNode {
   const firstRender = useRef(true);
   const ids = { pin1: useId(), pin2: useId(), pinErr: useId(), name: useId() };
 
-  /** 自動ロック is asked only when a PIN was set; the counter always shows the three questions. */
+  /** 自動ロック is asked only when a PIN was set, so the counter follows the questions actually asked. */
   const steps: Step[] = ['public', 'pin', ...(pinRecord ? (['autolock'] as const) : []), 'done'];
-  const questionCount = QUESTIONS.length;
+  const asked = QUESTIONS.filter((q) => steps.includes(q));
+  const questionCount = asked.length;
   const index = steps.indexOf(step);
-  const questionIndex = QUESTIONS.indexOf(step);
+  const questionIndex = asked.indexOf(step);
 
   useEffect(() => {
     if (firstRender.current) {
@@ -120,7 +121,7 @@ export function Onboarding({ onDone }: { onDone(): void }): ReactNode {
 
         {step !== 'done' ? (
           <p className="ob-count" aria-label={`質問 ${questionIndex + 1} / ${questionCount}`}>
-            {QUESTIONS.map((q, i) => (
+            {asked.map((q, i) => (
               <span key={q} className={`ob-dot${i <= questionIndex ? ' is-on' : ''}`} aria-hidden="true" />
             ))}
             <span aria-hidden="true">

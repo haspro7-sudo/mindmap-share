@@ -9,9 +9,8 @@ import type { MissableAlert, SpoilerLevel } from '../../../core/types';
 import { ProgressBar, ProgressRing } from '../../components/Progress';
 import { SpoilerText } from '../../components/SpoilerText';
 import { useRepo, useSettings, useUi } from '../../context';
-import { hrefFor } from '../../router';
 import { ResumeCard } from './ResumeCard';
-import { errorMessageJa, newGoalId, patchWork } from './workModel';
+import { errorMessageJa, goalIdsWithRecords, newGoalId, patchWork } from './workModel';
 import type { GoalView, WorkData } from './workModel';
 
 export interface ProgressTabProps {
@@ -23,6 +22,8 @@ export interface ProgressTabProps {
   onStartSession(): void;
   onOpenGoal(index: number): void;
   onQuickAttach(): void;
+  /** 「しおりファイルを読み込む」 for this work (opens the in-page sheet) */
+  onAttachFile(): void;
 }
 
 export function ProgressTab(props: ProgressTabProps): ReactNode {
@@ -42,7 +43,7 @@ export function ProgressTab(props: ProgressTabProps): ReactNode {
     return (
       <div className="stack">
         {resume}
-        <NoManifestCard preview={preview} onQuickAttach={props.onQuickAttach} />
+        <NoManifestCard preview={preview} onQuickAttach={props.onQuickAttach} onAttachFile={props.onAttachFile} />
       </div>
     );
   }
@@ -109,7 +110,15 @@ export function ProgressTab(props: ProgressTabProps): ReactNode {
 
 // ───────────────────────── 記録だけ ─────────────────────────
 
-function NoManifestCard({ preview, onQuickAttach }: { preview: boolean; onQuickAttach(): void }): ReactNode {
+function NoManifestCard({
+  preview,
+  onQuickAttach,
+  onAttachFile,
+}: {
+  preview: boolean;
+  onQuickAttach(): void;
+  onAttachFile(): void;
+}): ReactNode {
   const titleId = useId();
   return (
     <section className="card wk-nomanifest" aria-labelledby={titleId}>
@@ -121,9 +130,9 @@ function NoManifestCard({ preview, onQuickAttach }: { preview: boolean; onQuickA
       </p>
       {preview ? null : (
         <div className="row-wrap">
-          <a className="btn" href={hrefFor({ name: 'add' })}>
+          <button type="button" className="btn" onClick={onAttachFile}>
             しおりファイルを読み込む
-          </a>
+          </button>
           <button type="button" className="btn" onClick={onQuickAttach}>
             かんたんしおりにする
           </button>
@@ -322,7 +331,8 @@ function GoalGroup(props: {
     try {
       await updatePlayerManifest(repo, workId, (m) => {
         m.goals.push({
-          id: newGoalId(m),
+          // never an id that a deleted item's progress, hint or note still uses
+          id: newGoalId(m, goalIdsWithRecords(props.data)),
           group: props.groupId,
           label: label.trim(),
           spoiler: 0,

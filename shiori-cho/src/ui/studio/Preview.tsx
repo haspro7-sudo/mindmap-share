@@ -25,7 +25,7 @@ import { hrefFor } from '../router';
 import { WorkScreen } from '../screens/work/WorkScreen';
 import type { WorkSheet } from '../screens/work/WorkScreen';
 import { UiProvider } from '../shell/UiProvider';
-import { freshCheck, runCheck } from './tabs/checkStore';
+import { freshCheck, otherProjects, runCheck } from './tabs/checkStore';
 import { errorMessageJa } from './tabs/model';
 import './Studio.css';
 
@@ -74,6 +74,7 @@ type BuildState =
 function PreviewBuilder({ project }: { project: StudioProject }): ReactNode {
   const studioRepo = useStudioRepo();
   const projectRef = useLatest(project);
+  const settingsRef = useLatest(useSettings().settings);
   const [state, setState] = useState<BuildState>({ status: 'building' });
   const [round, setRound] = useState(0);
 
@@ -81,7 +82,7 @@ function PreviewBuilder({ project }: { project: StudioProject }): ReactNode {
     let alive = true;
     const p = projectRef.current;
     const cached = freshCheck(p);
-    (cached ? Promise.resolve(cached) : runCheck(p))
+    (cached ? Promise.resolve(cached) : otherProjects(studioRepo, p.id, settingsRef.current).then((others) => runCheck(p, { others })))
       .then(async (entry) => {
         const build = entry.report.build;
         if (!build) {
@@ -109,7 +110,7 @@ function PreviewBuilder({ project }: { project: StudioProject }): ReactNode {
     return () => {
       alive = false;
     };
-  }, [project.id, project.updatedAt, projectRef, studioRepo]);
+  }, [project.id, project.updatedAt, projectRef, settingsRef, studioRepo]);
 
   const back = hrefFor({ name: 'studioProject', id: project.id, tab: 'check' });
 

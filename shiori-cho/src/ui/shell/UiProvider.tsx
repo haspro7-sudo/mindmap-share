@@ -7,12 +7,20 @@
  * - queueEnvelopes(): sealed extras shown one by one — EnvelopeReveal (≤1.5 s, tap to skip, 200 ms fade with
  *   prefers-reduced-motion, vibrate(30)) and then a Sheet with <SealedReader>; closing the reader stores
  *   SealedOpen.seen = true.
- * - hide() / lockNow(): forwarded to the shell (onHide / onLock).
+ * - hide() / lockNow(): forwarded to the shell (onHide / onLock). Every dialog, sheet and the envelope show
+ *   their own 「隠す」 (they cover the header's), and Escape on the envelope hides too.
  *
  * `suspended` (camouflage / lock screen): when it turns on, open dialogs are cancelled (confirm → false,
  * prompt → null) and toasts are cleared before the next paint, so nothing from the app stays on screen;
- * envelopes wait until it turns off. Dialogs and toasts opened while suspended (e.g. by the lock screen)
- * work normally.
+ * envelopes wait until it turns off. Async work of the app that finishes while suspended (an export, an
+ * import, a code check that was running when the app locked or was hidden) cannot put anything on screen
+ * either: its toasts are dropped and its confirm / prompt requests resolve as cancelled at once. Only the
+ * lock screen's own toasts and questions pass (`whileSuspended: true`).
+ * `camouflaged` (the 「メモ」 notepad): nothing at all appears over it, whatever the options.
+ *
+ * Route changes (browser / hardware Back, a link): dialogs requested on another route are cancelled
+ * (confirm → false, prompt → null), so they never act on a screen that is gone; the envelope overlay closes
+ * (a reader that was on screen is marked seen; the rest stay unseen and replay from the おまけ tab).
  *
  * Envelopes read from the RepoContext above this provider. A screen that hosts the player UI on another
  * repository (studio preview) should nest its own <UiProvider onHide={ui.hide} onLock={ui.lockNow}>
@@ -25,12 +33,14 @@ import { vibrate } from '../../app/platform';
 import { loadWorkManifest } from '../../app/unlock';
 import { isShioriError } from '../../core/errors';
 import { EnvelopeReveal } from '../components/EnvelopeReveal';
+import { HideButton } from '../components/HideButton';
 import { useFocusTrap, useOverlayLayer } from '../components/overlay';
 import { useLatest } from '../components/useLatest';
 import { SealedReader } from '../components/SealedReader';
 import { Sheet } from '../components/Sheet';
 import { UiContext, useRepo, useRepoQuery } from '../context';
 import type { ConfirmOptions, PromptOptions, ToastOptions, UiApi } from '../context';
+import { subscribeRouteChange } from '../router';
 import './UiProvider.css';
 
 export interface UiProviderProps {
@@ -39,6 +49,8 @@ export interface UiProviderProps {
   onLock(): void;
   /** true while the camouflage or lock screen is shown (see the module comment) */
   suspended?: boolean;
+  /** true while the camouflage notepad is shown (implies `suspended`; see the module comment) */
+  camouflaged?: boolean;
 }
 
 const MAX_TOASTS = 3;
@@ -51,11 +63,22 @@ interface ToastItem {
   tone: NonNullable<ToastOptions['tone']>;
   action?: ToastOptions['action'];
   durationMs: number;
+  whileSuspended: boolean;
 }
 
+/** `hash`: the route the dialog was requested on (it is cancelled when the route changes). */
 type DialogRequest =
-  | { id: number; kind: 'confirm'; opts: ConfirmOptions; resolve(v: boolean): void }
-  | { id: number; kind: 'prompt'; opts: PromptOptions; resolve(v: string | null): void };
+  | { id: number; kind: 'confirm'; hash: string; opts: ConfirmOptions; resolve(v: boolean): void }
+  | { id: number; kind: 'prompt'; hash: string; opts: PromptOptions; resolve(v: string | null): void };
+
+function cancelDialog(d: DialogRequest): void {
+  if (d.kind === 'confirm') d.resolve(false);
+  else d.resolve(null);
+}
+
+function currentHash(): string {
+  return typeof window === 'undefined' ? '' : window.location.hash;
+}
 
 interface EnvelopeItem {
   workId: string;
@@ -64,7 +87,7 @@ interface EnvelopeItem {
 
 const envelopeKey = (e: EnvelopeItem) => `${e.workId}\u0000${e.sealedId}`;
 
-export function UiProvider({ children, onHide, onLock, suspended = false }: UiProviderProps): ReactNode {
+export function UiProvider({ children, onHide, onLock, suspended = false, camouflaged = false }: UiProviderProps): ReactNode {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [dialogs, setDialogs] = useState<DialogRequest[]>([]);
   const [envelopes, setEnvelopes] = useState<EnvelopeItem[]>([]);
@@ -72,6 +95,14 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const onHideRef = useLatest(onHide);
   const onLockRef = useLatest(onLock);
+  const camouflagedRef = useLatest(camouflaged);
+  const suspendedRef = useLatest(suspended);
+  const dialogsRef = useLatest(dialogs);
+  /** false when nothing may be shown now for a request with these options (see the module comment) */
+  const mayShow = useCallback(
+    (opts: { whileSuspended?: boolean }) => !camouflagedRef.current && (!suspendedRef.current || opts.whileSuspended === true),
+    [camouflagedRef, suspendedRef],
+  );
 
   const clearTimer = useCallback((id: number) => {
     const t = timers.current.get(id);
@@ -100,9 +131,19 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
 
   const toast = useCallback(
     (message: string, opts: ToastOptions = {}) => {
+      // Nothing of the app may show over the 「メモ」 notepad or the lock screen (e.g. an export that finished
+      // after 「隠す」), except the lock screen's own messages.
+      if (!mayShow(opts)) return;
       const id = ++nextId.current;
       const durationMs = opts.durationMs ?? (opts.action ? TOAST_ACTION_MS : TOAST_MS);
-      const item: ToastItem = { id, message, tone: opts.tone ?? 'default', action: opts.action, durationMs };
+      const item: ToastItem = {
+        id,
+        message,
+        tone: opts.tone ?? 'default',
+        action: opts.action,
+        durationMs,
+        whileSuspended: opts.whileSuspended === true,
+      };
       setToasts((ts) => {
         const next = [...ts, item];
         for (const dropped of next.slice(0, Math.max(0, next.length - MAX_TOASTS))) clearTimer(dropped.id);
@@ -110,25 +151,33 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
       });
       startTimer(id, durationMs);
     },
-    [clearTimer, startTimer],
+    [clearTimer, startTimer, mayShow],
   );
 
   const confirm = useCallback(
     (opts: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
+        if (!mayShow(opts)) {
+          resolve(false);
+          return;
+        }
         const id = ++nextId.current;
-        setDialogs((ds) => [...ds, { id, kind: 'confirm', opts, resolve }]);
+        setDialogs((ds) => [...ds, { id, kind: 'confirm', hash: currentHash(), opts, resolve }]);
       }),
-    [],
+    [mayShow],
   );
 
   const prompt = useCallback(
     (opts: PromptOptions) =>
       new Promise<string | null>((resolve) => {
+        if (!mayShow(opts)) {
+          resolve(null);
+          return;
+        }
         const id = ++nextId.current;
-        setDialogs((ds) => [...ds, { id, kind: 'prompt', opts, resolve }]);
+        setDialogs((ds) => [...ds, { id, kind: 'prompt', hash: currentHash(), opts, resolve }]);
       }),
-    [],
+    [mayShow],
   );
 
   const queueEnvelopes = useCallback((items: ReadonlyArray<EnvelopeItem>) => {
@@ -154,26 +203,44 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
       queueEnvelopes,
       hide: () => onHideRef.current(),
       lockNow: () => onLockRef.current(),
+      isCamouflaged: () => camouflagedRef.current,
     }),
-    [toast, confirm, prompt, queueEnvelopes, onHideRef, onLockRef],
+    [toast, confirm, prompt, queueEnvelopes, onHideRef, onLockRef, camouflagedRef],
   );
 
   // Entering the camouflage / lock screen: drop everything the app had on screen before the next paint.
+  // While suspended, a dialog that is not allowed then (see mayShow) is cancelled as soon as it appears.
   const wasSuspended = useRef(suspended);
+  const wasCamouflaged = useRef(camouflaged);
   useLayoutEffect(() => {
-    if (suspended && !wasSuspended.current) {
+    const entering = (suspended && !wasSuspended.current) || (camouflaged && !wasCamouflaged.current);
+    wasSuspended.current = suspended;
+    wasCamouflaged.current = camouflaged;
+    if (entering) {
       for (const id of [...timers.current.keys()]) clearTimer(id);
       setToasts([]);
-      if (dialogs.length > 0) {
-        setDialogs([]);
-        for (const d of dialogs) {
-          if (d.kind === 'confirm') d.resolve(false);
-          else d.resolve(null);
-        }
-      }
     }
-    wasSuspended.current = suspended;
-  }, [suspended, dialogs, clearTimer]);
+    if (!suspended && !camouflaged) return;
+    const stale = dialogs.filter((d) => entering || camouflaged || d.opts.whileSuspended !== true);
+    if (stale.length === 0) return;
+    const ids = new Set(stale.map((d) => d.id));
+    setDialogs((ds) => ds.filter((d) => !ids.has(d.id)));
+    for (const d of stale) cancelDialog(d);
+  }, [suspended, camouflaged, dialogs, clearTimer]);
+
+  // The route changed (Back, a link): dialogs asked for on another route no longer apply.
+  useEffect(
+    () =>
+      subscribeRouteChange(() => {
+        const hash = currentHash();
+        const stale = dialogsRef.current.filter((d) => d.hash !== hash);
+        if (stale.length === 0) return;
+        const ids = new Set(stale.map((d) => d.id));
+        setDialogs((ds) => ds.filter((d) => !ids.has(d.id)));
+        for (const d of stale) cancelDialog(d);
+      }),
+    [dialogsRef],
+  );
 
   useEffect(() => {
     const map = timers.current;
@@ -189,11 +256,14 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
     else req.resolve(typeof value === 'string' ? value : null);
   }, []);
 
-  const currentDialog = dialogs[0];
+  const currentDialog = suspended ? dialogs.find((d) => d.opts.whileSuspended === true) : dialogs[0];
+  const shownToasts = suspended ? toasts.filter((t) => t.whileSuspended) : toasts;
   const currentEnvelope = envelopes[0];
   const finishEnvelope = useCallback((item: EnvelopeItem) => {
     setEnvelopes((q) => q.filter((e) => envelopeKey(e) !== envelopeKey(item)));
   }, []);
+  const dropEnvelopes = useCallback(() => setEnvelopes([]), []);
+  const hideFromOverlay = useCallback(() => onHideRef.current(), [onHideRef]);
 
   const portal = (node: ReactNode) => (typeof document === 'undefined' ? null : createPortal(node, document.body));
 
@@ -201,12 +271,21 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
     <UiContext.Provider value={api}>
       {children}
       {!suspended && currentEnvelope ? (
-        <EnvelopeHost key={envelopeKey(currentEnvelope)} item={currentEnvelope} onFinished={finishEnvelope} toast={toast} />
+        <EnvelopeHost
+          key={envelopeKey(currentEnvelope)}
+          item={currentEnvelope}
+          onFinished={finishEnvelope}
+          onLeave={dropEnvelopes}
+          onHide={hideFromOverlay}
+          toast={toast}
+        />
       ) : null}
-      {currentDialog ? <DialogView key={currentDialog.id} req={currentDialog} onClose={closeDialog} /> : null}
-      {portal(
+      {currentDialog && !camouflaged ? (
+        <DialogView key={currentDialog.id} req={currentDialog} onClose={closeDialog} onHide={hideFromOverlay} />
+      ) : null}
+      {camouflaged ? null : portal(
         <div className="ui-toasts" role="status" aria-live="polite" aria-relevant="additions text">
-          {toasts.map((t) => (
+          {shownToasts.map((t) => (
             <div
               key={t.id}
               className={`ui-toast ui-toast-${t.tone}`}
@@ -256,9 +335,11 @@ export function UiProvider({ children, onHide, onLock, suspended = false }: UiPr
 function DialogView({
   req,
   onClose,
+  onHide,
 }: {
   req: DialogRequest;
   onClose(req: DialogRequest, value: boolean | string | null): void;
+  onHide(): void;
 }): ReactNode {
   const titleId = useId();
   const bodyId = useId();
@@ -346,6 +427,8 @@ function DialogView({
             </button>
           </div>
         </form>
+        {/* the dialog covers the header's 「隠す」: its own keeps hiding a single tap (after the form in tab order) */}
+        <HideButton onHide={onHide} className="btn-ghost ui-dialog-hide" />
       </div>
     </div>,
     document.body,
@@ -357,14 +440,22 @@ function DialogView({
 function EnvelopeHost({
   item,
   onFinished,
+  onLeave,
+  onHide,
   toast,
 }: {
   item: EnvelopeItem;
   onFinished(item: EnvelopeItem): void;
+  /** drop the whole queue: the route changed (see the module comment) */
+  onLeave(): void;
+  onHide(): void;
   toast: UiApi['toast'];
 }): ReactNode {
   const repo = useRepo();
   const [phase, setPhase] = useState<'anim' | 'reader'>('anim');
+  /** the route the envelope opened on */
+  const [startHash] = useState(currentHash);
+  const phaseRef = useLatest(phase);
   const info = useRepoQuery(
     async (r) => {
       const wm = await loadWorkManifest(r, item.workId);
@@ -378,8 +469,7 @@ function EnvelopeHost({
     vibrate(30);
   }, []);
 
-  const close = async () => {
-    onFinished(item);
+  const markSeen = async () => {
     try {
       const opens = await repo.listSealedOpens(item.workId);
       const existing = opens.find((o) => o.sealedId === item.sealedId);
@@ -392,18 +482,29 @@ function EnvelopeHost({
       toast(isShioriError(e) ? e.messageJa : '保存できませんでした', { tone: 'danger' });
     }
   };
+  const markSeenRef = useLatest(markSeen);
+
+  const close = () => {
+    onFinished(item);
+    void markSeen();
+  };
+
+  // Back / a link while the envelope is up: close it instead of leaving it over another page.
+  useEffect(() => {
+    const check = () => {
+      if (currentHash() === startHash) return;
+      if (phaseRef.current === 'reader') void markSeenRef.current();
+      onLeave();
+    };
+    check();
+    return subscribeRouteChange(check);
+  }, [startHash, onLeave, phaseRef, markSeenRef]);
 
   if (phase === 'anim') {
-    return (
-      <EnvelopeReveal
-        kind={info.data?.kind}
-        label={info.data?.label}
-        onDone={() => setPhase('reader')}
-      />
-    );
+    return <EnvelopeReveal kind={info.data?.kind} label={info.data?.label} onDone={() => setPhase('reader')} onHide={onHide} />;
   }
   return (
-    <Sheet open onClose={() => void close()} title="おまけが届きました">
+    <Sheet open onClose={close} title="おまけが届きました">
       <SealedReader workId={item.workId} sealedId={item.sealedId} />
     </Sheet>
   );

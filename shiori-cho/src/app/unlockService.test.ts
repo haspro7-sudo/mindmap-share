@@ -328,6 +328,28 @@ describe('cached masters', () => {
     expect((await readSealed(repo, hoshi.id, 'letter-mina'))?.title).toBeTruthy();
   });
 
+  it('refreshing the cache is not a change worth a backup (changesSinceBackup stays)', async () => {
+    const { repo, hoshi } = await withDemos();
+    for (const code of ['ST4-RMA-P1X', 'M00-NDE-SKR']) await submitCode(repo, code, { workId: hoshi.id, now: T0 });
+    for (const r of await repo.listRedemptions(hoshi.id)) await repo.putRedemptionCache(r.workId, r.goalId, r.canonical, undefined);
+    await repo.updateSettings({ changesSinceBackup: 0 });
+
+    await decryptGoalSecrets(repo, hoshi.id);
+    await readSealed(repo, hoshi.id, 'letter-mina');
+    expect((await repo.listRedemptions(hoshi.id)).every((r) => r.master !== undefined)).toBe(true);
+    // entering a code again only refreshes the cache too
+    await repo.putRedemptionCache(hoshi.id, 'end-a', 'b32:ST4RMAP1X', undefined);
+    expect((await submitCode(repo, 'ST4-RMA-P1X', { workId: hoshi.id, now: T0 + 1 })).status).toBe('already');
+    expect((await repo.getSettings()).changesSinceBackup).toBe(0);
+  });
+
+  it('decrypted secrets are a map without a prototype (a goal id such as "constructor" finds nothing)', async () => {
+    const { repo, hoshi } = await withDemos();
+    const secrets = await decryptGoalSecrets(repo, hoshi.id);
+    expect(Object.getPrototypeOf(secrets)).toBeNull();
+    expect(secrets['constructor']).toBeUndefined();
+  });
+
   it('replaces a stale cache (wrong salt or wrong key) and drops one that cannot be re-derived', async () => {
     const { repo, hoshi } = await withDemos();
     const bogus = b64uEncode(new Uint8Array(32).fill(7));

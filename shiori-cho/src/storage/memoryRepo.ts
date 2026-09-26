@@ -26,6 +26,7 @@ import {
   normalizeSettings,
   settingsAfterReplace,
   stripRedemption,
+  withRedemptionCache,
 } from './shared';
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -173,6 +174,15 @@ export function createMemoryRepo(seed?: MemoryRepoSeed): ShioriRepo {
       const v = clone(r);
       mutate(true, () => t.redemptions.set(pair(v.workId, v.goalId), v));
     },
+    putRedemptionCache: async (workId, goalId, canonical, cache) => {
+      if (typeof workId !== 'string' || typeof goalId !== 'string') return;
+      const k = pair(workId, goalId);
+      const current = t.redemptions.get(k);
+      if (!current || current.canonical !== canonical) return;
+      const next = withRedemptionCache(current, cache);
+      if (next === current) return;
+      mutate(false, () => t.redemptions.set(k, next));
+    },
 
     // ── hints ──
     listHints: async (workId) => rows(t.hints, ORDER.hints, (h) => h.workId === workId),
@@ -180,6 +190,9 @@ export function createMemoryRepo(seed?: MemoryRepoSeed): ShioriRepo {
       assertKeys(h, KEY_FIELDS.hints, 'putHint');
       const v = clone(h);
       mutate(true, () => t.hints.set(pair(v.workId, v.goalId), v));
+    },
+    deleteHint: async (workId, goalId) => {
+      mutate(true, () => t.hints.delete(pair(workId, goalId)));
     },
 
     // ── sessions ──

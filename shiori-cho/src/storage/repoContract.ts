@@ -236,6 +236,7 @@ const COUNTED_MUTATIONS: readonly Mutation[] = [
   ['deleteProgress', (r) => r.deleteProgress('w1', 'end-1')],
   ['putRedemption', (r) => r.putRedemption(makeRedemption('w1', 'end-9'))],
   ['putHint', (r) => r.putHint(makeHint('w1', 'end-1', 3))],
+  ['deleteHint', (r) => r.deleteHint('w1', 'end-1')],
   ['putSession', (r) => r.putSession(makeSession('s9', 'w1', T0 + 99_000, { endedAt: undefined }))],
   ['deleteSession', (r) => r.deleteSession('s1')],
   ['putNote', (r) => r.putNote(makeNote('n9', 'w1'))],
@@ -248,6 +249,7 @@ const UNCOUNTED_MUTATIONS: readonly Mutation[] = [
   ['updateSettings', (r) => r.updateSettings({ camouflageText: '牛乳を買う' })],
   ['putPending', (r) => r.putPending(makePending('p9'))],
   ['deletePending', (r) => r.deletePending('p1')],
+  ['putRedemptionCache', (r) => r.putRedemptionCache('w1', 'end-1', 'b32:K7QM2XRAP', undefined)],
 ];
 
 const ALL_MUTATIONS: readonly Mutation[] = [
@@ -542,6 +544,43 @@ export function runRepoContract(name: string, factory: RepoFactory): void {
         expect(list).toEqual([stale]);
         expect(list[0]?.master).toBeUndefined();
       });
+
+      it('putRedemptionCache sets and removes only the cached master of the matching row', async () => {
+        const bare = makeRedemption('w1', 'end-1', { master: undefined, masterSalt: undefined });
+        delete bare.master;
+        delete bare.masterSalt;
+        await repo.putRedemption(bare);
+        await repo.putRedemption(makeRedemption('w1', 'end-2'));
+        await repo.putRedemptionCache('w1', 'end-1', bare.canonical, { master: 'bWFzdGVy', masterSalt: 'c2FsdA' });
+        expect(await repo.listRedemptions('w1')).toEqual([
+          { ...bare, master: 'bWFzdGVy', masterSalt: 'c2FsdA' },
+          makeRedemption('w1', 'end-2'),
+        ]);
+        await repo.putRedemptionCache('w1', 'end-1', bare.canonical, undefined);
+        const [first] = await repo.listRedemptions('w1');
+        expect(first).toEqual(bare);
+        expect(first && 'master' in first).toBe(false);
+        // never exported either way
+        expect((await repo.exportAll()).redemptions.every((r) => r.master === undefined)).toBe(true);
+      });
+
+      it('putRedemptionCache never creates a row, and skips a row whose code changed', async () => {
+        await repo.putRedemption(makeRedemption('w1', 'end-1', { master: undefined, masterSalt: undefined }));
+        await repo.updateSettings({ changesSinceBackup: 0 });
+        const listener = vi.fn();
+        repo.subscribe(listener);
+        const cache = { master: 'bWFzdGVy', masterSalt: 'c2FsdA' };
+        await repo.putRedemptionCache('w-gone', 'end-1', 'b32:K7QM2XRAP', cache);
+        await repo.putRedemptionCache('w1', 'end-1', 'b32:OTHERCODE', cache);
+        expect(await repo.listRedemptions()).toHaveLength(1);
+        expect((await repo.listRedemptions('w1'))[0]?.master).toBeUndefined();
+        // nothing changed, nobody notified, nothing counted
+        await repo.putRedemptionCache('w1', 'end-1', 'b32:K7QM2XRAP', undefined);
+        expect(listener).not.toHaveBeenCalled();
+        await repo.putRedemptionCache('w1', 'end-1', 'b32:K7QM2XRAP', cache);
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect((await repo.getSettings()).changesSinceBackup).toBe(0);
+      });
     });
 
     describe('hints', () => {
@@ -554,6 +593,16 @@ export function runRepoContract(name: string, factory: RepoFactory): void {
         expect(await repo.listHints('w1')).toEqual([upgraded, makeHint('w1', 'end-2', 1)]);
         expect(await repo.listHints('w2')).toEqual([makeHint('w2', 'end-1', 3)]);
         expect(await repo.listHints('w9')).toEqual([]);
+      });
+
+      it('deleteHint removes one goal\'s hint only', async () => {
+        await repo.putHint(makeHint('w1', 'end-1', 2));
+        await repo.putHint(makeHint('w1', 'end-2', 1));
+        await repo.putHint(makeHint('w2', 'end-1', 3));
+        await repo.deleteHint('w1', 'end-1');
+        await repo.deleteHint('w1', 'missing');
+        expect(await repo.listHints('w1')).toEqual([makeHint('w1', 'end-2', 1)]);
+        expect(await repo.listHints('w2')).toEqual([makeHint('w2', 'end-1', 3)]);
       });
     });
 

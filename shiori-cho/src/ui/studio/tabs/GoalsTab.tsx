@@ -3,8 +3,7 @@
 // (英数字 or ひらがな5語) and 「作り直す」, and the sealed secret (title, description, unlock message).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { generateGoalCode } from '../../../app/studio';
-import { lintProject } from '../../../core/manifest/lint';
+import { generateGoalCode, lintStudioProject } from '../../../app/studio';
 import { MANIFEST_LIMITS } from '../../../core/manifest/schema';
 import type { CodeKind, DraftGoal, SpoilerLevel, StudioProject } from '../../../core/types';
 import { useUi } from '../../context';
@@ -24,6 +23,7 @@ import {
   removeGoal,
   renameGoal,
   replaceAt,
+  sanitizeHint,
   sealedUsingGoal,
   uniqueId,
 } from './model';
@@ -39,7 +39,7 @@ export function GoalsTab({ project, update }: StudioTabProps): ReactNode {
   const [selected, setSelected] = useState<number | null>(null);
   const returnFocus = useRef<number | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
-  const issues = useMemo(() => lintProject(project), [project]);
+  const issues = useMemo(() => lintStudioProject(project), [project]);
   const goals = project.goals;
   const keys = itemKeys(goals);
 
@@ -205,8 +205,30 @@ function GoalForm({ project, update, index, goal, issues, onClose, onDeleted }: 
     }
   };
 
-  const setUnlockType = (t: 'manual' | 'code') => {
+  const confirmGoalChange = (title: string, body: string, okLabel: string): Promise<boolean> =>
+    released ? ui.confirm({ title, body, okLabel, danger: true }) : Promise.resolve(true);
+
+  const commitGoalId = async (next: string): Promise<boolean> => {
+    const ok = await confirmGoalChange(
+      '発売済みの作品では目標IDを変えないでください',
+      'この作品はすでに書き出されています。目標IDが変わると、プレイヤーの端末では別の目標として扱われ、これまでの記録はアーカイブになります。それでも変えますか？',
+      '変える',
+    );
+    if (!ok) return false;
+    update((p) => renameGoal(p, index, next));
+    return true;
+  };
+
+  const setUnlockType = async (t: 'manual' | 'code') => {
     if (t === goal.unlockType) return;
+    if (t === 'manual') {
+      const ok = await confirmGoalChange(
+        MSG_RELEASED_CODES,
+        'この作品はすでに書き出されています。「手動」にすると、プレイヤーが入れたこの目標の合言葉は使えなくなり、この目標を条件にしたおまけも開けなくなります。作中の表示も直す必要があります。それでも変えますか？',
+        '手動にする',
+      );
+      if (!ok) return;
+    }
     try {
       update((p) => {
         const cur = p.goals[index];
@@ -253,7 +275,7 @@ function GoalForm({ project, update, index, goal, issues, onClose, onDeleted }: 
     set((g) => {
       const next = [...(g.hints ?? [])];
       while (next.length < HINT_TIERS.length) next.push('');
-      next[tier] = value;
+      next[tier] = sanitizeHint(value);
       while (next.length > 0 && next[next.length - 1] === '') next.pop();
       return { ...g, hints: next };
     });
@@ -323,7 +345,7 @@ function GoalForm({ project, update, index, goal, issues, onClose, onDeleted }: 
           label="目標ID"
           value={goal.id}
           validate={(next) => idError(next, goal.id, project.goals.filter((_, k) => k !== index).map((g) => g.id))}
-          onCommit={(next) => update((p) => renameGoal(p, index, next))}
+          onCommit={commitGoalId}
           issue={pathIssue('.id')}
           hint="QRコード画像のファイル名にも使われます（例：end-a）。発売後は変えないでください。"
         />
@@ -348,8 +370,6 @@ function GoalForm({ project, update, index, goal, issues, onClose, onDeleted }: 
             label={`ヒント${k + 1}：${tier}`}
             value={hints[k] ?? ''}
             maxLength={200}
-            multiline
-            rows={2}
             onChange={(v) => setHint(k, v)}
             error={pathIssue(`.hints[${k}]`)}
             hint={
@@ -416,7 +436,7 @@ function GoalForm({ project, update, index, goal, issues, onClose, onDeleted }: 
         <ChoiceGroup<'manual' | 'code'>
           legend="解放"
           value={goal.unlockType}
-          onChange={setUnlockType}
+          onChange={(t) => void setUnlockType(t)}
           options={[
             { value: 'manual', label: '手動', hint: 'プレイヤーが自分でチェックします' },
             { value: 'code', label: '合言葉', hint: '作中の合言葉を入れると達成になり、秘密の内容が読めます' },

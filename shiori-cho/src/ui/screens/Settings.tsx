@@ -120,7 +120,7 @@ function AboutSection({ id }: { id: string }): ReactNode {
         <li>{NOT_DRM_JA}</li>
         <li>データはこの端末の中だけに保存されます。サーバーやアカウントはなく、外部への送信もありません。</li>
         <li>
-          オープンソースソフトウェア（React、React DOM、idb、zod、fflate、qrcode-generator、Workbox）を利用しています。いずれもMITまたはISCライセンスです。
+          React（React DOM・Scheduler を含む）、zod、idb、fflate、qrcode-generator、Workbox、Vite などのオープンソースソフトウェアを利用しています。ライセンスの全文は「くわしく見る」から確認できます。
         </li>
       </ul>
       <LinkRow href={hrefFor({ name: 'help', section: 'about' })} icon="ℹ️" title="くわしく見る" />
