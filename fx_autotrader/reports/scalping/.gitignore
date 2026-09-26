@@ -1,0 +1,3 @@
+# Large per-basket outputs; regenerate with: python scripts/scalp_nanpin_martingale.py
+trades_nanpin_martingale_grid10.parquet
+trades_nanpin_martingale_marti30.parquet

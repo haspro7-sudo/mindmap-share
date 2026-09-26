@@ -8,16 +8,27 @@ are wider), so every order is simulated on the side it would really fill on:
   short  entry = bid(open) - slip          TP/SL are set relative to the fill, on the ask
 
   * the decision is made on the close of the signal bar; entry is the next bar's open
-    (skipped when that bar is more than `max_entry_delay_min` later, e.g. after a weekend)
+    (skipped when that bar opens more than `max_entry_delay_min` after the signal bar's
+    open, e.g. after a weekend)
   * stop-loss beats take-profit when both are inside the same bar (conservative)
-  * a bar that opens beyond a level fills at that open (gap)
-  * stop-loss fills pay extra `stop_slip_pips`; market exits (time stop) pay `slip_pips`
+  * a bar that opens beyond a level fills at that open (gap); at a bar open the broker-side
+    SL/TP are checked before the time stop (they trigger on the first tick)
+  * take-profit (limit) fills pay no slippage; market exits (time stop) pay `slip_pips`;
+    a triggered stop-loss is a market order and pays `slip_pips` + the additional
+    `stop_slip_pips` (same convention as fxlab.engine / fxlab.instruments)
   * time stop: market exit at the open of the first bar at or after entry + hold
+    (hold NaN, inf or <= 0 = no time stop, like max_hold=0 in fxlab.engine)
   * commission: Blade JPY account 720 JPY per lot round turn, converted to pips
-  * one position at a time per symbol; signals while a trade is open are ignored
+  * one position at a time per symbol; signals while a trade is open are ignored, and of
+    several signals on the same bar the first row (input order) is used
 
 Everything is in pips; R = net pips / stop pips.  `cost_mult` scales spread, slippage
 and commission together (use 2.0 for the cost stress test).
+
+Data caveat: only the raw OANDA pairs (fxlab.data.RAW_PAIRS: EURUSD, GBPUSD, AUDUSD, USDCAD,
+EURJPY, AUDJPY) have true M1 highs/lows.  Synthetic crosses (USDJPY, GBPJPY, EURGBP, ...)
+combine the extremes of two legs, so their M1 ranges are inflated and random TP/SL entries
+lose ~0.25-0.55 pips/trade more than the cost model on them; judge scalps on raw pairs.
 
     m1 = load("EURUSD")
     sig = pd.DataFrame({"dir": ..., "tp": ..., "sl": ..., "hold": ...}, index=signal_bar_times)
@@ -76,6 +87,8 @@ def local_time(server_index: pd.DatetimeIndex, tz: str = "Asia/Tokyo") -> pd.Dat
 
 @nb.njit(cache=True)
 def _kernel(t, o, h, l, hs, sig_bar, sig_dir, tp, sl, hold_ns, slip, stop_slip, max_delay_ns):
+    # prices are mid; hs = half spread per bar; slip = market-order slippage; stop_slip =
+    # total slippage of a stop-loss fill (price units)
     n = o.shape[0]
     m = sig_bar.shape[0]
     e_i = np.full(m, -1)
@@ -113,15 +126,16 @@ def _kernel(t, o, h, l, hs, sig_bar, sig_dir, tp, sl, hold_ns, slip, stop_slip, 
             else:
                 qo, qh, ql = o[j] + hs[j], h[j] + hs[j], l[j] + hs[j]
             if j > i:
-                if t[j] >= t_end:
-                    px = qo - slip if d > 0 else qo + slip
-                    x_px[k], reason[k] = px, 3
-                    done = True
-                elif (d > 0 and qo <= slx) or (d < 0 and qo >= slx):
+                # at the open: broker-side SL/TP fire on the first tick, before the time stop
+                if (d > 0 and qo <= slx) or (d < 0 and qo >= slx):
                     x_px[k], reason[k] = (qo - stop_slip if d > 0 else qo + stop_slip), 2
                     done = True
                 elif (d > 0 and qo >= tpx) or (d < 0 and qo <= tpx):
                     x_px[k], reason[k] = qo, 1
+                    done = True
+                elif t[j] >= t_end:
+                    px = qo - slip if d > 0 else qo + slip
+                    x_px[k], reason[k] = px, 3
                     done = True
             if not done:
                 if (d > 0 and ql <= slx) or (d < 0 and qh >= slx):
@@ -154,10 +168,12 @@ def half_spread_series(index: pd.DatetimeIndex, symbol: str, cost_mult: float = 
 def simulate(m1: pd.DataFrame, signals: pd.DataFrame, symbol: str, cost_mult: float = 1.0,
              max_entry_delay_min: float = 5.0) -> pd.DataFrame:
     """signals: index = signal bar open time (must exist in m1.index; decision on its close),
-    columns dir (+1/-1), tp, sl (pips, > 0), hold (minutes)."""
+    columns dir (+1/-1; only the sign is used, NaN/0 = no trade), tp (pips; NaN/<=0 = none),
+    sl (pips, > 0), hold (minutes; NaN/inf/<=0 = no time stop)."""
     inst = INSTRUMENTS[symbol]
     pip = inst.pip
-    sig = signals[signals["dir"] != 0].sort_index()
+    dirs = np.sign(signals["dir"].astype(float).fillna(0.0).to_numpy())
+    sig = signals.assign(dir=dirs)[dirs != 0].sort_index(kind="stable")
     pos = m1.index.get_indexer(sig.index)
     if (pos < 0).any():
         raise ValueError(f"{(pos < 0).sum()} signal times are not bars of m1")
@@ -168,12 +184,16 @@ def simulate(m1: pd.DataFrame, signals: pd.DataFrame, symbol: str, cost_mult: fl
     sl = sig["sl"].to_numpy(float) * pip
     if not (np.isfinite(sl) & (sl > 0)).all():
         raise ValueError("every signal needs a positive stop-loss")
-    hold = (sig["hold"].to_numpy(float) * 60e9).astype(np.int64)
+    hold_min = sig["hold"].to_numpy(float)
+    has_hold = np.isfinite(hold_min) & (hold_min > 0)
+    no_hold = 2.0 ** 62                                    # ns (~146 years) = no time stop
+    hold = np.minimum(np.where(has_hold, hold_min * 60e9, no_hold), no_hold).astype(np.int64)
+    slip = inst.slip_pips * pip * cost_mult
+    stop_slip = slip + inst.stop_slip_pips * pip * cost_mult  # stop = market order + extra
     e_i, x_i, e_px, x_px, reason, d, tp_, sl_ = _kernel(
         t, m1["open"].to_numpy(float), m1["high"].to_numpy(float), m1["low"].to_numpy(float),
         hs, pos.astype(np.int64), sig["dir"].to_numpy(np.int64).copy(), tp.copy(), sl.copy(),
-        hold, inst.slip_pips * pip * cost_mult, inst.stop_slip_pips * pip * cost_mult,
-        int(max_entry_delay_min * 60e9))
+        hold, slip, stop_slip, int(max_entry_delay_min * 60e9))
     gross = d * (x_px - e_px) / pip
     comm = commission_pips(symbol) * cost_mult
     net = gross - comm
