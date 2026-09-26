@@ -1,7 +1,7 @@
 // M3 cards — PHASE-0 STUB (owned by M3 from phase 1). Public API per SPEC L/M3.
 // The stub shows the top card with its body and the two peeking edges, and a working action
 // bar (pass / primary / keep) so the loop can be exercised before gestures and flights land.
-import { createElement as h, useEffect } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useShallow } from 'zustand/react/shallow'
 import type { CardBodyComponent, CardKind, DeckCard, PrimarySpec } from '../../core/types'
@@ -16,8 +16,12 @@ import { SongTitle } from '../../core/ui/SongTitle'
 import { KnowDots } from '../../core/ui/KnowDots'
 import { SongArt } from '../../ui/SongArt'
 import { SONG_BY_ID } from '../../data/songs'
-import { defineStrings, tr, useTr } from '../../i18n'
+import { defineStrings, useTr } from '../../i18n'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
+
+/** data-* attributes for motion components created without JSX (skips excess-property checks). */
+const data = (o: Record<string, string | number | undefined>): object => o
 
 // G-6 strings for the stub (M3 moves these to strings.ts).
 const S = defineStrings('cards', {
@@ -50,8 +54,7 @@ function Peek({ card, i, w, hgt }: { card: DeckCard; i: number; w: number; hgt: 
   const scale = i === 0 ? 0.95 : 0.9
   return h(motion.div, {
     className: `stub-card stub-card--peek stub-frame--${FRAME_OF(card)}`,
-    'data-testid': 'card-peek',
-    'data-kind': card.kind,
+    ...data({ 'data-testid': 'card-peek', 'data-kind': card.kind }),
     style: { width: w, height: hgt, zIndex: 2 - i },
     initial: intro ? { y: 0, scale: 0.9, opacity: 0 } : false,
     animate: { y, scale, opacity: 1 - i * 0.25 },
@@ -82,10 +85,7 @@ export function DeckView(p: { bodies: Record<CardKind, CardBodyComponent> }): JS
               {
                 key: top.id,
                 className: `stub-card stub-card--top stub-frame--${FRAME_OF(top)}`,
-                'data-testid': 'card-top',
-                'data-kind': top.kind,
-                'data-variant': top.variant ?? '',
-                'data-card-id': top.id,
+                ...data({ 'data-testid': 'card-top', 'data-kind': top.kind, 'data-variant': top.variant ?? '', 'data-card-id': top.id }),
                 style: { width: w, height: hgt, zIndex: 5 },
                 initial: intro ? { y: 80, scale: 0.92, opacity: 0 } : { y: 24, scale: 0.96, opacity: 0 },
                 animate: { y: 0, scale: 1, opacity: 1 },
@@ -119,7 +119,7 @@ export function ActionBar(): JSX.Element {
       {
         type: 'button',
         className: 'stub-ab stub-ab--primary',
-        'data-testid': 'btn-primary',
+        ...data({ 'data-testid': 'btn-primary' }),
         disabled: primary ? !primary.enabled : false,
         whileTap: { scale: 0.96 },
         onClick: () => (primary ? doAct(primary.action, primary.arg) : doAct('reserve', { songId: top.songId })),
@@ -139,6 +139,12 @@ export function FlightLayer(): JSX.Element {
 export function UndoToast(): JSX.Element {
   const t = S.useT()
   const undo = useNavi(s => s.deck.undo)
+  const [, bump] = useState(0)
+  useEffect(() => {
+    if (!undo) return
+    const id = setTimeout(() => bump(x => x + 1), Math.max(0, undo.at + 3000 - Date.now()) + 20)
+    return () => clearTimeout(id)
+  }, [undo?.at])
   const fresh = undo && Date.now() - undo.at < 3000
   return h(
     AnimatePresence,
@@ -146,7 +152,7 @@ export function UndoToast(): JSX.Element {
     fresh
       ? h(
           motion.div,
-          { key: undo!.at, className: 'stub-undo', 'data-testid': 'undo-toast', initial: { y: 20, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: 20, opacity: 0 } },
+          { key: undo!.at, className: 'stub-undo', ...data({ 'data-testid': 'undo-toast' }), initial: { y: 20, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: 20, opacity: 0 } },
           h('button', { type: 'button', 'data-testid': 'undo-button', onClick: () => naviApi.getState().undo() }, h(Icon, { name: 'undo', size: 16 }), t('undo')),
         )
       : null,
@@ -164,7 +170,7 @@ function SongBody({ card, setPrimary: sp }: CardBodyProps) {
     h('div', { className: 'stub-body__kind' }, card.variant === 'opener' ? 'SPARK' : card.variant === 'visa' ? 'VISA' : 'SONG'),
     card.songId ? h(SongTitle, { songId: card.songId, variant: card.variant === 'visa' ? 'visa' : 'card' }) : null,
     card.songId ? h('div', { className: 'stub-body__artist' }, SONG_BY_ID[card.songId]?.artist ?? '') : null,
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text), card.reason.cause ? ` · ${tr(card.reason.cause)}` : ''),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text }), card.reason.cause ? h(Tr, { text: card.reason.cause, prefix: ' · ' }) : null),
     asked && card.songId ? h(KnowDots, { songId: card.songId, size: 14 }) : null,
   )
 }
@@ -181,7 +187,7 @@ function AskBody({ card, setPrimary: sp }: CardBodyProps) {
     h('div', { className: 'stub-body__kind' }, 'ASK'),
     card.songId ? h(SongTitle, { songId: card.songId, variant: 'card', max: 28 }) : null,
     card.songId ? h(KnowDots, { songId: card.songId, size: 16, label: true }) : null,
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })),
   )
 }
 export const AskCardBody: CardBodyComponent = p => h(AskBody, p)
@@ -195,7 +201,7 @@ function LinkBody({ card, setPrimary: sp }: CardBodyProps) {
     'div',
     { className: 'stub-body' },
     h('div', { className: 'stub-body__kind' }, 'LINK'),
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })),
     h(
       'div',
       { className: 'stub-body__opts' },

@@ -7,7 +7,7 @@ import { SONG_BY_ID } from '../../data/songs'
 import { StubBox } from '../../core/ui/StubBox'
 import { VoiceOrb } from '../../core/ui/VoiceOrb'
 import { useNavi } from '../../core/store'
-import { tr } from '../../i18n'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
 
 export type QuizAnswers = { high: 'easy' | 'normal' | 'hard'; chorus: 'belt' | 'soft' | 'between'; style: 'ride' | 'talk' | 'sustain' }
@@ -56,7 +56,7 @@ function VoiceBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
     StubBox,
     { name: 'VoiceCardBody', module: 'M7', className: 'stub-body' },
     h(VoiceOrb, { reading: null, size: 72 }),
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })),
   )
 }
 export const VoiceCardBody: CardBodyComponent = p => h(VoiceBody, p)

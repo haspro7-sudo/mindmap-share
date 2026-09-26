@@ -63,13 +63,13 @@ export function Sheet({ id, open, onClose, children, title, full, className, pri
               if (info.offset.y > 90 || info.velocity.y > 600) onClose()
             }}
           >
-            <div className="sheet__grab" onPointerDown={e => controls.start(e)} style={{ touchAction: 'none' }}>
+            <div className={`sheet__grab${title ? '' : ' sheet__grab--bare'}`} onPointerDown={e => controls.start(e)} style={{ touchAction: 'none' }}>
               <span className="sheet__handle" aria-label={t('sheetHandle')} />
-              {title ? <h2 className="sheet__title">{title}</h2> : <span className="sheet__title" />}
-              <button type="button" className="sheet__close" onClick={onClose} aria-label={t('close')}>
-                <Icon name="close" size={18} strokeWidth={2} />
-              </button>
+              {title ? <h2 className="sheet__title">{title}</h2> : null}
             </div>
+            <button type="button" className="sheet__close" onClick={onClose} aria-label={t('close')}>
+              <Icon name="close" size={18} strokeWidth={2} />
+            </button>
             <div className="sheet__body">{children}</div>
           </motion.section>
         </div>

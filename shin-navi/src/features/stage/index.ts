@@ -14,8 +14,12 @@ import { SongTitle } from '../../core/ui/SongTitle'
 import { StubBox } from '../../core/ui/StubBox'
 import { Button } from '../../core/ui/Button'
 import { common } from '../../i18n/common'
-import { defineStrings, tr } from '../../i18n'
+import { defineStrings } from '../../i18n'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
+
+/** data-* attributes for motion components created without JSX (skips excess-property checks). */
+const data = (o: Record<string, string | number | undefined>): object => o
 
 const S = defineStrings('stage', {
   ja: { myTurnIn: 'あなたの番まであと{n}曲', nowEmpty: '最初の1曲が、この部屋の空気をつくる', myTurnNow: 'あなたの番' },
@@ -55,9 +59,7 @@ export function StageLane(p: { orientation: 'horizontal' | 'vertical'; compact?:
     motion.div,
     {
       className: `stub-lane stub-lane--${p.orientation}${p.compact ? ' is-compact' : ''}`,
-      'data-testid': 'stage-lane',
-      'data-orientation': p.orientation,
-      'data-anchor': 'lane',
+      ...data({ 'data-testid': 'stage-lane', 'data-orientation': p.orientation, 'data-anchor': 'lane' }),
       initial: intro ? { y: -20, opacity: 0 } : false,
       animate: { y: 0, opacity: 1 },
       transition: { ...SPRING.soft, delay: intro ? introDelay('lane') : 0 },
@@ -92,10 +94,10 @@ export function StageLane(p: { orientation: 'horizontal' | 'vertical'; compact?:
 }
 
 const FLOOR: { id: MemberId; x: number; key: IntroKey }[] = [
-  { id: 'minato', x: 16, key: 'orbMinato' },
-  { id: 'me', x: 40, key: 'junRing' },
-  { id: 'saki', x: 63, key: 'orbSaki' },
-  { id: 'jun', x: 85, key: 'junRing' },
+  { id: 'minato', x: 9, key: 'orbMinato' },
+  { id: 'me', x: 33, key: 'junRing' },
+  { id: 'saki', x: 56, key: 'orbSaki' },
+  { id: 'jun', x: 77, key: 'junRing' },
 ]
 
 function Orb({ m, x, k, column }: { m: Member; x: number; k: IntroKey; column: boolean }) {
@@ -108,17 +110,14 @@ function Orb({ m, x, k, column }: { m: Member; x: number; k: IntroKey; column: b
     motion.div,
     {
       className: `stub-orb stub-orb--${state}${me ? ' is-me' : ''}`,
-      'data-testid': 'member-orb',
-      'data-member': m.id,
-      'data-present': m.present ? '1' : '0',
-      'data-arriving': m.arriving ? '1' : '0',
+      ...data({ 'data-testid': 'member-orb', 'data-member': m.id, 'data-present': m.present ? '1' : '0', 'data-arriving': m.arriving ? '1' : '0' }),
       style: column ? { ['--c' as string]: m.color } : { left: `${x}%`, ['--c' as string]: m.color },
       initial: intro ? { scale: 0, opacity: 0 } : false,
       animate: { scale: 1, opacity: 1 },
       transition: intro ? { duration: 0.45, delay: introDelay(k), ease: 'easeOut' } : { duration: 0.2 },
     },
     h('span', { className: 'stub-orb__light' }),
-    h('span', { className: 'stub-orb__name' }, tr({ key: `vocab.member.${m.id}` })),
+    h('span', { className: 'stub-orb__name' }, h(Tr, { text: { key: `vocab.member.${m.id}` } })),
   )
 }
 
@@ -142,7 +141,7 @@ export function MoodWord(p: { size: 'hero' | 'room' }): JSX.Element {
     'div',
     { className: `stub-mood stub-mood--${p.size}`, 'data-testid': 'mood-word', 'data-word': word, 'data-anchor': 'mood', role: 'button', tabIndex: 0, onClick: () => naviApi.getState().openSheet('mixer') },
     [...text].map((ch, i) =>
-      h(motion.span, { key: `${word}-${i}`, initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: base + i * 0.04 } }, ch),
+      h(motion.span, { key: `${word}-${text}-${i}`, initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: base + i * 0.04 } }, ch),
     ),
   )
 }
@@ -184,7 +183,7 @@ export function RoomBoard(): JSX.Element {
       { className: 'stub-roomboard__now' },
       h('span', { className: 'stub-lane__label' }, 'NOW'),
       now ? h(SongTitle, { songId: now.item.songId, variant: 'card', max: 56 }) : h('span', { className: 'stub-roomboard__empty' }, '—'),
-      now ? h('span', { className: 'stub-roomboard__by', style: { color: members[now.item.by]?.color } }, tr({ key: `vocab.member.${now.item.by}` })) : null,
+      now ? h('span', { className: 'stub-roomboard__by', style: { color: members[now.item.by]?.color } }, h(Tr, { text: { key: `vocab.member.${now.item.by}` } })) : null,
     ),
     h(StubBox, { name: 'RoomBoard', module: 'M6', quiet: true, className: 'stub-roomboard__slot' }),
   )
@@ -212,7 +211,7 @@ function ShiftBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
   return h(
     StubBox,
     { name: 'ShiftCardBody', module: 'M6', className: 'stub-body' },
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text), card.reason.cause ? ` · ${tr(card.reason.cause)}` : ''),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text }), card.reason.cause ? h(Tr, { text: card.reason.cause, prefix: ' · ' }) : null),
   )
 }
 export const ShiftCardBody: CardBodyComponent = p => h(ShiftBody, p)

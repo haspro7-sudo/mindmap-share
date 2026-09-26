@@ -2,11 +2,12 @@
 // and open the app in phone / tablet viewports while collecting console errors.
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { extname, join, normalize } from 'node:path'
+import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
-const ROOT = fileURLToPath(new URL('../../dist/', import.meta.url))
+// DIST_DIR (optional) overrides the directory that is served; default is the repo's dist/.
+const ROOT = process.env.DIST_DIR ? resolve(process.env.DIST_DIR) : fileURLToPath(new URL('../../dist/', import.meta.url))
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' }
 
 export async function serveDist() {
@@ -30,6 +31,7 @@ export const VIEWPORTS = {
   phone: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   small: { viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   tablet: { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: true },
+  dual: { viewport: { width: 1366, height: 768 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
 }
 
 export async function launch() {

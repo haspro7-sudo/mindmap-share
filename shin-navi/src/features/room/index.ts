@@ -10,9 +10,9 @@ import { after } from '../../core/clock'
 import { pKnow } from '../../core/rules'
 import { SONG_BY_ID } from '../../data/songs'
 import { seeded } from '../../lib/rng'
-import { tr } from '../../i18n'
 import { StubBox } from '../../core/ui/StubBox'
 import { SongTitle } from '../../core/ui/SongTitle'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
 
 export function knowProbability(m: Member, s: Song): { know: number; chorus: number } {
@@ -103,7 +103,7 @@ function InviteBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
     StubBox,
     { name: 'InviteCardBody', module: 'M5', className: 'stub-body' },
     card.songId ? h(SongTitle, { songId: card.songId, variant: 'card', max: 26 }) : null,
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })),
   )
 }
 export const InviteCardBody: CardBodyComponent = p => h(InviteBody, p)
@@ -115,7 +115,7 @@ function FinaleBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
   return h(
     StubBox,
     { name: 'FinaleCardBody', module: 'M5', className: 'stub-body' },
-    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })),
     h('div', { className: 'stub-body__opts' }, (card.options ?? []).map(id => h('span', { key: id, className: 'stub-body__opt' }, h(SongTitle, { songId: id, variant: 'chip' })))),
   )
 }

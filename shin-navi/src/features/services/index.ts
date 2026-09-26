@@ -5,7 +5,7 @@ import { useNavi, naviApi } from '../../core/store'
 import { StubBox } from '../../core/ui/StubBox'
 import { Button } from '../../core/ui/Button'
 import { common } from '../../i18n/common'
-import { tr } from '../../i18n'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
 
 export const MENU: { id: string; kind: 'drink' | 'food' | 'water' | 'rest'; name: TextRef; hue: number }[] = [
@@ -24,7 +24,7 @@ export function OrderScreen(): JSX.Element {
   return h(
     'div',
     { className: 'stub-screen', 'data-anchor': 'order' },
-    closed ? h('div', { 'data-testid': 'order-closed', className: 'stub-note' }, tr({ key: 'core.orderClosed' })) : null,
+    closed ? h('div', { 'data-testid': 'order-closed', className: 'stub-note' }, h(Tr, { text: { key: 'core.orderClosed' } })) : null,
     h(StubBox, { name: 'OrderScreen', module: 'M10', className: 'stub-screen__box' }),
   )
 }
@@ -33,7 +33,7 @@ function CoasterBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
   useEffect(() => {
     setPrimary({ action: 'order', label: { key: 'common.dock.order' }, enabled: true, arg: { menuId: 'highball' } })
   }, [card.id])
-  return h(StubBox, { name: 'CoasterCardBody', module: 'M10', className: 'stub-body' }, h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)))
+  return h(StubBox, { name: 'CoasterCardBody', module: 'M10', className: 'stub-body' }, h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })))
 }
 export const CoasterCardBody: CardBodyComponent = p => h(CoasterBody, p)
 
@@ -45,7 +45,7 @@ function ImportBody({ card, setPrimary }: Parameters<CardBodyComponent>[0]) {
   useEffect(() => {
     setPrimary({ action: 'save', label: { key: 'common.reserve' }, enabled: !!card.songId, arg: { songId: card.songId, version: 'original' } })
   }, [card.id])
-  return h(StubBox, { name: 'ImportCardBody', module: 'M10', className: 'stub-body' }, h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, tr(card.reason.text)))
+  return h(StubBox, { name: 'ImportCardBody', module: 'M10', className: 'stub-body' }, h('div', { className: 'stub-body__reason', 'data-testid': 'card-reason' }, h(Tr, { text: card.reason.text })))
 }
 export const ImportCardBody: CardBodyComponent = p => h(ImportBody, p)
 

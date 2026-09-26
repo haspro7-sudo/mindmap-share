@@ -316,16 +316,20 @@
 .sheet__grab {
   position: relative;
   display: flex;
-  align-items: center;
-  min-height: 48px;
-  padding: 14px 12px 6px 20px;
+  align-items: flex-end;
+  min-height: 26px;
+  padding: 22px 60px 4px 20px;
   flex: none;
   cursor: grab;
+}
+.sheet__grab--bare {
+  padding-top: 0;
+  min-height: 30px;
 }
 .sheet__handle {
   position: absolute;
   left: 50%;
-  top: 8px;
+  top: 9px;
   width: 40px;
   height: 5px;
   margin-left: -20px;
@@ -334,27 +338,31 @@
 }
 .sheet__title {
   flex: 1;
-  margin: 8px 0 0;
-  font-size: 18px;
+  margin: 0;
+  font-size: 19px;
   font-weight: 900;
   letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 .sheet__close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  margin-top: 6px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   color: var(--ink-dim);
   background: rgba(255, 255, 255, 0.06);
+  z-index: 1;
 }
 .sheet__body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px 20px 24px;
+  padding: 8px 20px 24px;
   -webkit-overflow-scrolling: touch;
 }
 

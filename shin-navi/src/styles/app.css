@@ -1,0 +1,597 @@
+/* Shell layout (SPEC F-3 / F-4 / F-5). Positions come from core/layout metrics via inline
+   sizes and CSS variables; nothing here depends on window media queries. */
+
+.layout-root {
+  overflow: hidden;
+}
+.app-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 70% at 50% 0%, #1a0d3a 0%, rgba(26, 13, 58, 0) 60%),
+    var(--night);
+  color: var(--ink);
+}
+.app-stage {
+  position: absolute;
+  inset: 0;
+}
+.app-tools {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+.app-tools > * {
+  pointer-events: auto;
+}
+
+/* ============================================================ phone shell */
+.phone-shell {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  height: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  overflow-x: hidden;
+  background: var(--night);
+  contain: layout paint;
+}
+.ps-bg,
+.ps-specks,
+.ps-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ps-bg {
+  z-index: 0;
+}
+.ps-specks {
+  z-index: 1;
+}
+.ps-specks > canvas {
+  width: 100%;
+  height: 100%;
+}
+.ps-main {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--sat);
+}
+.ps-status {
+  flex: none;
+  position: relative;
+  z-index: 6;
+}
+.ps-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ps-lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 5;
+  transition: opacity 0.2s var(--ease-out);
+}
+.ps-lane.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.ps-tab {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ps-tab:not(.ps-tab--discover) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ps-tab--discover[data-active='0'] {
+  pointer-events: none;
+}
+.ps-search {
+  flex: none;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+}
+.ps-search > * {
+  flex: 1;
+}
+.ps-deck {
+  position: relative;
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding-top: 6px;
+}
+.ps-action {
+  flex: none;
+  padding: 0 16px;
+  margin-bottom: 6px;
+}
+.ps-dock {
+  flex: none;
+  position: relative;
+  z-index: 6;
+}
+.ps-fx {
+  z-index: 40;
+}
+.ps-toasts {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+.ps-toasts > * {
+  pointer-events: auto;
+}
+
+/* ---------------- hero */
+.hero {
+  position: relative;
+  flex: none;
+  touch-action: pan-x;
+}
+.hero__spot,
+.hero__floor,
+.hero__ball,
+.hero__mood {
+  position: absolute;
+}
+.hero__spot {
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.hero__ball {
+  left: 50%;
+  z-index: 1;
+}
+.hero__floor {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+}
+.hero__mood {
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+  pointer-events: none;
+}
+.hero__mood > * {
+  pointer-events: auto;
+}
+
+/* ============================================================ status bar */
+.status {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 14px;
+}
+.status__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 0 1 auto;
+  height: 32px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.status__brandtext {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status__mark {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--prism);
+  box-shadow: 0 0 10px rgba(255, 61, 168, 0.6);
+}
+.status__room {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+.status__roomline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.status__live {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+  animation: status-live 2.4s ease-in-out infinite;
+}
+@keyframes status-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.status__roomno {
+  letter-spacing: 0.12em;
+}
+.status__min {
+  font-size: 12.5px;
+  color: var(--ink);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.status__joined {
+  margin-left: 6px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+.status__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.status__lang {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  min-width: 50px;
+  padding: 0 9px 0 8px;
+  border-radius: var(--r-chip);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.status__lang::after {
+  /* static glow layer: only its opacity changes during the intro pulse */
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1.5px var(--neon-cyan), 0 0 16px rgba(46, 242, 255, 0.55);
+  opacity: 0;
+  transition: opacity 0.18s;
+  pointer-events: none;
+}
+.status__lang.is-pulsing::after {
+  opacity: 1;
+}
+.status__lang.is-pulsing {
+  color: var(--neon-cyan);
+}
+.status__langcode {
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
+}
+.status__mute {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--ink-dim);
+}
+.status__mute.is-muted {
+  color: var(--ink-faint);
+}
+.status--room {
+  padding: 0 20px 0 24px;
+  gap: 16px;
+}
+.status--room .status__brand {
+  font-size: 14px;
+}
+.status--room .status__room {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  margin-left: 24px;
+  margin-right: auto;
+}
+.status--room .status__roomline {
+  font-size: 12px;
+  gap: 8px;
+}
+.status--room .status__min {
+  font-size: 15px;
+}
+.phone-shell.is-small .status {
+  gap: 6px;
+  padding: 0 6px 0 12px;
+}
+.phone-shell.is-small .status__brand {
+  font-size: 11px;
+}
+
+/* ============================================================ dock (the only backdrop-filter) */
+.dock {
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  align-items: start;
+  padding: 8px 8px var(--sab);
+  background: var(--dock-glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.dock__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 0 4px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.dock__item.is-active {
+  color: var(--ink);
+}
+.dock__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 30px;
+}
+.dock__icon--ball {
+  width: 36px;
+  height: 30px;
+}
+.dock__icon--ball > * {
+  transform: scale(1);
+}
+.dock__label {
+  line-height: 1;
+  white-space: nowrap;
+}
+.dock__dot {
+  position: absolute;
+  top: -8px;
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hot-gradient);
+  box-shadow: 0 0 10px rgba(255, 61, 168, 0.8);
+}
+.phone-shell.is-small .dock {
+  padding-top: 4px;
+}
+.phone-shell.is-small .dock__item {
+  gap: 3px;
+  font-size: 10px;
+}
+
+/* ============================================================ toasts */
+.toasts {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--lane-bottom, 108px) + 10px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 46;
+}
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: rgba(31, 19, 64, 0.96);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  pointer-events: auto;
+}
+.toast--excuse {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 211, 107, 0.55);
+}
+.toast--excuse .icon {
+  color: var(--gold);
+}
+
+/* ============================================================ overlays */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: rgba(7, 3, 18, 0.96);
+}
+
+/* ============================================================ exit confirm */
+.exit-confirm {
+  padding: 4px 0 8px;
+}
+.exit-confirm__title {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+.exit-confirm__body {
+  margin: 0 0 22px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+.exit-confirm__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ============================================================ room shell */
+.room-host {
+  overflow: hidden;
+}
+.room-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--night);
+  display: flex;
+  flex-direction: column;
+  contain: layout paint;
+}
+.rs-bg,
+.rs-specks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.rs-specks > canvas {
+  width: 100%;
+  height: 100%;
+}
+.rs-status {
+  position: relative;
+  z-index: 3;
+  flex: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rs-cols {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+}
+.rs-lane,
+.rs-side {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+.rs-lane {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(90deg, rgba(11, 6, 32, 0.6), rgba(11, 6, 32, 0));
+}
+.rs-side {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(270deg, rgba(11, 6, 32, 0.6), rgba(11, 6, 32, 0));
+}
+.rs-centre {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.rs-ball {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+}
+.rs-board {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.rs-toasts {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+.room-shell .sheet-layer {
+  left: var(--sheet-left, 26%);
+}
+.room-shell .sheet {
+  max-width: 560px;
+}
+
+/* ============================================================ dual */
+.dual {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 80% at 15% 50%, rgba(138, 107, 255, 0.14), transparent 70%),
+    #07031a;
+}
+.dual__phone-col {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.dual__device {
+  position: relative;
+  border-radius: 38px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 7px #120c24,
+    0 0 0 8px rgba(255, 255, 255, 0.16),
+    0 30px 80px rgba(0, 0, 0, 0.65),
+    0 0 60px rgba(138, 107, 255, 0.18);
+  background: var(--night);
+}
+.dual__screen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.dual__seam {
+  flex: none;
+  width: 24px;
+  position: relative;
+}
+.dual__room {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}

@@ -14,7 +14,7 @@ import { registerTarget, registerResolver } from '../../core/targets'
 import { introDelay, introPending } from '../../core/intro'
 import { SPRING } from '../../core/ui/motion'
 import { StubBox } from '../../core/ui/StubBox'
-import { tr } from '../../i18n'
+import { Tr } from '../../core/ui/Tr'
 import '../../styles/stubs.css'
 
 export type BallTile = { i: number; band: number; lat: number; lon: number; dLat: number; dLon: number; songId?: SongId }
@@ -193,7 +193,7 @@ export const GapCardBody: CardBodyComponent = ({ card, setPrimary, act }) => {
     StubBox,
     { name: 'GapCardBody', module: 'M2', className: 'stub-body' },
     h('div', { className: 'stub-body__area' }, card.area ?? ''),
-    h('div', { className: 'stub-body__reason' }, tr(card.reason.text)),
+    h('div', { className: 'stub-body__reason' }, h(Tr, { text: card.reason.text })),
     h('button', { type: 'button', className: 'stub-body__btn', onClick: () => act('openArea') }, card.area ?? 'area'),
   )
 }
