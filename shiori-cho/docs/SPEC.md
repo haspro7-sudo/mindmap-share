@@ -698,8 +698,8 @@ src/app/      (services, no React; take a repo)
   library.ts   previewImport, commitImport, createWork, importBundledDemos, updatePlayerManifest, exportPlayerManifest
   unlock.ts    submitCode(repo, input, ctx) → UnlockOutcome; processPending; decryptGoalSecrets; readSealed; markDoneWithoutCode
   sessions.ts  startSession, endSession, editSession
-  backup.ts    exportBackupFile, importBackupFile(mode)
-  studio.ts    buildAndTest(project), exportKitZip(project) (adds QR PNGs via ui/studio/qrPng.ts)
+  backup.ts    exportBackupFile, readBackupFile, applyBackup(repo, data, mode)
+  studio.ts    buildAndCheck(project), withBuildSalt, exportKitZip(project, build, renderQrPng) (QR PNGs via ui/studio/qrPng.ts)
   platform.ts  vibrate, readClipboard, writeClipboard, requestPersist, isIosSafariNotStandalone, download(name, blob)
 src/ui/  App.tsx, router.tsx (useHashRoute), strings/ja.ts (ALL copy; tone-reviewed, non-explicit), theme.css,
          shell/ (AgeGate, Onboarding, LockScreen, Camouflage, PrivacyVeil, Header, BottomNav, UpdatePrompt),
@@ -760,7 +760,7 @@ Core tests run in the `node` environment, UI tests in `jsdom`, `TZ=Asia/Tokyo`, 
 | `encoding.test.ts` | b64u round trip for 0–100 random lengths; no padding; rejects `+/=` and invalid characters; UTF-8 round trip including emoji and kana; `bytesEqual` |
 | `crockford.test.ts` | `luhn32Check`: `K7QM2XRA→P`, `00000000→0`, `ZZZZZZZZ→8`, and all demo codes (§4.6). Every single-symbol substitution of 200 random codes is rejected (exhaustive over 9 positions × 31 symbols). Adjacent transpositions are detected at ≥99%. Normalization: `ｋ７ｑｍ－２ｘｒａ－ｐ`, `k7q m2x rap` and `K7Q‐M2X—RAP` all give `b32:K7QM2XRAP`; `MOO-NDE-SKR` gives `M00NDESKR`; `I` and `L` map to `1`; `U` gives a charset error; 8 or 10 characters give a length error. `generate` × 1000: every result valid and correctly formatted. |
 | `kana.test.ts` | Katakana, half-width katakana and mixed separators (`、・ /`) normalize to the same canonical form. Input without separators is chunked. `づ→ず`, `を→お`, small kana are enlarged. An unknown word reports the right index. Wrong word counts. Word-list invariants: 256 entries, unique, 3 characters, allowed character set only, demo words present, and a snapshot hash of the list. |
-| `parseCode.test.ts` | Kind detection; empty input; mixed ASCII and kana input gives charset error; Japanese messages for each error |
+| `parseCode.test.ts` | Kind detection; empty input; mixed ASCII and kana input gives a `mixed` error; Japanese messages for each error |
 | `primitives.test.ts` | PBKDF2 RFC 7914 vector (`passwd`/`salt`/1/64 B → `55ac046e…d3a19783`); HKDF RFC 5869 case 1 (→ `3cb25f25…5865`); AES-GCM round trip; a flipped ciphertext bit throws; wrong AAD throws |
 | `shiori.test.ts` | All golden vectors in §4.3. The tag changes when `work.id` or the salt changes. Goal secret round trip. allOf opens with every master, returns null or fails with any strict subset, and does not depend on the order of the masters map. anyOf opens with each listed goal and fails with an unlisted one. Moving a box between sealed ids or works fails because of the AAD binding. A payload that fails its schema after decryption is rejected. |
 | `validate.test.ts` | The committed demo manifests pass. Errors: bad `schema`, `shiori/2`, missing `kdf` when code goals exist, duplicate ids, dangling group or checkpoint references, sealed referencing a manual or unknown goal, `wraps` mismatch, iterations of 99,999, IV of 11 bytes, tag of 15 bytes, 4 hints, over-long strings, a bidi override character, a file over 512 KiB, invalid JSON (Japanese message with position). Unknown keys are stripped. Paths are correct. |
