@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/data/songs.ts","./src/engine/reading.test.ts","./src/engine/reading.ts","./src/i18n/index.ts","./src/lib/art.ts","./src/lib/audio.ts","./src/lib/pitch.ts","./src/lib/rng.ts","./src/ui/SongArt.tsx","./src/ui/fx.tsx"],"version":"5.9.3"}

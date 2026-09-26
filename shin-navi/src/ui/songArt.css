@@ -1,0 +1,28 @@
+.song-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.song-art .art-glow {
+  opacity: calc(0.75 + var(--charge, 0) * 0.25);
+  transition: opacity 0.2s;
+}
+.song-art.is-animated .spin { animation: art-spin linear infinite; }
+.song-art.is-animated .spin.rev { animation-direction: reverse; }
+.song-art.is-animated .pulse { animation: art-pulse 2.4s ease-in-out infinite; }
+.song-art.is-animated .pulse.slow { animation-duration: 5s; }
+.song-art.is-animated .drift { animation: art-drift ease-in-out infinite alternate; }
+.song-art.is-animated .float { animation: art-float ease-in-out infinite alternate; }
+.song-art.is-animated .rise { animation: art-rise linear infinite; }
+.song-art.is-animated .grid-scroll { animation: art-grid 2.2s linear infinite; }
+
+@keyframes art-spin { to { transform: rotate(360deg); } }
+@keyframes art-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@keyframes art-drift { from { transform: translateX(-24px); } to { transform: translateX(24px); } }
+@keyframes art-float { from { transform: rotate(-8deg) translateY(-10px); } to { transform: rotate(8deg) translateY(12px); } }
+@keyframes art-rise { from { transform: translateY(60px); } to { transform: translateY(-60px); } }
+@keyframes art-grid { from { transform: translateY(0); } to { transform: translateY(12px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .song-art.is-animated * { animation: none !important; }
+}
