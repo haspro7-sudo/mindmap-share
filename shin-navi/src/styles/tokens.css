@@ -1,0 +1,142 @@
+/* Design tokens (SPEC I-1, I-2, G-5). Dark only: the app is used inside a karaoke room. */
+:root {
+  /* ground */
+  --night: #0b0620;
+  --night-2: #150b2e;
+  --night-3: #1f1340;
+  --surface: rgba(21, 11, 46, 0.92); /* sheets: no blur */
+  --dock-glass: rgba(255, 255, 255, 0.06); /* backdrop-filter: blur(14px) only on the dock */
+  --line: rgba(255, 255, 255, 0.12);
+
+  /* ink */
+  --ink: #f5f1ff;
+  --ink-dim: #a79bc9;
+  --ink-faint: #6e6790;
+
+  /* neon */
+  --neon-magenta: #ff3da8;
+  --neon-cyan: #2ef2ff;
+  --neon-amber: #ffb547;
+  --neon-violet: #8a6bff;
+  --neon-lime: #c6ff3d;
+  --gold: #ffd36b;
+  --ok: #5cffb0;
+  --floor: #fff6d8;
+  --focus: #7df9ff;
+
+  /* members */
+  --m-me: #d8dce8;
+  --m-minato: #ff8a3d;
+  --m-saki: #ff6fb1;
+  --m-jun: #3df5c8;
+
+  /* voice types and the three factors */
+  --v-clear: #7fe7ff;
+  --v-power: #ff5a36;
+  --v-groove: #c6ff3d;
+  --v-emotional: #c77dff;
+  --f-power: #ff4d4d;
+  --f-care: #4d8bff;
+  --f-bright: #ffd84d;
+
+  /* face areas: genre i (0..11) → hsl(330 + 30i, 85%, 62%) */
+  --area-0: hsl(330 85% 62%);
+  --area-1: hsl(0 85% 62%);
+  --area-2: hsl(30 85% 62%);
+  --area-3: hsl(60 85% 62%);
+  --area-4: hsl(90 85% 62%);
+  --area-5: hsl(120 85% 62%);
+  --area-6: hsl(150 85% 62%);
+  --area-7: hsl(180 85% 62%);
+  --area-8: hsl(210 85% 62%);
+  --area-9: hsl(240 85% 62%);
+  --area-10: hsl(270 85% 62%);
+  --area-11: hsl(300 85% 62%);
+  --face-smoke: #2a2540;
+  --face-chrome: #c9ccd8;
+
+  /* planning lens */
+  --lens-line: #00e5ff;
+  --lens-bg: rgba(8, 26, 42, 0.78);
+
+  /* shape */
+  --r-card: 24px;
+  --r-sheet: 28px;
+  --r-btn: 18px;
+  --r-chip: 999px;
+  --r-face: 4px;
+  --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.45); /* static, never animated */
+
+  /* gradients */
+  --prism: conic-gradient(#ff3da8, #ffb547, #c6ff3d, #2ef2ff, #8a6bff, #ff3da8);
+  --prism-linear: linear-gradient(90deg, #ff3da8, #ffb547, #c6ff3d, #2ef2ff, #8a6bff);
+  --ember: radial-gradient(#ffe9a8, #ffb547 40%, transparent 70%);
+  --hot-gradient: linear-gradient(100deg, #ff3da8 0%, #ff6a3d 58%, #ffb547 100%);
+
+  /* aurora palettes (AuroraKey) */
+  --au-quiet-1: #3b2a8f;
+  --au-quiet-2: #1e4fa8;
+  --au-quiet-3: #5b2a7a;
+  --au-mellow-1: #5b6cff;
+  --au-mellow-2: #9d8cff;
+  --au-mellow-3: #2ef2ff;
+  --au-warm-1: #8a6bff;
+  --au-warm-2: #ff3da8;
+  --au-warm-3: #2ef2ff;
+  --au-hot-1: #ff3da8;
+  --au-hot-2: #ffb547;
+  --au-hot-3: #ff6a3d;
+  /* current aurora colours for the mood word gradient (set by M1/M6; quiet by default) */
+  --a1: #9d8cff;
+  --a2: #6f9bff;
+  --a3: #c77dff;
+
+  /* type */
+  --font-ja: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic UI', system-ui, sans-serif;
+  --font-ko: 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+  --font-zh-hant: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --font-zh-hans: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-en: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-body: var(--font-ja);
+  --fs-title: clamp(26px, 7.5vw, 40px);
+  --fs-reason: 15px;
+  --fs-label: 11px;
+  --ls-label: 0.14em;
+
+  /* motion (CSS side; springs live in core/ui/motion.ts) */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* safe areas */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+
+  color-scheme: dark;
+}
+
+/* Font stacks per UI language (html[lang] is kept in sync by i18n.setLocale). */
+:root[lang='ja'] {
+  --font-body: var(--font-ja);
+}
+:root[lang='en'] {
+  --font-body: var(--font-en);
+}
+:root[lang='zh-Hant'] {
+  --font-body: var(--font-zh-hant);
+}
+:root[lang='zh-Hans'] {
+  --font-body: var(--font-zh-hans);
+}
+:root[lang='ko'] {
+  --font-body: var(--font-ko);
+}
+/* Proportional kana spacing only for Japanese. */
+:root[lang='ja'] body {
+  font-feature-settings: 'palt' 1;
+}
+:root:not([lang='ja']) body {
+  font-feature-settings: normal;
+}

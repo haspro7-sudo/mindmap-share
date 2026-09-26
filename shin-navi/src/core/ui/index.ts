@@ -1,0 +1,11 @@
+// Core UI kit (SPEC K-7). Feature modules import from here.
+export { KnowDots, type KnowDotsProps } from './KnowDots'
+export { SongTitle, type SongTitleProps, type SongTitleVariant } from './SongTitle'
+export { Chip, type ChipProps } from './Chip'
+export { Button, type ButtonProps } from './Button'
+export { Sheet, type SheetProps } from './Sheet'
+export { VoiceOrb, type VoiceOrbProps } from './VoiceOrb'
+export { Icon, type IconName, type IconProps } from './Icon'
+export { Anchor, type AnchorProps } from './Anchor'
+export { StubBox, type StubBoxProps } from './StubBox'
+export { SPRING, FADE, FADE_OVERLAY, TAB_FADE } from './motion'
