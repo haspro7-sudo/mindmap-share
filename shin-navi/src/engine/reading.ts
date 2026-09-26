@@ -18,7 +18,7 @@ export type Scored = { song: Song; score: number; reasons: Reason[]; knownBy: st
 
 /** Deterministic "does this person know this song" so the room stays consistent. */
 export function knows(person: Person, song: Song): boolean {
-  const p = song.known[person.generation] / 100
+  const p = song.knownRate[person.generation] / 100
   const likeBoost = (person.likes[song.genre] ?? 0) * 0.25
   const roll = mulberry32(hashString(person.id + '|' + song.id))()
   return roll < clamp(p + likeBoost, 0, 0.99)
@@ -83,7 +83,7 @@ export function readRoom(ctx: ReadContext, pool: Song[] = SONGS): Scored[] {
     else if (share >= 0.74) reasons.push({ kind: 'dare', text: `${everyone.length}人中${kb.length}人が知ってる` })
     if (co.has(song.id) && lastId) reasons.push({ kind: 'tsunagu', text: `「${SONG_BY_ID[lastId]?.title}」を選んだ人はこれも` })
     if (energyFit > 0.8) {
-      const v = song.vibes.find(x => vibeText[x])
+      const v = song.tags.hypothesis.find(x => vibeText[x])
       reasons.push({ kind: 'yomu', text: `今の流れなら${v ? vibeText[v] : 'ちょうどいい'}` })
     }
     if (trend) reasons.push({ kind: 'yomu', text: '今週この街でよく歌われている' })
@@ -99,7 +99,7 @@ export function coOccur(songId: string, n = 5): Song[] {
   if (!base) return []
   return SONGS.filter(s => s.id !== songId)
     .map(s => {
-      const vibeOverlap = s.vibes.filter(v => base.vibes.includes(v)).length
+      const vibeOverlap = s.tags.hypothesis.filter(v => base.tags.hypothesis.includes(v)).length
       const era = 1 - Math.min(1, Math.abs(s.year - base.year) / 25)
       const g = s.genre === base.genre ? 1 : 0
       const artist = s.artist === base.artist ? 0.6 : 0
@@ -112,7 +112,7 @@ export function coOccur(songId: string, n = 5): Song[] {
 
 /** How well a song sits in the singer's comfortable range, and the key shift that helps. */
 export function rangeFit(song: Song, my: [number, number]): { fit: number; shift: number; note: string } {
-  const [lo, hi] = song.range
+  const { low: lo, high: hi } = song.vocalRange
   const [mlo, mhi] = my
   let best = { fit: -Infinity, shift: 0 }
   for (let k = -6; k <= 6; k++) {
@@ -157,10 +157,10 @@ export function voiceType(f: VoiceFeatures): VoiceTypeId {
 /** Songs that suit a voice type, used for 「この声で歌ってみたい曲」. */
 export function songsForVoice(type: VoiceTypeId, my: [number, number] | null, n = 3): Song[] {
   const want: Record<VoiceTypeId, (s: Song) => number> = {
-    clear: s => (s.vibes.includes('しっとり') ? 1 : 0) + (s.vibes.includes('エモい') ? 0.6 : 0) + (1 - s.energy) * 0.5,
-    power: s => (s.vibes.includes('叫べる') ? 1 : 0) + s.energy,
-    groove: s => (s.vibes.includes('ノれる') ? 1.2 : 0) + (s.tempo === 'mid' ? 0.4 : 0),
-    emotional: s => (s.vibes.includes('泣ける') ? 1 : 0) + (s.vibes.includes('エモい') ? 0.8 : 0),
+    clear: s => (s.tags.hypothesis.includes('しっとり') ? 1 : 0) + (s.tags.hypothesis.includes('エモい') ? 0.6 : 0) + (1 - s.energy) * 0.5,
+    power: s => (s.tags.hypothesis.includes('叫べる') ? 1 : 0) + s.energy,
+    groove: s => (s.tags.hypothesis.includes('ノれる') ? 1.2 : 0) + (s.tempo === 'mid' ? 0.4 : 0),
+    emotional: s => (s.tags.hypothesis.includes('泣ける') ? 1 : 0) + (s.tags.hypothesis.includes('エモい') ? 0.8 : 0),
   }
   return SONGS.map(s => ({ s, v: want[type](s) + (my ? rangeFit(s, my).fit * 0.8 : 0) + mulberry32(hashString(type + s.id))() * 0.2 }))
     .sort((a, b) => b.v - a.v)

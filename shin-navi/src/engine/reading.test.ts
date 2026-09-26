@@ -15,11 +15,14 @@ describe('song seed', () => {
     const ids = new Set(SONGS.map(s => s.id))
     expect(ids.size).toBe(SONGS.length)
     expect(SONGS.length).toBeGreaterThanOrEqual(100)
+    expect(SONGS.length).toBe(120)
     for (const s of SONGS) {
-      expect(s.range[0]).toBeLessThan(s.range[1])
+      expect(s.vocalRange.low).toBeLessThan(s.vocalRange.high)
       expect(s.energy).toBeGreaterThanOrEqual(0)
       expect(s.energy).toBeLessThanOrEqual(1)
-      expect(s.vibes.length).toBeGreaterThan(0)
+      expect(s.tags.hypothesis.length).toBeGreaterThan(0)
+      expect(s.coOccurrence.length).toBeGreaterThanOrEqual(4)
+      for (const c of s.coOccurrence) expect(SONG_BY_ID[c]).toBeDefined()
     }
   })
 })
