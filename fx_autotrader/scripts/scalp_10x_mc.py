@@ -4,7 +4,8 @@ Per-trade net R comes from fxlab.scalp simulations (Titan Blade costs):
   * random entries on EURUSD 2015-2020 with several TP/SL shapes (no edge, pure cost)
   * the gotobi book (reference: the only verified edge, ~6 trades/month)
   * optional extra trade files (scalp.simulate output with an R column) given on the
-    command line, e.g. surviving scalping candidates
+    command line, e.g. scalping candidates; only their out-of-sample rows (2015-) are
+    used, because in-sample rows were used to pick them
 
 Each path starts at 100,000 JPY, risks a fraction f of equity per trade (R=-1 loses f),
 stops at 10x (success) or below 5,000 JPY (ruin); zero-cut floors the balance at 0.
@@ -59,9 +60,10 @@ def main(extra):
     sources[f"gotobi reference ({g.mean():+.3f}R)"] = (g, [6 / DAYS_PER_MONTH])
     for p in extra:
         t = pd.read_parquet(p)
+        t = t[t.entry_time >= scalp.IS_END]
         r = t["R"].to_numpy()
         per_day = len(t) / max(1, t.entry_time.dt.normalize().nunique())
-        sources[f"{Path(p).stem} ({r.mean():+.3f}R, {per_day:.1f}/day)"] = (r, [per_day])
+        sources[f"{Path(p).stem} OOS ({r.mean():+.3f}R)"] = (r, [round(per_day, 2)])
 
     lines = ["# スキャルピングと10倍チャレンジ（モンテカルロ）", "",
              f"10万円から開始、期間 {MONTHS} か月、20,000パス。1回のリスク f（損切りで残高の f を失う）。"
