@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| TitanPortfolioEA.mq5  v1.21                                      |
+//| TitanPortfolioEA.mq5  v1.22                                      |
 //| Staged-risk portfolio EA for Titan FX MT5 (JPY account, Blade)   |
 //|   1) GOTOBI   : USDJPY short at the 09:55 JST Tokyo fix on       |
 //|                 Japanese gotobi days, flat at 15:00 JST (LIVE)   |
@@ -12,7 +12,7 @@
 //| from the moment it is opened.  No martingale/grid/averaging.     |
 //+------------------------------------------------------------------+
 #property copyright "fx_autotrader"
-#property version   "1.21"
+#property version   "1.22"
 #property description "Gotobi (+ optional D1 mean reversion / carry) with staged risk for Titan FX MT5 (JPY, hedging account)."
 
 #include <Trade\Trade.mqh>
@@ -42,6 +42,7 @@ input double InpThrottleMult    = 0.5;
 input double InpHaltDDPct       = 6.0;       // equity DD from peak -> close all and stop (12x per-trade risk)
 input double InpDailyLossPct    = 3.0;       // equity loss within a server day -> no new entries that day
 input double InpMarginUsePct    = 50.0;
+input double InpTargetEquity    = 0.0;       // >0: when equity reaches this (JPY), close all and stop (10x challenge: 1000000)
 
 input group "=== Execution ==="
 input int    InpDeviationPts    = 20;
@@ -768,6 +769,15 @@ void UpdateAccountState()
    MqlDateTime t; TimeToStruct(Now(), t);
    double today = t.year * 10000.0 + t.mon * 100.0 + t.day;
    if(GvGet(g_gv_day, 0.0) != today) { GlobalVariableSet(g_gv_day, today); GlobalVariableSet(g_gv_daybal, eq); GvFlush(); }
+   if(GvGet(g_gv_halt, 0.0) == 0.0 && InpTargetEquity > 0.0 && eq >= InpTargetEquity)
+     {
+      GlobalVariableSet(g_gv_halt, 1.0);
+      GlobalVariableSet(g_gv_eqpeak, eq);
+      GvFlush();
+      Notify(StringFormat("TitanPortfolioEA: TARGET REACHED - equity %.0f >= %.0f. Closing all positions and stopping. "
+                          "Withdraw the profit before resuming (delete global variable %s).", eq, InpTargetEquity, g_gv_halt));
+      CloseAll("TARGET equity reached");
+     }
    if(GvGet(g_gv_halt, 0.0) == 0.0 && eq < epeak * (1.0 - InpHaltDDPct / 100.0))
      {
       GlobalVariableSet(g_gv_halt, 1.0);
@@ -1140,7 +1150,7 @@ bool LateInit()
    datetime now = Now();
    bool ok;
    datetime jst = ServerToJst(now, ok);
-   Log("INIT", "", StringFormat("v1.21 login=%I64d server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
+   Log("INIT", "", StringFormat("v1.22 login=%I64d server=%s rule=GMT+%d live=GMT+%d jst=%s gotobi_today=%d balance=%.0f books=%s%s%s",
        AccountInfoInteger(ACCOUNT_LOGIN), TimeToString(now), RuleOffset(now), LiveOffset(), TimeToString(jst),
        (int)IsGotobi(DayStart(jst)), AccountInfoDouble(ACCOUNT_BALANCE),
        InpGotobiOn ? "G" : "", InpMeanRevOn ? "M" : "", InpCarryOn ? "C" : ""));

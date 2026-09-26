@@ -25,14 +25,23 @@
 
   （手順は `docs/EA_MANUAL.md`）
 
+## 10万円 → 100万円 の短期チャレンジ（ハイレバ・全損許容）
+
+`docs/CHALLENGE_10X.md` を参照してください。
+* 同じ gotobi のルールで、1回のリスクを30〜100%に上げる設定です。プリセットは `mt5/presets/` にあります。
+* 100万円に達すると自動で全決済・停止します。
+* 10倍に届く確率は、期間とリスクに応じて約10〜20%です。ほぼ全損の確率は約10〜60%です。
+
 ## 構成
 
 ```
 fx_autotrader/
 ├── mt5/TitanPortfolioEA.mq5     MT5 用 EA（gotobi を本番、逆張りはデモ専用、キャリーは待機）
+├── mt5/presets/                 10倍チャレンジ用の設定ファイル
 ├── docs/
 │   ├── RESULTS.md               検証結果のまとめ（最終版）
 │   ├── STAGED_PLAN.md           50万→1億の段階計画・停止ルール・モンテカルロ
+│   ├── CHALLENGE_10X.md         10万→100万の短期チャレンジ（ハイレバ）
 │   ├── EA_MANUAL.md             EA の設定・テスター検証・デモ・日常運用
 │   ├── TITANFX_CONDITIONS.md    Titan FX の取引条件・規制・税金の調査
 │   └── RESEARCH_PROTOCOL.md     過剰最適化を防ぐ検証ルール

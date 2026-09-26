@@ -1,0 +1,16 @@
+; TitanPortfolioEA v1.22 - 10万円→100万円 challenge preset (gotobi, risk 100% per trade)
+; load: EA properties -> Inputs -> Load.  Account: Titan FX Zero Blade MT5, leverage 1:1000, JPY.
+InpGotobiOn=true
+InpMeanRevOn=false
+InpCarryOn=false
+InpStages=0:1.0
+InpMaxOpenRiskPct=100
+InpMaxPositions=1
+InpThrottleDDPct=100
+InpThrottleMult=1.0
+InpHaltDDPct=100
+InpDailyLossPct=100
+InpMarginUsePct=95
+InpTargetEquity=1000000
+InpGotobiMaxSpread=0.7
+InpGotobiRiskPct=100
