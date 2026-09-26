@@ -134,6 +134,8 @@ export function App(): ReactNode {
   }, []);
 
   if (state.status === 'loading') {
+    // A tab reloaded while hidden stays neutral until the camouflage notepad takes over: no brand, no app name.
+    if (readCamouflageFlag()) return <div className="app-boot" data-shell="loading" aria-busy="true" />;
     return (
       <div className="app-boot" data-shell="loading" role="status" aria-live="polite">
         <BrandMark size={36} />

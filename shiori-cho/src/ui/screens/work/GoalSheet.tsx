@@ -1,7 +1,7 @@
 // Goal sheet (sheet=g<n>, docs/SPEC.md §6, F6 AC3, F7 AC3–AC4, F8, F14): title or decrypted secret title,
 // teaser, description / unlock message, tiered hints (HoldToReveal, 答え needs a confirm), 合言葉,
 // 「合言葉なしで達成にする」, the goal's note and, for player-authored files, rename / delete.
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { setGoalDone, updatePlayerManifest } from '../../../app/library';
 import { markDoneWithoutCode } from '../../../app/unlock';
@@ -93,10 +93,13 @@ export function GoalSheet({ data, view, tolerance, preview, onClose, onEnterCode
       ui.toast('達成を取り消しました');
     });
 
+  /** tier just revealed by the player: focus moves to its text once it renders (the button it came from is gone) */
+  const focusTier = useRef<number | null>(null);
   const revealTier = (tier: number) =>
     run(async () => {
       if (tier < 1 || tier > 3) return;
       await repo.putHint({ workId, goalId, tier: tier as 1 | 2 | 3, updatedAt: Date.now() });
+      focusTier.current = tier;
     });
 
   const rename = async () => {
@@ -146,6 +149,12 @@ export function GoalSheet({ data, view, tolerance, preview, onClose, onEnterCode
 
   const hintCount = goal.hints.length;
   const tier = view.hintTier;
+  useEffect(() => {
+    const t = focusTier.current;
+    if (t === null || t > tier) return;
+    focusTier.current = null;
+    document.getElementById(`${hintsId}-t${t}`)?.focus({ preventScroll: false });
+  }, [tier, hintsId, busy]);
 
   return (
     <Sheet open title={title} onClose={onClose}>
@@ -249,7 +258,7 @@ export function GoalSheet({ data, view, tolerance, preview, onClose, onEnterCode
                 const name = hintTierName(n);
                 if (n <= tier) {
                   return (
-                    <li key={n} className="gs-hint is-open">
+                    <li key={n} id={`${hintsId}-t${n}`} className="gs-hint is-open" tabIndex={-1}>
                       <p className="gs-hint-head">
                         ヒント{n}（{name}）
                       </p>

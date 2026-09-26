@@ -136,6 +136,7 @@ export function useFocusTrap(
     const onFocusIn = (e: FocusEvent) => {
       if (!isTop()) return;
       const t = e.target;
+      if (t instanceof Element && t.hasAttribute('data-focus-trap-ignore')) return; // e.g. the clipboard fallback
       if (t instanceof Node && !root.contains(t)) root.focus({ preventScroll: true });
     };
     document.addEventListener('keydown', onKey);

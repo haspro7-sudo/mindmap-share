@@ -57,17 +57,26 @@ function copyWithTextarea(text: string): boolean {
   const ta = d.createElement('textarea');
   ta.value = text;
   ta.setAttribute('readonly', '');
+  // Modal layers (sheets, dialogs) trap focus and would pull it back from a textarea outside them before
+  // execCommand runs; the marker tells the trap to leave this one alone, and it is also placed inside the
+  // open layer when there is one.
+  ta.setAttribute('data-focus-trap-ignore', '');
   ta.style.position = 'fixed';
   ta.style.top = '0';
   ta.style.left = '0';
   ta.style.opacity = '0';
-  d.body.appendChild(ta);
+  const active = d.activeElement as (Element & { focus?: HTMLElement['focus'] }) | null | undefined;
+  const previous = active && typeof active.closest === 'function' ? active : null;
+  const host = previous?.closest('[role="dialog"],[role="alertdialog"]') ?? d.body;
+  host.appendChild(ta);
   try {
+    ta.focus?.({ preventScroll: true });
     ta.select();
     ta.setSelectionRange(0, text.length);
     return d.execCommand('copy');
   } finally {
     ta.remove();
+    previous?.focus?.({ preventScroll: true });
   }
 }
 

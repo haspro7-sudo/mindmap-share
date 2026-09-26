@@ -282,9 +282,40 @@ describe('mergeBackup: works', () => {
     const local = data({ works: [work(L, { manifestWorkId: 'demo-amaoto' }), work(W2, { manifestWorkId: MW })] });
     const incoming = data({ works: [work(L, { manifestWorkId: MW, updatedAt: T0 + 1 })], progress: [prog(L, 'g1')] });
     const { merged, stats } = mergeBackup(local, incoming);
-    expect(merged.works.map((w) => w.id)).toEqual([L, W2]);
+    // The incoming L matched the local L by id (not W2 by manifestWorkId). L now carries MW like W2, so the
+    // two are the same work and W2 is folded into L (see the next test) instead of being detached later.
+    expect(merged.works.map((w) => w.id)).toEqual([L]);
     expect(merged.progress).toEqual([prog(L, 'g1')]);
     expect(stats).toEqual({ ...ZERO, worksUpdated: 1, progressAdded: 1 });
+  });
+
+  it('folds two works that end up with the same manifestWorkId into one, keeping both sides’ records', () => {
+    // Device A: V imported the creator file from 作品を追加 (new work); W is 記録だけ.
+    // Device B: the same W got the file attached in place. Merging B into A matches W by id.
+    const V = '33333333-3333-4333-8333-333333333333';
+    const W = '44444444-4444-4444-8444-444444444444';
+    const local = data({
+      works: [work(V, { manifestKey: 'kV', manifestWorkId: MW }), work(W, { alias: '作品B' })],
+      manifests: [mrec('kV', V)],
+      progress: [prog(V, 'g1', { doneAt: T0 + 5 * MIN })],
+      sessions: [{ id: 's-v', workId: V, startedAt: T0, endedAt: T0 + MIN, minutes: 1 }],
+    });
+    const incoming = data({
+      works: [work(W, { alias: '作品B', manifestKey: 'kW', manifestWorkId: MW, updatedAt: T0 + 10 * MIN })],
+      manifests: [mrec('kW', W)],
+      progress: [prog(W, 'g1', { doneAt: T0 + 2 * MIN })],
+      notes: [{ id: 'n-w', workId: W, text: 'メモ', createdAt: T0, updatedAt: T0 }],
+    });
+    const { merged } = mergeBackup(local, incoming);
+    const withMw = merged.works.filter((w) => w.manifestWorkId === MW);
+    expect(withMw).toHaveLength(1);
+    const keeper = withMw[0]!.id;
+    expect(merged.works).toHaveLength(1);
+    // both sides' records now belong to the one work; progress merged (earliest doneAt)
+    expect(merged.progress).toEqual([prog(keeper, 'g1', { doneAt: T0 + 2 * MIN })]);
+    expect(merged.sessions.map((x) => x.workId)).toEqual([keeper]);
+    expect(merged.notes.map((x) => x.workId)).toEqual([keeper]);
+    expect(merged.manifests.every((m) => m.workId === keeper)).toBe(true);
   });
 });
 

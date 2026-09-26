@@ -119,9 +119,11 @@
 }
 .stu-crumb {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
   color: var(--muted);
   text-decoration: none;
-  padding: 2px 0;
 }
 .stu-crumb:hover {
   text-decoration: underline;

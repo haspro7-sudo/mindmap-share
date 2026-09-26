@@ -218,6 +218,20 @@ describe('normalizeBackupData', () => {
     expect(report.closedSessions).toBe(1);
   });
 
+  it('keeps work.lastPlayedAt in step with the ended sessions, including ones it ended', async () => {
+    const sessions: Session[] = [
+      { id: 'a', workId: 'w1', startedAt: T0 + 5 * MIN },
+      { id: 'b', workId: 'w1', startedAt: T0 + 9 * MIN },
+      { id: 'c', workId: 'w2', startedAt: T0 - MIN, endedAt: T0, minutes: 1 },
+    ];
+    const { data: out } = await normalizeBackupData(
+      data({ works: [work('w1'), work('w2', { lastPlayedAt: T0 + 60 * MIN })], sessions }),
+    );
+    // 'a' was ended at its own start → w1 was last played then; w2 keeps its later value
+    expect(out.works.find((w) => w.id === 'w1')?.lastPlayedAt).toBe(T0 + 5 * MIN);
+    expect(out.works.find((w) => w.id === 'w2')?.lastPlayedAt).toBe(T0 + 60 * MIN);
+  });
+
   it('is idempotent and never mutates its input', async () => {
     const edited = hoshiyomi();
     const d = deepFreeze(

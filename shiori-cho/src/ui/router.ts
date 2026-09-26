@@ -70,6 +70,20 @@ export function subscribeRouteChange(onChange: () => void): () => void {
   };
 }
 
+/**
+ * Like subscribeRouteChange, but tells the two kinds apart: `onUserNavigation` for history moves and links
+ * ('hashchange': Back, <a href>, navigate() without replace), `onAppReplace` for the app's own
+ * navigate(…, { replace: true }) (deep-link cleanup, redirects after an import), which is not the user leaving.
+ */
+export function subscribeRouteChangeKinds(onUserNavigation: () => void, onAppReplace: () => void): () => void {
+  window.addEventListener('hashchange', onUserNavigation);
+  window.addEventListener(ROUTE_EVENT, onAppReplace);
+  return () => {
+    window.removeEventListener('hashchange', onUserNavigation);
+    window.removeEventListener(ROUTE_EVENT, onAppReplace);
+  };
+}
+
 function getHash(): string {
   return window.location.hash;
 }

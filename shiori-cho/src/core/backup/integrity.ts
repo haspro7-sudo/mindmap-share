@@ -152,6 +152,18 @@ export async function normalizeBackupData(input: BackupDataV1): Promise<{ data: 
     });
   }
 
+  // work.lastPlayedAt follows the ended sessions (see app/sessions.ts), including sessions ended above or by a
+  // merge (closeExtraOpenSessions), so 本棚's 「N日前」 and 最近遊んだ順 agree with the 記録 tab.
+  const lastEnded = new Map<string, number>();
+  for (const s of sessions) {
+    if (typeof s.endedAt !== 'number') continue;
+    lastEnded.set(s.workId, Math.max(lastEnded.get(s.workId) ?? -Infinity, s.endedAt));
+  }
+  for (const w of works) {
+    const ended = lastEnded.get(w.id);
+    if (ended !== undefined && (w.lastPlayedAt === undefined || ended > w.lastPlayedAt)) w.lastPlayedAt = ended;
+  }
+
   const data: BackupDataV1 = {
     works,
     manifests,

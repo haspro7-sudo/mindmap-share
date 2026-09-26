@@ -91,8 +91,14 @@ describe('wipeAllData', () => {
     const otherGot = vi.fn();
     other.addEventListener('message', otherGot);
     await expect(wipeAllData({ studio: true })).rejects.toThrow('blocked');
-    expect(studio.deleteIdbStudioDatabase).not.toHaveBeenCalled();
     expect(otherGot).not.toHaveBeenCalled();
+  });
+
+  it('deletes the studio DB before the player DB, so a studio failure keeps the PIN and the lock screen', async () => {
+    vi.mocked(studio.deleteIdbStudioDatabase).mockRejectedValueOnce(new Error('studio blocked'));
+    await expect(wipeAllData({ studio: true })).rejects.toThrow('studio blocked');
+    // the player DB (PIN, age flag) was never touched
+    expect(idb.deleteIdbDatabase).not.toHaveBeenCalled();
   });
 
   it('clearAppSessionStorage tolerates an empty storage', () => {

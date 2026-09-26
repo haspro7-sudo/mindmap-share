@@ -272,6 +272,43 @@ function mergeWorks(local: readonly WorkRecord[], incoming: readonly WorkRecord[
   return { works, idMap, worksAdded, worksUpdated, worksRemapped };
 }
 
+/**
+ * After matching, two works can still share a manifestWorkId (e.g. a creator file attached to a 記録だけ work
+ * on one device and imported as a new work on the other). They are the same work: fold each duplicate into one
+ * keeper — the work holding the chosen manifest record, else the earliest in the list (local works first) —
+ * and return duplicate id → keeper id, so their progress, sessions, notes… are re-parented and merged by the
+ * usual rules instead of one work being detached (and its checklist hidden) by normalizeBackupData.
+ */
+function foldSameManifestWork(works: WorkRecord[], records: RecordsByKey): Map<string, string> {
+  const foldMap = new Map<string, string>();
+  const groups = new Map<string, number[]>();
+  works.forEach((w, i) => {
+    if (w.manifestWorkId === undefined) return;
+    const list = groups.get(w.manifestWorkId) ?? [];
+    list.push(i);
+    groups.set(w.manifestWorkId, list);
+  });
+  const drop = new Set<number>();
+  for (const indices of groups.values()) {
+    if (indices.length < 2) continue;
+    const keeperAt = indices.find((i) => currentRecord(works[i]!, records) !== undefined) ?? indices[0]!;
+    for (const i of indices) {
+      if (i === keeperAt) continue;
+      const keeper = works[keeperAt]!;
+      const dup = works[i]!;
+      works[keeperAt] = newerWork(keeper, { ...dup, id: keeper.id }, records).work;
+      foldMap.set(dup.id, keeper.id);
+      drop.add(i);
+    }
+  }
+  if (drop.size > 0) {
+    const kept = works.filter((_, i) => !drop.has(i));
+    works.length = 0;
+    works.push(...kept);
+  }
+  return foldMap;
+}
+
 function remapWorkIds<T extends { workId: string }>(records: readonly T[], idMap: ReadonlyMap<string, string>): T[] {
   if (idMap.size === 0) return [...records];
   return records.map((r) => {
@@ -301,21 +338,23 @@ export function mergeBackup(local: BackupDataV1, incoming: BackupDataV1): { merg
   const recordsByKey = new Map<string, ManifestRecord>();
   for (const r of [...local.manifests, ...incoming.manifests]) if (!recordsByKey.has(r.key)) recordsByKey.set(r.key, r);
   const w = mergeWorks(local.works, incoming.works, recordsByKey);
-  const remap = <T extends { workId: string }>(records: readonly T[]): T[] => remapWorkIds(records, w.idMap);
+  const foldMap = foldSameManifestWork(w.works, recordsByKey);
+  const fold = <T extends { workId: string }>(records: readonly T[]): T[] => remapWorkIds(records, foldMap);
+  const remap = <T extends { workId: string }>(records: readonly T[]): T[] => fold(remapWorkIds(records, w.idMap));
 
-  const manifests = unionBy(local.manifests, remap(incoming.manifests), (m) => m.key, (current) => current);
-  const progress = unionBy(local.progress, remap(incoming.progress), (p) => pairKey(p.workId, p.goalId), mergeProgress);
+  const manifests = unionBy(fold(local.manifests), remap(incoming.manifests), (m) => m.key, (current) => current);
+  const progress = unionBy(fold(local.progress), remap(incoming.progress), (p) => pairKey(p.workId, p.goalId), mergeProgress);
   const redemptions = unionBy(
-    local.redemptions,
+    fold(local.redemptions),
     remap(incoming.redemptions).map(withoutMaster),
     (r) => pairKey(r.workId, r.goalId),
     earlierRedemption,
   );
-  const hints = unionBy(local.hints, remap(incoming.hints), (h) => pairKey(h.workId, h.goalId), higherHint);
-  const sessions = unionBy(local.sessions, remap(incoming.sessions), (s) => s.id, preferredSession);
-  const notes = unionBy(local.notes, remap(incoming.notes), (n) => n.id, newerNote);
+  const hints = unionBy(fold(local.hints), remap(incoming.hints), (h) => pairKey(h.workId, h.goalId), higherHint);
+  const sessions = unionBy(fold(local.sessions), remap(incoming.sessions), (s) => s.id, preferredSession);
+  const notes = unionBy(fold(local.notes), remap(incoming.notes), (n) => n.id, newerNote);
   const sealedOpens = unionBy(
-    local.sealedOpens,
+    fold(local.sealedOpens),
     remap(incoming.sealedOpens),
     (o) => pairKey(o.workId, o.sealedId),
     mergeSealedOpen,

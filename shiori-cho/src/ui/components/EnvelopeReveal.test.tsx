@@ -6,6 +6,7 @@ import { submitCode } from '../../app/unlock';
 import { createMemoryRepo } from '../../storage/memoryRepo';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { useUi } from '../context';
+import { navigate } from '../router';
 import { ENVELOPE_MS, ENVELOPE_REDUCED_MS, EnvelopeReveal } from './EnvelopeReveal';
 
 function mockReducedMotion(reduce: boolean) {
@@ -154,6 +155,25 @@ describe('UiProvider envelope queue', () => {
     const reader = await screen.findByRole('dialog', { name: 'おまけが届きました' }, { timeout: 3000 });
     await user.click(within(reader).getByRole('button', { name: '隠す' }));
     expect(onHide).toHaveBeenCalledTimes(2);
+  });
+
+  it('follows the app’s own redirect (import → work page) instead of dropping the envelope', async () => {
+    mockReducedMotion(false);
+    window.location.hash = '#/add';
+    const { repo, items } = await openedLetter();
+    const { user } = renderWithProviders(<Opener items={items} />, { repo });
+    await user.click(screen.getByRole('button', { name: '開封' }));
+    expect(await screen.findByTestId('envelope-reveal')).toBeTruthy();
+    // ImportPreview queues the envelopes, then redirects with navigate(work, { replace: true })
+    act(() => navigate('#/w/imported', { replace: true }));
+    expect(screen.getByTestId('envelope-reveal')).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: 'おまけが届きました' }, { timeout: 3000 })).toBeTruthy();
+    // a real navigation away from the new page still closes it
+    act(() => {
+      window.location.hash = '#/settings';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'おまけが届きました' })).toBeNull());
   });
 
   it('a route change during the animation closes it and keeps the item unseen (it replays later)', async () => {

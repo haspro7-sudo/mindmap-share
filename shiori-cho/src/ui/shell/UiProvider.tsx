@@ -40,7 +40,7 @@ import { SealedReader } from '../components/SealedReader';
 import { Sheet } from '../components/Sheet';
 import { UiContext, useRepo, useRepoQuery } from '../context';
 import type { ConfirmOptions, PromptOptions, ToastOptions, UiApi } from '../context';
-import { subscribeRouteChange } from '../router';
+import { subscribeRouteChange, subscribeRouteChangeKinds } from '../router';
 import './UiProvider.css';
 
 export interface UiProviderProps {
@@ -453,8 +453,8 @@ function EnvelopeHost({
 }): ReactNode {
   const repo = useRepo();
   const [phase, setPhase] = useState<'anim' | 'reader'>('anim');
-  /** the route the envelope opened on */
-  const [startHash] = useState(currentHash);
+  /** the route the envelope belongs to (re-anchored when the app itself redirects, see below) */
+  const startHash = useRef(currentHash());
   const phaseRef = useLatest(phase);
   const info = useRepoQuery(
     async (r) => {
@@ -489,16 +489,21 @@ function EnvelopeHost({
     void markSeen();
   };
 
-  // Back / a link while the envelope is up: close it instead of leaving it over another page.
+  // Back / a link while the envelope is up: close it instead of leaving it over another page. The app's own
+  // replace navigations (e.g. ImportPreview redirecting to the imported work right after queueing the
+  // envelopes of redeemed pending codes) are not the user leaving: the envelope follows them.
   useEffect(() => {
-    const check = () => {
-      if (currentHash() === startHash) return;
+    const leaveIfMoved = () => {
+      if (currentHash() === startHash.current) return;
       if (phaseRef.current === 'reader') void markSeenRef.current();
       onLeave();
     };
-    check();
-    return subscribeRouteChange(check);
-  }, [startHash, onLeave, phaseRef, markSeenRef]);
+    const followAppRedirect = () => {
+      startHash.current = currentHash();
+    };
+    leaveIfMoved();
+    return subscribeRouteChangeKinds(leaveIfMoved, followAppRedirect);
+  }, [onLeave, phaseRef, markSeenRef]);
 
   if (phase === 'anim') {
     return <EnvelopeReveal kind={info.data?.kind} label={info.data?.label} onDone={() => setPhase('reader')} onHide={onHide} />;

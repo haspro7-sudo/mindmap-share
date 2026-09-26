@@ -159,9 +159,24 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
     store: useId(),
     storeHint: useId(),
     spoilerHint: useId(),
+    titleErr: useId(),
+    customEmoji: useId(),
+    emojiErr: useId(),
   };
   const [baseline, setBaseline] = useState(() => draftOf(work));
   const [draft, setDraft] = useState(() => draftOf(work));
+  // The record can change while this form is open (e.g. attaching a file fills in the store code). Fields the
+  // user has not touched follow the record; fields being edited keep the user's value.
+  const [seenUpdatedAt, setSeenUpdatedAt] = useState(work.updatedAt);
+  if (seenUpdatedAt !== work.updatedAt) {
+    setSeenUpdatedAt(work.updatedAt);
+    const fresh = draftOf(work);
+    const keys = Object.keys(fresh) as (keyof Draft)[];
+    const nextDraft = { ...draft } as Record<keyof Draft, Draft[keyof Draft]>;
+    for (const k of keys) if (draft[k] === baseline[k]) nextDraft[k] = fresh[k];
+    setBaseline(fresh);
+    setDraft(nextDraft as Draft);
+  }
   const [errors, setErrors] = useState<DraftErrors>({});
   const [titleShown, setTitleShown] = useState(false);
   const [customEmoji, setCustomEmoji] = useState(() => (COVER_EMOJIS.includes(work.coverEmoji) ? '' : work.coverEmoji));
@@ -204,6 +219,17 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
     setErrors(v.errors);
     if (Object.keys(v.errors).length > 0) {
       if (v.errors.title && !showTitle) setTitleShown(true);
+      // Move focus to the first invalid field (after the title field is shown, if it was hidden).
+      const firstInvalid = v.errors.alias
+        ? ids.alias
+        : v.errors.title
+          ? ids.title
+          : v.errors.storeCode
+            ? ids.store
+            : v.errors.coverEmoji
+              ? ids.customEmoji
+              : null;
+      if (firstInvalid) setTimeout(() => document.getElementById(firstInvalid)?.focus(), 0);
       ui.toast('入力内容を確かめてください', { tone: 'danger' });
       return;
     }
@@ -216,19 +242,21 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
         coverEmoji: v.emoji,
         storeCode: v.storeCode ?? '',
       };
+      // Write only what the user changed here, so changes made elsewhere meanwhile are never overwritten.
+      const changed = (k: keyof Draft) => saved[k] !== baseline[k];
       await patchWork(repo, work.id, (w) => {
-        const next: WorkRecord = {
-          ...w,
-          alias: saved.alias,
-          title: saved.title,
-          coverEmoji: saved.coverEmoji,
-          coverColor: saved.coverColor,
-          status: saved.status,
-          kind: saved.kind,
-          spoilerTolerance: saved.spoilerTolerance,
-        };
-        if (v.storeCode !== undefined) next.storeCode = v.storeCode;
-        else delete next.storeCode;
+        const next: WorkRecord = { ...w };
+        if (changed('alias')) next.alias = saved.alias;
+        if (changed('title')) next.title = saved.title;
+        if (changed('coverEmoji')) next.coverEmoji = saved.coverEmoji;
+        if (changed('coverColor')) next.coverColor = saved.coverColor;
+        if (changed('status')) next.status = saved.status;
+        if (changed('kind')) next.kind = saved.kind;
+        if (changed('spoilerTolerance')) next.spoilerTolerance = saved.spoilerTolerance;
+        if (changed('storeCode')) {
+          if (v.storeCode !== undefined) next.storeCode = v.storeCode;
+          else delete next.storeCode;
+        }
         return next;
       });
       setDraft(saved);
@@ -305,7 +333,7 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
               aria-invalid={errors.alias ? true : undefined}
               onChange={(e) => set({ alias: e.target.value })}
             />
-            <p id={ids.aliasHint} className={errors.alias ? 'field-error' : 'field-hint'}>
+            <p id={ids.aliasHint} className={errors.alias ? 'field-error' : 'field-hint'} role={errors.alias ? 'alert' : undefined}>
               {errors.alias ?? 'おしのびモードでは、本棚や作品ページにこの名前だけが表示されます'}
             </p>
           </div>
@@ -321,10 +349,13 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
                   value={draft.title}
                   maxLength={WORK_TITLE_MAX}
                   aria-invalid={errors.title ? true : undefined}
+                  aria-describedby={errors.title ? ids.titleErr : undefined}
                   onChange={(e) => set({ title: e.target.value })}
                 />
                 {errors.title ? (
-                  <p className="field-error">{errors.title}</p>
+                  <p id={ids.titleErr} className="field-error" role="alert">
+                    {errors.title}
+                  </p>
                 ) : aliasOnly ? (
                   <p className="field-hint">この画面を離れると、また隠れます</p>
                 ) : null}
@@ -368,11 +399,13 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
             <label className="we-custom-emoji">
               <span className="small">ほかの絵文字</span>
               <input
+                id={ids.customEmoji}
                 className="input"
                 type="text"
                 value={customEmoji}
                 placeholder="例：🎮"
                 aria-invalid={errors.coverEmoji ? true : undefined}
+                aria-describedby={errors.coverEmoji ? ids.emojiErr : undefined}
                 onChange={(e) => {
                   const v = e.target.value;
                   setCustomEmoji(v);
@@ -380,7 +413,11 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
                 }}
               />
             </label>
-            {errors.coverEmoji ? <p className="field-error">{errors.coverEmoji}</p> : null}
+            {errors.coverEmoji ? (
+              <p id={ids.emojiErr} className="field-error" role="alert">
+                {errors.coverEmoji}
+              </p>
+            ) : null}
           </fieldset>
 
           <fieldset className="we-fieldset">
@@ -449,7 +486,7 @@ function WorkEditForm({ work, record }: { work: WorkRecord; record?: ManifestRec
               aria-invalid={errors.storeCode ? true : undefined}
               onChange={(e) => set({ storeCode: e.target.value })}
             />
-            <p id={ids.storeHint} className={errors.storeCode ? 'field-error' : 'field-hint'}>
+            <p id={ids.storeHint} className={errors.storeCode ? 'field-error' : 'field-hint'} role={errors.storeCode ? 'alert' : undefined}>
               {errors.storeCode ??
                 (settings.discreet.hideStoreLinks
                   ? 'おしのびモードのため、ストアへのリンクは隠しています（設定で変えられます）'

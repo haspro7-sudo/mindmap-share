@@ -67,8 +67,11 @@ export function clearAppSessionStorage(): void {
 }
 
 export async function wipeAllData(opts: WipeOptions): Promise<void> {
-  await deleteIdbDatabase(DB_PLAYER);
+  // Studio first, player last: the player DB holds the PIN and the age flag, so if deleting the studio DB
+  // fails, the lock screen (and its error message) stays up instead of the app falling back to fresh
+  // settings while the studio's secrets are still readable.
   if (opts.studio) await deleteIdbStudioDatabase(DB_STUDIO);
+  await deleteIdbDatabase(DB_PLAYER);
   clearAppSessionStorage();
   const message: WipedMessage = { type: 'wiped', studio: opts.studio };
   try {

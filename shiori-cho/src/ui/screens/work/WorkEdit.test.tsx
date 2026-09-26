@@ -26,6 +26,33 @@ describe('WorkEditScreen (作品設定)', () => {
     expect(screen.getByLabelText('本当のタイトル')).toHaveProperty('value', 'ひみつの題名');
   });
 
+  it('saving an edit keeps fields changed elsewhere meanwhile (e.g. a store code filled in by attaching a file)', async () => {
+    const repo = createMemoryRepo();
+    const work = await createWork(repo, { title: 'テスト', kind: 'game' });
+    const { user } = renderWithProviders(<WorkEditScreen workId={work.id} />, { repo });
+    const alias = await screen.findByLabelText('表示名');
+    // another flow updates the record while the form is open
+    const current = (await repo.getWork(work.id))!;
+    await repo.putWork({ ...current, storeCode: 'RJ01234567', updatedAt: current.updatedAt + 1 });
+    await waitFor(() => expect(screen.getByLabelText('作品コード（任意）')).toHaveProperty('value', 'RJ01234567'));
+    await user.clear(alias);
+    await user.type(alias, 'べつの名前');
+    await user.click(screen.getByRole('button', { name: '変更を保存する' }));
+    await waitFor(async () => expect((await repo.getWork(work.id))?.alias).toBe('べつの名前'));
+    expect((await repo.getWork(work.id))?.storeCode).toBe('RJ01234567');
+  });
+
+  it('moves focus to the first invalid field and announces the error', async () => {
+    const repo = createMemoryRepo();
+    const work = await createWork(repo, { title: 'テスト', kind: 'game' });
+    const { user } = renderWithProviders(<WorkEditScreen workId={work.id} />, { repo });
+    const alias = await screen.findByLabelText('表示名');
+    await user.clear(alias);
+    await user.click(screen.getByRole('button', { name: '変更を保存する' }));
+    expect((await screen.findAllByRole('alert')).some((el) => el.textContent === '表示名を入力してください')).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(alias));
+  });
+
   it('validates and normalizes the store code, and saves the other fields', async () => {
     const repo = createMemoryRepo();
     const work = await createWork(repo, { title: 'テスト', kind: 'game' });
