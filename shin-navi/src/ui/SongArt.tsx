@@ -41,14 +41,20 @@ function SongArtImpl({ seed, energy = 0.5, pattern, animate = true, className, c
           <stop offset="0%" stopColor={p.b} stopOpacity="0.9" />
           <stop offset="100%" stopColor={p.a} stopOpacity="0.2" />
         </linearGradient>
-        <filter id={`${uid}-blur`} x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="18" />
-        </filter>
+        {/* Soft glows as radial gradients: no SVG filters, so animation stays cheap on phones. */}
+        <radialGradient id={`${uid}-ga`}>
+          <stop offset="0%" stopColor={p.a} stopOpacity="0.7" />
+          <stop offset="100%" stopColor={p.a} stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={`${uid}-gb`}>
+          <stop offset="0%" stopColor={p.b} stopOpacity="0.65" />
+          <stop offset="100%" stopColor={p.b} stopOpacity="0" />
+        </radialGradient>
       </defs>
       <rect width="400" height="400" fill={`url(#${uid}-bg)`} />
-      <g className="art-glow" filter={`url(#${uid}-blur)`}>
-        <circle cx="110" cy="100" r="95" fill={p.a} opacity="0.6" />
-        <circle cx="310" cy="310" r="120" fill={p.b} opacity="0.55" />
+      <g className="art-glow">
+        <circle cx="110" cy="100" r="170" fill={`url(#${uid}-ga)`} />
+        <circle cx="310" cy="310" r="200" fill={`url(#${uid}-gb)`} />
       </g>
       <g className={`art-layer art-${kind}`}>
         {shapes.map((s, i) => (

@@ -5,6 +5,25 @@ type Speck = { x: number; y: number; r: number; a: number; vx: number; vy: numbe
 
 const DPR = () => Math.min(2, window.devicePixelRatio || 1)
 
+// Soft glow dots are pre-rendered once per colour and reused with drawImage.
+const spriteCache = new Map<string, HTMLCanvasElement>()
+export function glowSprite(color: string, px = 64): HTMLCanvasElement {
+  const key = color + '|' + px
+  const hit = spriteCache.get(key)
+  if (hit) return hit
+  const c = document.createElement('canvas')
+  c.width = c.height = px
+  const g = c.getContext('2d')!
+  const grad = g.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2)
+  grad.addColorStop(0, color)
+  grad.addColorStop(0.25, color)
+  grad.addColorStop(1, 'rgba(0,0,0,0)')
+  g.fillStyle = grad
+  g.fillRect(0, 0, px, px)
+  spriteCache.set(key, c)
+  return c
+}
+
 /**
  * Slowly orbiting light specks, like a mirror ball throwing light on the walls.
  * `level` (0..1) controls how many specks and how bright.
@@ -67,14 +86,9 @@ export function LightField({ colors, level = 0.5, className }: { colors: string[
         s.a = Math.min(1, s.a + 0.02 * dt)
         if (s.x < -20 || s.x > w + 20 || s.y < -20 || s.y > h + 20) Object.assign(s, spawn())
         const alpha = s.a * (0.35 + 0.65 * Math.abs(Math.sin(s.tw))) * (0.5 + levelRef.current * 0.5)
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 5)
-        g.addColorStop(0, s.hue)
-        g.addColorStop(1, 'transparent')
+        const size = s.r * 10
         ctx.globalAlpha = alpha
-        ctx.fillStyle = g
-        ctx.beginPath()
-        ctx.arc(s.x, s.y, s.r * 5, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.drawImage(glowSprite(s.hue), s.x - size / 2, s.y - size / 2, size, size)
       }
       ctx.globalAlpha = 1
       raf = requestAnimationFrame(loop)
