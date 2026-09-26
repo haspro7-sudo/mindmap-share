@@ -1,0 +1,221 @@
+/* 作品設定 (#/w/<id>/edit). Prefix: we-. */
+
+.we-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+.we-head-text {
+  min-width: 0;
+}
+.we-title {
+  margin: 0;
+}
+.we-sub {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.we-form {
+  margin-bottom: 16px;
+}
+.we-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.we-fieldset > legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+.we-hidden-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.we-hidden-title .btn {
+  min-height: var(--tap);
+}
+
+/* radio tiles: the native radio is kept for keyboard/AT and visually hidden */
+.we-radio {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+.we-emojis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+}
+.we-emoji {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: var(--tap);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.we-emoji.is-selected,
+.we-color.is-selected,
+.we-level.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+  background: var(--accent-soft);
+}
+.we-emoji:has(.we-radio:focus-visible),
+.we-color:has(.we-radio:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.we-custom-emoji {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.we-custom-emoji .small {
+  flex: none;
+}
+.we-custom-emoji .input {
+  max-width: 140px;
+}
+.we-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+.we-color {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.we-swatch {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.we-color-name {
+  min-width: 0;
+  white-space: nowrap;
+}
+.we-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.we-explain {
+  margin: 0 0 4px;
+}
+.we-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.we-level {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+.we-level input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.we-savebar {
+  position: sticky;
+  bottom: calc(var(--app-bottom-offset, env(safe-area-inset-bottom)) + 10px);
+  z-index: 15;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.we-section-title {
+  font-size: 1rem;
+  margin: 0;
+}
+.we-info {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.we-info > div {
+  display: grid;
+  grid-template-columns: 6em minmax(0, 1fr);
+  gap: 8px;
+}
+.we-info dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.we-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.we-manifest p,
+.we-danger p {
+  margin: 0;
+}
+.we-changelog > summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.we-changelog ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.we-changelog-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.we-manifest {
+  margin-bottom: 16px;
+}
+.we-danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}

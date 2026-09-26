@@ -1,0 +1,647 @@
+/* 作品ページ (#/w/<id>): header, tabs content, goal sheet and the sticky session bar. Prefixes: wk-, gs-. */
+
+.wk-loading {
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* ───────── header ───────── */
+.wk-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.wk-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.wk-title {
+  margin: 0;
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+.wk-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+.wk-status.is-playing {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wk-status.is-cleared,
+.wk-status.is-completed {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.wk-status.is-paused {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.wk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.wk-actions .btn {
+  min-height: var(--tap);
+}
+.wk-panel {
+  padding-top: 16px;
+}
+.wk-card-title {
+  font-size: 1rem;
+  margin: 0 0 6px;
+}
+
+/* ───────── resume card ───────── */
+.wk-resume {
+  border-left: 4px solid var(--accent);
+}
+.wk-resume-title {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+.wk-resume-list {
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wk-resume-list > div,
+.wk-session-notes > div {
+  display: grid;
+  grid-template-columns: 6.5em minmax(0, 1fr);
+  gap: 8px;
+}
+.wk-resume-list dt,
+.wk-session-notes dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.wk-resume-list dd,
+.wk-session-notes dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.wk-resume-list:empty {
+  display: none;
+}
+
+/* ───────── missable alerts ───────── */
+.wk-alert {
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.wk-alert-title {
+  font-size: 1rem;
+  margin: 0 0 6px;
+}
+.wk-alert-list,
+.wk-ahead-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wk-alert-item p,
+.wk-ahead-list p {
+  margin: 0 0 4px;
+}
+.wk-alert-where {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.wk-ahead {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 14px;
+}
+.wk-ahead > summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+.wk-ahead[open] > summary {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.wk-ahead[open] {
+  padding-bottom: 12px;
+}
+
+/* ───────── overall ───────── */
+.wk-overall {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.wk-overall-groups {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wk-overall-groups p {
+  margin: 0;
+}
+.wk-complete {
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.wk-complete-title {
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+/* ───────── goal groups ───────── */
+.wk-group-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 1rem;
+  margin: 8px 0 6px;
+}
+.wk-group-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wk-group-count {
+  flex: none;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.wk-group-empty {
+  margin: 0;
+}
+.wk-goals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wk-goal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 56px;
+  padding: 6px 0 6px 4px;
+}
+.wk-goal + .wk-goal {
+  border-top: 1px solid var(--border);
+}
+.wk-goal-check {
+  flex: none;
+  display: flex;
+}
+.wk-check {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--surface);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.wk-check::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.wk-check.is-on::before {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.wk-check > svg {
+  position: relative;
+}
+.wk-check.is-static {
+  cursor: default;
+}
+.wk-check.is-static:not(.is-on)::before {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+button.wk-check:hover::before {
+  border-color: var(--accent);
+}
+.wk-goal-main {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+}
+.wk-goal-title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.wk-goal.is-done .wk-goal-title {
+  color: var(--ink-2);
+}
+.wk-lock {
+  margin-right: 4px;
+}
+.wk-goal .spt-btn,
+.wk-x .spt-btn {
+  position: relative;
+  z-index: 1;
+}
+.wk-goal .spt-btn {
+  font-weight: 400;
+}
+.wk-goal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.wk-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+}
+.wk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+}
+.wk-dot.is-on {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.wk-goal-open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  min-height: var(--tap);
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wk-goal-open::after,
+.wk-x-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.wk-goal-open:focus-visible,
+.wk-x-open:focus-visible {
+  outline: none;
+}
+.wk-goal-open:focus-visible::after,
+.wk-x-open:focus-visible::after {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.wk-goal:hover {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+.wk-add-goal {
+  margin-top: 6px;
+  min-height: var(--tap);
+}
+.wk-nomanifest p {
+  margin-bottom: 10px;
+}
+
+/* ───────── extras ───────── */
+.wk-extras {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wk-x {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.wk-x.is-open {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.wk-x-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 26px;
+  line-height: 1;
+}
+.wk-x.is-open .wk-x-icon {
+  background: var(--accent-soft);
+}
+.wk-x-main {
+  flex: 1;
+  min-width: 0;
+}
+.wk-x-label {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+.wk-x-kind {
+  margin: 0 0 4px;
+}
+.wk-x-teaser {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.wk-x-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wk-x-cond {
+  font-variant-numeric: tabular-nums;
+}
+.wk-x-open {
+  flex: none;
+  align-self: center;
+  min-height: var(--tap);
+}
+
+/* ───────── log ───────── */
+.wk-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+.wk-stats dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.wk-stats dd {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.wk-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wk-session-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wk-session-date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.wk-session-min {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.wk-session-notes {
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wk-session-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wk-session-actions .btn,
+.wk-note-actions .btn,
+.wk-note-form-foot .btn {
+  min-height: var(--tap);
+}
+.wk-danger-text {
+  color: var(--danger);
+}
+
+/* ───────── notes ───────── */
+.wk-notes-help {
+  margin: 0;
+}
+.wk-notes-empty {
+  padding: 16px 0;
+}
+.wk-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wk-note-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wk-note-text {
+  margin: 6px 0;
+}
+.wk-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wk-note-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wk-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* ───────── session bar ───────── */
+.wk-sessionbar {
+  position: sticky;
+  bottom: calc(var(--app-bottom-offset, env(safe-area-inset-bottom)) + 10px);
+  z-index: 15;
+  margin-top: 24px;
+}
+.wk-sessionbar-inner {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+.wk-sb-btn {
+  min-height: 48px;
+  font-size: 1rem;
+}
+.wk-sb-end {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.wk-sb-timer {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.wk-sb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: wk-pulse 1.6s ease-in-out infinite;
+}
+.wk-sb-other {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 4px 6px;
+  color: var(--ink-2);
+}
+.wk-sb-other a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+@keyframes wk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ───────── goal sheet ───────── */
+.gs p {
+  margin: 0;
+}
+.gs-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gs-teaser {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.gs-desc {
+  line-height: 1.75;
+}
+.gs-message {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.gs-sub {
+  font-size: 0.95rem;
+  margin: 0 0 8px;
+}
+.gs-hints,
+.gs-notebox,
+.gs-player {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.gs-hint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gs-hint.is-open {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.gs-hint-head {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.gs-hint-text {
+  overflow-wrap: anywhere;
+}
+.gs-hint .field-hint {
+  margin-top: 2px;
+}
+.gs-more[hidden] {
+  display: none;
+}
+.gs-more {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.gs-note {
+  margin: 0;
+}
+.gs-player .row-wrap {
+  margin-top: 6px;
+}
