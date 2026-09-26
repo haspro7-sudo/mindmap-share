@@ -1,0 +1,65 @@
+.ci {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ci-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.ci-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 8px 10px;
+}
+.ci-input::placeholder {
+  /* the format hint is text: ≥ 4.5:1 (--muted); the lighter weight tells it apart from a typed code */
+  color: var(--muted);
+  opacity: 1;
+  font-weight: 400;
+}
+.ci-input.is-ok {
+  border-color: var(--ok);
+}
+.ci-input.is-error {
+  border-color: var(--danger);
+}
+.ci-paste {
+  flex: none;
+  min-height: 56px;
+  padding: 0 12px;
+}
+.ci-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+  margin: 0;
+  min-height: 1.6em;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.ci-feedback.is-ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+.ci-feedback.is-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+.ci-mark {
+  margin-right: -4px;
+}
+.ci-display {
+  color: var(--ink-2);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}

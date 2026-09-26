@@ -1,0 +1,169 @@
+/* しおりファイルの確認 (ImportPreview) */
+.ip-lead {
+  margin: 0;
+}
+.ip-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ip-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ip-title-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.ip-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ip-alias,
+.ip-real {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ip-reveal {
+  margin-left: -12px;
+  min-height: var(--tap);
+  color: var(--accent);
+  font-weight: 600;
+}
+.ip-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.ip-meta > div {
+  display: grid;
+  grid-template-columns: 6em minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.ip-meta dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ip-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ip-nowrap {
+  white-space: nowrap;
+}
+.ip-version {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+.ip-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ip-claim-line {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ip-claim-note {
+  margin: 0;
+}
+
+.ip-update {
+  align-items: flex-start;
+}
+.ip-update-line {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ip-note {
+  margin: 0;
+}
+
+.ip-warnings {
+  align-items: flex-start;
+}
+.ip-warnings-body {
+  flex: 1;
+  min-width: 0;
+}
+.ip-warn-title {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--warn);
+}
+
+.ip-issues-card {
+  padding: 4px 14px;
+}
+.ip-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ip-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.ip-issue:last-child {
+  border-bottom: 0;
+}
+.ip-issues.is-warn .ip-issue {
+  padding: 4px 0;
+  border-bottom-color: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+.ip-issue-path {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ip-issue-msg {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.ip-more {
+  margin: 0;
+  padding: 6px 0 8px;
+}
+
+.ip-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ip-actions .btn {
+  min-width: 7.5em;
+}
+@media (max-width: 420px) {
+  .ip-actions .btn {
+    flex: 1;
+  }
+}

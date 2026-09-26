@@ -1,0 +1,868 @@
+/* サークル工房 (StudioList, StudioProject + tabs/*, Preview). Class prefix: stu- */
+
+.stu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stu > * {
+  min-width: 0;
+}
+.stu-title {
+  margin: 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.stu-h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.stu-h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+.stu-h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.stu-secret {
+  align-items: flex-start;
+}
+.stu-secret > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stu-secret-sub {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+.stu-note {
+  align-items: flex-start;
+}
+
+/* ───────── list screen ───────── */
+.stu-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stu-list-actions .btn {
+  flex: 1 1 auto;
+}
+.stu-import-errors {
+  align-items: flex-start;
+}
+.stu-import-errors ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+}
+.stu-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stu-project {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  overflow: hidden;
+}
+.stu-project-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 14px 0;
+  color: inherit;
+  text-decoration: none;
+  min-height: var(--tap);
+}
+.stu-project-link:hover .stu-project-title {
+  text-decoration: underline;
+}
+.stu-project-link:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+.stu-project-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.stu-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 0;
+}
+.stu-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+.stu-project-actions .btn-sm {
+  min-height: var(--tap);
+}
+
+/* ───────── editor header ───────── */
+.stu-proj-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stu-crumb {
+  align-self: flex-start;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 2px 0;
+}
+.stu-crumb:hover {
+  text-decoration: underline;
+}
+.stu-proj-titlerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.stu-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.stu-save.is-saved {
+  color: var(--ok);
+}
+.stu-save.is-error,
+.stu-save.is-conflict {
+  color: var(--danger);
+}
+.stu-save-retry {
+  min-height: var(--tap);
+  color: var(--danger);
+}
+.stu-conflict p {
+  margin: 0;
+}
+.stu-panel {
+  min-width: 0;
+}
+.stu-tab {
+  padding-top: 4px;
+}
+
+/* ───────── fields ───────── */
+.stu-field {
+  min-width: 0;
+}
+.stu-field-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.stu-field-head > label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.stu-req {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.stu-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.stu-count.is-near {
+  color: var(--warn);
+}
+.stu-vis {
+  gap: 2px;
+}
+.stu-field-warn {
+  font-size: 0.85rem;
+  color: var(--warn);
+  margin: 0;
+}
+.stu-field .field-hint,
+.stu-field .field-error {
+  margin: 0;
+}
+.stu-field .input[aria-invalid='true'],
+.stu-field .textarea[aria-invalid='true'],
+.stu-field .select[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.stu-field-compact {
+  max-width: 100%;
+}
+.stu-id-input {
+  font-size: 0.95rem;
+}
+.stu-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 560px) {
+  .stu-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.stu-adv {
+  padding: 0;
+}
+.stu-adv-summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.stu-adv-summary::-webkit-details-marker {
+  display: none;
+}
+.stu-adv-summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 1.2em;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+details[open] > .stu-adv-summary::before {
+  transform: rotate(90deg);
+}
+.stu-adv-body {
+  padding: 0 14px 14px;
+}
+
+/* ───────── ordered item lists (章・グループ・更新履歴) ───────── */
+.stu-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.stu-item-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+@media (min-width: 560px) {
+  .stu-item-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.stu-item-idrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.stu-item-idrow > .stu-field {
+  flex: 1;
+  min-width: 0;
+}
+.stu-item-idrow > .stu-tools {
+  flex: none;
+  /* line up with the input: label line (0.9rem × 1.6) + the field gap */
+  margin-top: calc(0.9rem * 1.6 + 4px);
+}
+.stu-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.stu-tool {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.stu-tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.stu-tool-danger {
+  color: var(--danger);
+}
+
+/* ───────── goal / extra rows ───────── */
+.stu-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.stu-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.stu-row-main:hover .stu-row-title {
+  text-decoration: underline;
+}
+.stu-row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.stu-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.stu-row-code {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.stu-row .stu-tools {
+  flex-direction: column;
+  gap: 6px;
+}
+/* F18 AC3: every tap target is at least 44 px, with room between the stacked ↑ / ↓ buttons. */
+.stu-row .stu-tool {
+  min-height: var(--tap);
+  min-width: var(--tap);
+}
+
+/* ───────── forms ───────── */
+.stu-form-head {
+  margin-bottom: -4px;
+}
+.stu-back {
+  padding-left: 4px;
+  min-height: var(--tap);
+}
+.stu-form-title {
+  overflow-wrap: anywhere;
+}
+.stu-form-title:focus {
+  outline: none;
+}
+.stu-form-title:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.stu-form-foot {
+  align-items: center;
+}
+.stu-issues {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+.stu-issues.is-error {
+  background: var(--danger-soft);
+}
+.stu-issues.is-warning {
+  background: var(--warn-soft);
+}
+.stu-issues ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+}
+.stu-issues-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.stu-choice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.stu-choice-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.stu-choice-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 8px;
+}
+.stu-choice-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+.stu-choice-option.is-checked {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+.stu-choice-option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.stu-choice-option input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.stu-choice-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stu-choice-label {
+  font-weight: 600;
+}
+.stu-choice-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.stu-code-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg);
+}
+.stu-code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stu-code-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.stu-code {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.stu-secret-block {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.stu-checks {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stu-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+.stu-check:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.stu-check input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  accent-color: var(--accent);
+}
+.stu-check-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ───────── 点検 ───────── */
+.stu-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: stu-spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes stu-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.stu-progress {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.stu-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: stu-slide 1.2s ease-in-out infinite;
+}
+@keyframes stu-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stu-spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+  .stu-progress-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+.stu-summary {
+  align-items: flex-start;
+}
+.stu-summary-icon {
+  font-weight: 700;
+}
+[role='region']:focus {
+  outline: none;
+}
+[role='region']:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.stu-issue-sec.is-error {
+  border-color: var(--danger);
+}
+.stu-issue-sec.is-warning {
+  border-color: var(--warn);
+}
+.stu-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-issue-list > li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.stu-issue-list > li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.stu-issue-msg {
+  overflow-wrap: anywhere;
+}
+.stu-issue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.stu-issue-path {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.stu-issue-go {
+  min-height: var(--tap);
+  padding: 0 8px;
+  color: var(--accent);
+}
+.stu-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+.stu-checklist li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.stu-check-mark {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+}
+.stu-checklist .is-ok .stu-check-mark {
+  color: var(--ok);
+}
+.stu-checklist .is-ng .stu-check-mark {
+  color: var(--danger);
+}
+.stu-ok-line {
+  margin: 0;
+  color: var(--ok);
+  font-size: 0.9rem;
+}
+
+/* ───────── 書き出し ───────── */
+.stu-gate {
+  align-items: flex-start;
+}
+.stu-ack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+}
+.stu-ack p {
+  margin: 0;
+}
+.stu-ack-list {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.stu-export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-export-actions .btn {
+  justify-content: flex-start;
+  text-align: left;
+}
+.stu-template {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--accent);
+  background: var(--bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.stu-ship {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stu-ship-ok {
+  color: var(--ok);
+}
+.stu-ship-ng {
+  color: var(--danger);
+}
+.stu-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stu-files li {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.stu-path {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.stu-codes-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-codes-details > .stu-adv-summary {
+  padding: 0;
+}
+.stu-codes {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stu-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.stu-code-info {
+  min-width: 0;
+}
+.stu-code-info p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.stu-code-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.stu-code-qr {
+  width: 112px;
+  height: 112px;
+}
+@media (min-width: 560px) {
+  .stu-code-qr {
+    width: 132px;
+    height: 132px;
+  }
+}
+
+/* ───────── preview ───────── */
+.stu-prev-bar {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px var(--gutter) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-prev-banner {
+  align-items: flex-start;
+}
+.stu-prev-banner > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stu-prev-bar .row-wrap .btn-sm {
+  min-height: var(--tap);
+}
+.stu-prev-code .ci {
+  min-width: 0;
+}
+.stu-prev-codes {
+  font-size: 0.9rem;
+}
+.stu-prev-codes > .stu-adv-summary {
+  padding: 0;
+}
+.stu-prev-code-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stu-prev-code-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.stu-prev-code-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.stu-prev-code-list .btn-sm {
+  min-height: var(--tap);
+  flex: none;
+}
+
+/* F18 AC3: the theme's small buttons are 36 px; in the studio every button keeps a 44 px tap target. */
+.stu .btn-sm {
+  min-height: var(--tap);
+}
+
+/* ───────── duplicate sheet ───────── */
+.stu-dup .field-hint {
+  margin: 0;
+}
