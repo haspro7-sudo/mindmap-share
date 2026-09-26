@@ -26,35 +26,44 @@ export function SessionBar({ work, openSession, checkpoints, preview, starting, 
   const now = useNow(mine ? 1000 : null);
   const [ending, setEnding] = useState(false);
 
+  // One stable <button> for both states, so keyboard focus stays on it when 始める turns into 終える.
   return (
-    <div className={`wk-sessionbar${mine ? ' is-recording' : ''}`} role="region" aria-label="プレイ記録">
+    <div
+      className={`wk-sessionbar${mine ? ' is-recording' : ''}${other ? ' has-other' : ''}`}
+      role="region"
+      aria-label="プレイ記録"
+    >
       <div className="wk-sessionbar-inner">
-        {mine ? (
-          <button type="button" className="btn btn-block wk-sb-btn wk-sb-end" onClick={() => setEnding(true)}>
-            <span className="wk-sb-dot" aria-hidden="true" />
-            <span aria-hidden="true">■</span>
-            <span>終える</span>
-            <span className="wk-sb-timer" role="timer" aria-hidden="true">
-              {formatElapsed(now - mine.startedAt)}
-            </span>
-            <span className="visually-hidden">（記録中）</span>
-          </button>
-        ) : (
-          <>
-            {other ? (
-              <p className="wk-sb-other small">
-                <span>ほかの作品を記録中です。</span>
-                {preview ? null : (
-                  <a href={hrefFor({ name: 'work', id: openSession.workId, tab: 'progress' })}>その作品を開く</a>
-                )}
-              </p>
-            ) : null}
-            <button type="button" className="btn btn-primary btn-block wk-sb-btn" onClick={onStart} disabled={starting}>
+        {other ? (
+          <p className="wk-sb-other small">
+            <span>ほかの作品を記録中です。</span>
+            {preview ? null : <a href={hrefFor({ name: 'work', id: openSession.workId, tab: 'progress' })}>その作品を開く</a>}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className={`btn btn-block wk-sb-btn${mine ? ' wk-sb-end' : ' btn-primary'}`}
+          onClick={mine ? () => setEnding(true) : onStart}
+          disabled={!mine && starting}
+          aria-haspopup={mine ? 'dialog' : undefined}
+        >
+          {mine ? (
+            <>
+              <span className="wk-sb-dot" aria-hidden="true" />
+              <span aria-hidden="true">■</span>
+              <span>終える</span>
+              <span className="wk-sb-timer" aria-hidden="true">
+                {formatElapsed(now - mine.startedAt)}
+              </span>
+              <span className="visually-hidden">（記録中）</span>
+            </>
+          ) : (
+            <>
               <span aria-hidden="true">▶</span>
               <span>始める</span>
-            </button>
-          </>
-        )}
+            </>
+          )}
+        </button>
       </div>
       {mine && ending ? (
         <EndSessionSheet session={mine} work={work} checkpoints={checkpoints} onClose={() => setEnding(false)} />

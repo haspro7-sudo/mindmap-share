@@ -3,13 +3,16 @@
 // opened-but-unseen items are queued for the envelope animation.
 import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
-import type { SealedItem, SpoilerLevel } from '../../../core/types';
+import type { SealedItem, SealedKind, SpoilerLevel } from '../../../core/types';
 import { EmptyState } from '../../components/EmptyState';
 import { SEALED_KIND_ICON, SEALED_KIND_LABEL } from '../../components/sealedKind';
 import { SpoilerText } from '../../components/SpoilerText';
 import { useUi } from '../../context';
 import { conditionText, sealedSpoiler } from './workModel';
 import type { WorkData } from './workModel';
+
+/** Card icons for the おまけ list (✉️📜📖👤🔑): the afterword uses a scroll here. */
+const EXTRA_KIND_ICON: Record<SealedKind, string> = { ...SEALED_KIND_ICON, afterword: '📜' };
 
 export interface ExtrasTabProps {
   data: WorkData;
@@ -77,14 +80,14 @@ function ExtraCard(props: {
   return (
     <li className={`card wk-x${opened ? ' is-open' : ''}`}>
       <span className="wk-x-icon" aria-hidden="true">
-        {opened ? SEALED_KIND_ICON[item.kind] : '🔒'}
+        {opened ? EXTRA_KIND_ICON[item.kind] : '🔒'}
       </span>
       <div className="wk-x-main">
         <h3 id={labelId} className="wk-x-label">
           {item.label}
         </h3>
         <p className="wk-x-kind small muted">
-          <span aria-hidden="true">{SEALED_KIND_ICON[item.kind]}</span> {SEALED_KIND_LABEL[item.kind]}
+          <span aria-hidden="true">{EXTRA_KIND_ICON[item.kind]}</span> {SEALED_KIND_LABEL[item.kind]}
         </p>
         {item.teaser ? (
           <SpoilerText as="p" className="wk-x-teaser small" text={item.teaser} spoiler={props.spoiler} tolerance={props.tolerance} />

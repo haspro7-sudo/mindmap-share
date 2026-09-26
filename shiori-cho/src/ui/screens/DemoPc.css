@@ -1,0 +1,605 @@
+/*
+ * #/demo-pc PC画面シミュレータ. The explanatory bar follows the app theme; the fake game window is a fixed
+ * dark "retro novel" look in both themes (night sky, bookshelves, text box, name plate): gradients and emoji only.
+ */
+.screen.dpc {
+  max-width: 1120px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ───────── explanatory bar (outside the game) ───────── */
+.dpc-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.dpc-bar-text {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+.dpc-heading {
+  margin: 0 0 2px;
+  font-size: 1rem;
+}
+.dpc-intro {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.dpc-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dpc-bar-badge {
+  min-height: 28px;
+}
+
+/* ───────── letterbox stage ───────── */
+.dpc-stage {
+  --dpc-ink: #f5f1ff;
+  --dpc-ink-2: #d9d3ee;
+  --dpc-gold: #f3d98b;
+  --dpc-gold-ink: #2a2010;
+  --dpc-panel: rgb(12 14 36 / 0.86);
+  --dpc-line: rgb(236 228 255 / 0.55);
+  --dpc-serif: 'Hiragino Mincho ProN', 'Yu Mincho', 'YuMincho', 'Noto Serif JP', 'Noto Serif CJK JP', serif;
+  background: #07080f;
+  border-radius: var(--radius);
+  padding: clamp(10px, 2.2vw, 24px);
+}
+.dpc-window {
+  container-type: inline-size;
+  width: min(100%, max(20rem, calc((100dvh - 290px) * 16 / 9)));
+  margin: 0 auto;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #151833;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.12),
+    0 10px 40px rgb(0 0 0 / 0.55);
+  color: var(--dpc-ink);
+}
+.dpc-window:focus {
+  outline: none;
+}
+.dpc-window:focus-visible {
+  outline: 2px solid var(--dpc-gold);
+  outline-offset: 3px;
+}
+
+/* window chrome (PC title bar) */
+.dpc-chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 4px 0 12px;
+  background: linear-gradient(180deg, #2b2f55, #1f2244);
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  font-size: 0.85rem;
+}
+.dpc-chrome-dots {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+.dpc-chrome-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e0736b;
+}
+.dpc-chrome-dots i:nth-child(2) {
+  background: #e7c15f;
+}
+.dpc-chrome-dots i:nth-child(3) {
+  background: #74c47c;
+}
+.dpc-chrome-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dpc-ink-2);
+  letter-spacing: 0.04em;
+}
+.dpc-chrome-btn {
+  flex: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dpc-ink);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.dpc-chrome-btn:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+/* ───────── the 16:9 game screen ───────── */
+.dpc-screen {
+  position: relative;
+  aspect-ratio: 16 / 9; /* grows taller when the content needs it (narrow phones, large text) */
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  font-family: var(--dpc-serif);
+  font-size: clamp(0.95rem, 1.9cqi, 1.2rem);
+  line-height: 1.7;
+  background:
+    radial-gradient(ellipse 70% 55% at 75% 0%, rgb(120 138 255 / 0.28), transparent 70%),
+    linear-gradient(180deg, #0a0f2e 0%, #1a1f4d 55%, #2c2555 100%);
+  cursor: default;
+}
+.dpc-screen[data-mood='room'] {
+  background:
+    radial-gradient(ellipse 55% 45% at 20% 30%, rgb(255 196 110 / 0.22), transparent 70%),
+    linear-gradient(180deg, #1c1430 0%, #2a1c3a 55%, #3a2436 100%);
+}
+.dpc-screen[data-mood='moon'] {
+  background:
+    radial-gradient(circle at 78% 22%, #fdf6d8 0 4.5%, rgb(253 246 216 / 0.35) 6%, transparent 22%),
+    linear-gradient(180deg, #0c1a3a 0%, #1b2d5a 60%, #25305a 100%);
+}
+.dpc-screen[data-mood='cellar'] {
+  background:
+    radial-gradient(ellipse 45% 40% at 50% 45%, rgb(255 180 90 / 0.2), transparent 70%),
+    linear-gradient(180deg, #120e18 0%, #1d1622 60%, #241a22 100%);
+}
+.dpc-screen[data-mood='dawn'] {
+  background:
+    radial-gradient(ellipse 80% 45% at 50% 100%, rgb(255 190 150 / 0.45), transparent 70%),
+    linear-gradient(180deg, #111a44 0%, #3a2d6a 55%, #7a4d78 100%);
+}
+
+/* stars (twinkle unless reduced motion) */
+.dpc-sky {
+  position: absolute;
+  inset: 0 0 35% 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1.6px 1.6px at 8% 14%, #fff 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 18% 36%, #fff 60%, transparent 62%),
+    radial-gradient(2px 2px at 27% 10%, #fffbe0 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 36% 28%, #fff 60%, transparent 62%),
+    radial-gradient(1.6px 1.6px at 44% 8%, #fff 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 52% 40%, #fff 60%, transparent 62%),
+    radial-gradient(2px 2px at 61% 18%, #fff 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 69% 34%, #fff 60%, transparent 62%),
+    radial-gradient(1.6px 1.6px at 83% 12%, #fffbe0 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 91% 30%, #fff 60%, transparent 62%),
+    radial-gradient(1.2px 1.2px at 96% 6%, #fff 60%, transparent 62%),
+    radial-gradient(1.6px 1.6px at 4% 44%, #fff 60%, transparent 62%);
+  opacity: 0.9;
+  animation: dpc-twinkle 4.5s ease-in-out infinite alternate;
+}
+.dpc-screen[data-mood='room'] .dpc-sky,
+.dpc-screen[data-mood='cellar'] .dpc-sky {
+  opacity: 0.35;
+}
+@keyframes dpc-twinkle {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* bookshelf silhouette along the bottom */
+.dpc-shelves {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 26%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    linear-gradient(180deg, transparent 0 8%, rgb(0 0 0 / 0.55) 8% 11%, transparent 11% 52%, rgb(0 0 0 / 0.55) 52% 55%, transparent 55%),
+    repeating-linear-gradient(
+      90deg,
+      #3b2a4a 0 14px,
+      #4a3358 14px 22px,
+      #2c2140 22px 34px,
+      #56405e 34px 40px,
+      #33264a 40px 54px,
+      #1d1630 54px 57px
+    );
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 45%);
+  mask-image: linear-gradient(180deg, transparent, #000 45%);
+}
+
+/* ───────── scene layout ───────── */
+.dpc-scene {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: clamp(10px, 2.4cqi, 22px);
+  animation: dpc-fade 0.35s ease-out;
+}
+.dpc-scene-title {
+  align-self: flex-start;
+  margin: 0;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgb(8 10 28 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.18);
+  font-family: var(--dpc-serif);
+  font-size: clamp(0.9rem, 1.7cqi, 1.1rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--dpc-gold);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.dpc-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dpc-art {
+  margin: 0;
+  font-family: var(--font);
+  font-size: clamp(2.4rem, 8cqi, 4.8rem);
+  line-height: 1;
+  letter-spacing: 0.1em;
+  filter: drop-shadow(0 4px 14px rgb(0 0 0 / 0.5));
+}
+
+/* text box + name plate */
+.dpc-textbox {
+  position: relative;
+  min-height: 6.2em;
+  padding: 1.1em 1.1em 0.9em;
+  border-radius: 10px;
+  background: var(--dpc-panel);
+  border: 2px solid var(--dpc-line);
+  box-shadow:
+    inset 0 0 0 3px rgb(12 14 36 / 0.9),
+    inset 0 0 0 4px rgb(236 228 255 / 0.18),
+    0 6px 20px rgb(0 0 0 / 0.45);
+  margin-top: 0.9em;
+}
+.dpc-nameplate {
+  position: absolute;
+  top: 0;
+  left: 1em;
+  transform: translateY(-60%);
+  padding: 1px 14px;
+  border-radius: 6px;
+  background: var(--dpc-gold);
+  color: var(--dpc-gold-ink);
+  font-weight: 700;
+  font-size: 0.9em;
+  letter-spacing: 0.08em;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+}
+.dpc-line {
+  margin: 0;
+  color: var(--dpc-ink);
+  overflow-wrap: anywhere;
+  animation: dpc-fade 0.3s ease-out;
+}
+.dpc-textbox.is-reading .dpc-line {
+  padding-right: 4.8em;
+}
+.dpc-next {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dpc-gold);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dpc-next:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+.dpc-next-mark {
+  display: inline-block;
+  font-size: 0.75rem;
+  animation: dpc-bob 1s ease-in-out infinite;
+}
+@keyframes dpc-bob {
+  50% {
+    transform: translateY(3px);
+  }
+}
+@keyframes dpc-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* choice buttons (shared by menus, choices and the ending card) */
+.dpc-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, 30em);
+}
+.dpc-choice {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 18px;
+  border-radius: 8px;
+  border: 1px solid rgb(236 228 255 / 0.45);
+  background: rgb(14 16 40 / 0.82);
+  color: var(--dpc-ink);
+  font-family: var(--dpc-serif);
+  font-size: 1em;
+  line-height: 1.4;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 0.35);
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.dpc-choice:hover {
+  border-color: var(--dpc-gold);
+  background: rgb(40 38 80 / 0.9);
+}
+.dpc-choice-primary {
+  border-color: var(--dpc-gold);
+  background: linear-gradient(180deg, rgb(70 60 120 / 0.95), rgb(40 34 84 / 0.95));
+  font-weight: 700;
+}
+.dpc-choice-sub {
+  width: auto;
+  font-size: 0.9em;
+}
+.dpc-window :focus-visible {
+  outline: 3px solid var(--dpc-gold);
+  outline-offset: 2px;
+}
+
+/* ───────── ending card ───────── */
+.dpc-ending {
+  width: min(100%, 36em);
+  padding: 14px;
+  border-radius: 12px;
+  background: rgb(10 12 32 / 0.88);
+  border: 1px solid var(--dpc-gold);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.5);
+  font-family: var(--font);
+  animation: dpc-fade 0.4s ease-out;
+}
+.dpc-ending-badge {
+  margin: 0 0 8px;
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--dpc-gold);
+  letter-spacing: 0.06em;
+}
+.dpc-ending-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.dpc-ending-info {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+.dpc-ending-caption {
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--dpc-ink-2);
+}
+.dpc-ending-code {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: clamp(1.5rem, 4.2cqi, 2.1rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+.dpc-ending-note {
+  margin: 0 0 4px;
+  font-size: 0.8em;
+  color: var(--dpc-ink-2);
+  line-height: 1.55;
+}
+.dpc-ending-qr {
+  flex: none;
+  width: 148px;
+  max-width: 100%;
+}
+.dpc-ending-choices {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+/* narrow windows (phones): the screen fills the width and keeps a steadier height between states */
+@container (max-width: 559px) {
+  .dpc-screen {
+    aspect-ratio: auto;
+    min-height: 19rem;
+  }
+}
+
+@container (min-width: 480px) {
+  .dpc-ending-body {
+    flex-direction: row;
+    align-items: center;
+  }
+  .dpc-ending-info {
+    flex: 1;
+  }
+}
+
+/* ───────── title screen ───────── */
+.dpc-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: clamp(14px, 3cqi, 28px) clamp(12px, 3cqi, 28px);
+  text-align: center;
+  animation: dpc-fade 0.4s ease-out;
+}
+.dpc-title-art {
+  margin: 0;
+  font-family: var(--font);
+  font-size: clamp(2rem, 5cqi, 3rem);
+  line-height: 1.1;
+}
+.dpc-logo {
+  margin: 0;
+  font-family: var(--dpc-serif);
+  font-size: clamp(1.6rem, 5.2cqi, 3rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #fffbea;
+  text-shadow:
+    0 0 18px rgb(243 217 139 / 0.55),
+    0 2px 4px rgb(0 0 0 / 0.6);
+  overflow-wrap: anywhere;
+}
+.dpc-taglines {
+  margin-bottom: 6px;
+}
+.dpc-tagline {
+  margin: 0;
+  color: var(--dpc-ink-2);
+  font-size: 0.9em;
+}
+.dpc-tagline + .dpc-tagline {
+  font-size: 0.78em;
+  opacity: 0.9;
+}
+.dpc-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, 18em);
+}
+.dpc-door {
+  width: min(100%, 22em);
+  margin-top: 10px;
+  padding: 10px 12px 4px;
+  border-radius: 10px;
+  background: rgb(8 10 28 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  text-align: left;
+  font-family: var(--font);
+}
+.dpc-door-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--dpc-gold);
+}
+.dpc-door-row {
+  display: flex;
+  gap: 8px;
+}
+.dpc-door-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(236 228 255 / 0.5);
+  background: rgb(255 255 255 / 0.08);
+  color: var(--dpc-ink);
+  font-size: 1rem;
+}
+.dpc-door-input::placeholder {
+  color: rgb(217 211 238 / 0.7);
+}
+.dpc-door-input[aria-invalid='true'] {
+  border-color: #f0a7a0;
+}
+.dpc-door-btn {
+  width: auto;
+  flex: none;
+  padding: 6px 16px;
+  font-family: var(--font);
+  font-size: 0.95rem;
+}
+.dpc-door-msg {
+  min-height: 1.6em;
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #ffd5cf;
+}
+
+.dpc-hint {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #b9b4cc;
+}
+
+/* ───────── phones: the game fills the width ───────── */
+@media (max-width: 599px) {
+  .dpc-stage {
+    margin-inline: calc(-1 * var(--gutter));
+    border-radius: 0;
+    padding: 0 0 10px;
+  }
+  .dpc-window {
+    width: 100%;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dpc-sky,
+  .dpc-scene,
+  .dpc-line,
+  .dpc-next-mark,
+  .dpc-ending,
+  .dpc-title {
+    animation: none;
+  }
+  .dpc-choice {
+    transition: none;
+  }
+}

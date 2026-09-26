@@ -1,0 +1,422 @@
+/* #/settings 設定 (and its sections under ./settings/) */
+.set {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.set-title {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+}
+.set-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.set-nav-chip {
+  min-height: var(--tap);
+}
+
+/* ───────── section card ───────── */
+.set-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-margin-top: calc(var(--header-h) + env(safe-area-inset-top) + 12px);
+}
+.set-h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 1.1rem;
+}
+.set-h2:focus {
+  outline: none;
+}
+.set-h2-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.set-h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+.set-lead,
+.set-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.set-lead {
+  margin-top: -4px;
+}
+.set-sec > .divider {
+  margin: 6px 0;
+}
+.set-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.set-actions .btn-sm {
+  min-height: var(--tap);
+}
+.set-field {
+  margin-top: 2px;
+}
+.set-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.set-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  font-weight: 600;
+}
+
+/* ───────── switches ───────── */
+.set-switches {
+  display: flex;
+  flex-direction: column;
+}
+.set-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.set-switch:last-child {
+  border-bottom: 0;
+}
+.set-switch-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.set-switch-title {
+  font-weight: 600;
+}
+.set-switch-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.set-switch-input {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  position: relative;
+  width: 50px;
+  height: 30px;
+  margin: 0;
+  border-radius: 999px;
+  /* the off track keeps ≥ 3:1 against the card (WCAG 1.4.11) */
+  background: var(--muted);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.set-switch-input::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  transition: transform 150ms ease;
+}
+.set-switch-input:checked {
+  background: var(--accent);
+}
+.set-switch-input:checked::before {
+  transform: translateX(20px);
+}
+.set-switch-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.set-switch-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ───────── camouflage text ───────── */
+.set-camo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.set-camo-preview {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.set-camo-bar {
+  padding: 6px 12px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.set-camo-text {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.7;
+}
+.set-camo-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ───────── PIN form ───────── */
+.set-subform {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.set-pin {
+  max-width: 220px;
+  font-family: var(--mono);
+  letter-spacing: 0.3em;
+}
+.set-subform .field-error,
+.set-block .field-error {
+  margin: 0;
+}
+
+/* ───────── checkboxes / radios ───────── */
+.set-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  cursor: pointer;
+}
+.set-check input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.set-subfields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 32px;
+}
+.set-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.set-legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.set-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+.set-radio:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.set-radio input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+.set-radio > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.set-radio-title {
+  font-weight: 600;
+}
+.set-radio-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* ───────── backup preview ───────── */
+.set-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.set-preview-title {
+  margin: 0;
+  font-weight: 600;
+}
+.set-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+.set-count {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.set-count dt {
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.set-count dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────── danger zone ───────── */
+.set-danger {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger-soft) 50%, var(--surface));
+}
+.set-danger .set-h3 {
+  color: var(--danger);
+}
+
+/* ───────── link rows ───────── */
+.set-links {
+  display: flex;
+  flex-direction: column;
+}
+.set-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  text-decoration: none;
+}
+.set-link:last-child {
+  border-bottom: 0;
+}
+.set-link:hover .set-link-title {
+  color: var(--accent);
+}
+.set-link-icon {
+  flex: none;
+  width: 24px;
+  text-align: center;
+  font-size: 1.05rem;
+}
+.set-link-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.set-link-title {
+  font-weight: 600;
+}
+.set-link-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.set-link-chev {
+  flex: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* ───────── about ───────── */
+.set-about-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.set-about-en {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.set-about-ver {
+  align-self: center;
+}
+.set-about-list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.88rem;
+  color: var(--ink-2);
+}
+
+@media (min-width: 640px) {
+  .set-subfields .input,
+  .set-field .select,
+  .set-camo-preview {
+    max-width: 480px;
+  }
+}

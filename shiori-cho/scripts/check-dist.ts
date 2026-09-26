@@ -20,6 +20,12 @@ const ALLOWED_HOSTS = new Set([
   'example.invalid', // placeholder URLs in help/kit text
 ])
 
+/** Hosts allowed only in specific files: library strings that are never requested. */
+const ALLOWED_IN_FILE: ReadonlyArray<{ file: RegExp; host: string }> = [
+  { file: /^dist\/assets\/index-[\w-]+\.js$/, host: 'json-schema.org' }, // zod toJSONSchema `$schema` identifiers
+  { file: /^dist\/workbox-[\w-]+\.js$/, host: 'bit.ly' }, // workbox console.warn help link
+]
+
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name)
@@ -42,12 +48,15 @@ for (const file of walk(DIST).filter((f) => TEXT_EXT.test(f))) {
   const text = readFileSync(file, 'utf8')
   for (const m of text.matchAll(URL_RE)) {
     const host = m[1]!.toLowerCase()
-    if (!ALLOWED_HOSTS.has(host)) problems.push(`${relative(ROOT, file)}: unexpected host "${host}"`)
+    const rel = relative(ROOT, file)
+    if (ALLOWED_HOSTS.has(host) || ALLOWED_IN_FILE.some((a) => a.host === host && a.file.test(rel))) continue
+    problems.push(`${rel}: unexpected host "${host}"`)
   }
 }
 
 const BANNED_SRC = [/dangerouslySetInnerHTML/, /\.innerHTML\b/, /\.outerHTML\b/, /insertAdjacentHTML/, /document\.write/]
-for (const file of walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f))) {
+// Test files may read innerHTML in assertions; only application code is checked.
+for (const file of walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes('/test/'))) {
   const text = readFileSync(file, 'utf8')
   for (const re of BANNED_SRC) {
     if (re.test(text)) problems.push(`${relative(ROOT, file)}: banned API ${re}`)

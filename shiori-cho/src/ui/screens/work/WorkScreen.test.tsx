@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import { createWork, importBundledDemos } from '../../../app/library';
+import { createQuickWork, createWork, importBundledDemos } from '../../../app/library';
 import { startSession } from '../../../app/sessions';
 import { submitCode } from '../../../app/unlock';
 import type { WorkTab } from '../../../core/route';
@@ -263,5 +263,49 @@ describe('WorkScreen without a manifest (記録だけ) and notes (F14)', () => {
     const w = await repo.getWork(work.id);
     expect(w?.manifestKey).toBeDefined();
     expect(await repo.listWorks()).toHaveLength(1);
+  });
+});
+
+describe('WorkScreen NEW badge, コンプ prompt and reading extras', () => {
+  it('clears a goal\'s NEW badge when its sheet is viewed', async () => {
+    const { repo, hoshiyomi } = await demo();
+    const w = (await repo.getWork(hoshiyomi))!;
+    await repo.putWork({ ...w, newGoalIds: ['ach-cat'] });
+    const { user } = renderWithProviders(<Harness workId={hoshiyomi} />, { repo });
+    const row = (await screen.findByText('図書館の猫と3回話した')).closest('li')!;
+    expect(within(row).getByText('NEW')).toBeTruthy();
+    await user.click(within(row).getByRole('button', { name: '図書館の猫と3回話した' }));
+    await screen.findByRole('dialog', { name: '図書館の猫と3回話した' });
+    await waitFor(async () => expect((await repo.getWork(hoshiyomi))?.newGoalIds).toEqual([]));
+  });
+
+  it('offers コンプ once at 100%', async () => {
+    const repo = createMemoryRepo();
+    const work = await createQuickWork(repo, {
+      title: 'テスト',
+      kind: 'game',
+      counts: { endings: 1, cg: 0, achievements: 0, tracks: 0, chapters: 0 },
+    });
+    const { user } = renderWithProviders(<Harness workId={work.id} />, { repo });
+    const row = (await screen.findByText('END 1')).closest('li')!;
+    expect(screen.queryByText('すべての項目を達成しました')).toBeNull();
+    await user.click(within(row).getByRole('button', { name: '達成' }));
+    expect(await screen.findByText('すべての項目を達成しました')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'コンプにする' }));
+    await waitFor(async () => expect((await repo.getWork(work.id))?.status).toBe('completed'));
+    expect((await repo.getSettings()).completionPromptedWorkIds).toContain(work.id);
+    await waitFor(() => expect(screen.queryByText('すべての項目を達成しました')).toBeNull());
+  });
+
+  it('reading an opened extra from its sheet marks it seen', async () => {
+    const { repo, hoshiyomi } = await demo();
+    await submitCode(repo, 'ST4-RMA-P1X', { workId: hoshiyomi });
+    expect((await repo.listSealedOpens(hoshiyomi)).find((o) => o.sealedId === 'letter-mina')?.seen).toBe(false);
+    renderWithProviders(<Harness workId={hoshiyomi} sheet={{ type: 'sealed', index: 0 }} />, { repo });
+    const sheet = await screen.findByRole('dialog', { name: 'おまけ' });
+    expect(await within(sheet).findByRole('heading', { name: '司書ミナからの手紙' }, { timeout: 5000 })).toBeTruthy();
+    await waitFor(async () =>
+      expect((await repo.listSealedOpens(hoshiyomi)).find((o) => o.sealedId === 'letter-mina')?.seen).toBe(true),
+    );
   });
 });

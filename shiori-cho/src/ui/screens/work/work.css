@@ -136,6 +136,18 @@
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--ink-2);
+  list-style: none;
+}
+.wk-ahead > summary::-webkit-details-marker {
+  display: none;
+}
+.wk-ahead > summary::after {
+  content: '▸';
+  margin-left: auto;
+  color: var(--muted);
+}
+.wk-ahead[open] > summary::after {
+  content: '▾';
 }
 .wk-ahead[open] > summary {
   border-bottom: 1px solid var(--border);
@@ -266,16 +278,22 @@ button.wk-check:hover::before {
   padding: 4px 0;
 }
 .wk-goal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   margin: 0;
   font-weight: 600;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.wk-goal-title > * {
+  min-width: 0;
+}
 .wk-goal.is-done .wk-goal-title {
   color: var(--ink-2);
 }
 .wk-lock {
-  margin-right: 4px;
+  flex: none;
 }
 .wk-goal .spt-btn,
 .wk-x .spt-btn {
@@ -644,4 +662,17 @@ button.wk-check:hover::before {
 }
 .gs-player .row-wrap {
   margin-top: 6px;
+}
+
+/*
+ * Toasts (shell/UiProvider) normally sit just above the bottom nav, exactly where the sticky session bar is,
+ * and would cover 「終える」 for a few seconds. While a work page is shown (and no sheet covers the bar) they
+ * move above the bar.
+ * (bar = 8px padding ×2 + 48px button + 2px border, 10px above the nav; + 28px when 「ほかの作品を記録中」 shows)
+ */
+body:has(.wk-sessionbar):not(:has(.sheet-root)) .ui-toasts {
+  bottom: calc(var(--nav-h) + 12px + 76px + env(safe-area-inset-bottom));
+}
+body:has(.wk-sessionbar.has-other):not(:has(.sheet-root)) .ui-toasts {
+  bottom: calc(var(--nav-h) + 12px + 110px + env(safe-area-inset-bottom));
 }

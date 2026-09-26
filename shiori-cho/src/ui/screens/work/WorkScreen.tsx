@@ -1,7 +1,7 @@
 // 作品ページ #/w/<id> (docs/SPEC.md §6, F7–F9, F12–F14, F6 AC3). Tabs and sheets are controlled by the host through
 // `tab` / `sheet` / `onChange` (the app maps them to the hash; the studio preview keeps them in local state), so
 // this screen never navigates for tab or sheet changes.
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { vibrate } from '../../../app/platform';
 import { startSession } from '../../../app/sessions';
@@ -10,6 +10,7 @@ import { codeErrorMessageJa, parseCode } from '../../../core/codes';
 import { isShioriError } from '../../../core/errors';
 import { computeProgress } from '../../../core/progress';
 import type { WorkTab } from '../../../core/route';
+import type { SealedItem, SealedOpen } from '../../../core/types';
 import { EmojiCover } from '../../components/EmojiCover';
 import { EmptyState } from '../../components/EmptyState';
 import { SealedReader } from '../../components/SealedReader';
@@ -178,11 +179,8 @@ export function WorkScreen(props: WorkScreenProps): ReactNode {
   } else if (sheet?.type === 'sealed') {
     const item = manifest?.sealed[sheet.index];
     if (item) {
-      sheetNode = (
-        <Sheet open title={item.label} onClose={closeSheet}>
-          <SealedReader workId={work.id} sealedId={item.id} />
-        </Sheet>
-      );
+      const open = data.sealedOpens.find((o) => o.sealedId === item.id);
+      sheetNode = <SealedSheet key={item.id} workId={work.id} item={item} open={open} onClose={closeSheet} />;
     }
   }
 
@@ -286,5 +284,26 @@ export function WorkScreen(props: WorkScreenProps): ReactNode {
       {sheetNode}
       {quickOpen && !manifest ? <QuickAttachSheet work={work} onClose={() => setQuickOpen(false)} /> : null}
     </main>
+  );
+}
+
+/**
+ * Reader sheet (sheet=x<n>). Reading an opened item directly (without the envelope animation) also counts
+ * as seeing it, so the envelope does not play later for an extra that was already read.
+ */
+function SealedSheet(props: { workId: string; item: SealedItem; open?: SealedOpen; onClose(): void }): ReactNode {
+  const { workId, item, open, onClose } = props;
+  const repo = useRepo();
+  const unseen = open !== undefined && !open.seen;
+  useEffect(() => {
+    if (!unseen || !open) return;
+    repo.putSealedOpen({ ...open, seen: true }).catch(() => undefined);
+    // Only when the sheet opens for an unseen item; `open` is a snapshot of that record.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unseen, repo]);
+  return (
+    <Sheet open title="おまけ" onClose={onClose}>
+      <SealedReader workId={workId} sealedId={item.id} />
+    </Sheet>
   );
 }

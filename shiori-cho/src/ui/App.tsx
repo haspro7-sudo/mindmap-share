@@ -17,7 +17,7 @@
  * and the header's 「隠す」 switch to the camouflage notepad within the same frame; document.title is
  * 'しおり帳', or 'メモ' while camouflaged.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DB_PLAYER } from '../core/constants';
 import { isShioriError } from '../core/errors';
@@ -32,7 +32,6 @@ import { RepoContext, StudioRepoContext, useSettings } from './context';
 import { navigate, useRoute } from './router';
 import { AddWorkScreen } from './screens/AddWork';
 import { CodeEntryScreen } from './screens/CodeEntry';
-import { DemoPcScreen } from './screens/DemoPc';
 import { HelpScreen } from './screens/Help';
 import { HomeScreen } from './screens/Home';
 import { NotFoundScreen } from './screens/NotFound';
@@ -53,10 +52,13 @@ import { PrivacyVeil } from './shell/PrivacyVeil';
 import { SettingsProvider } from './shell/SettingsProvider';
 import { UiProvider } from './shell/UiProvider';
 import { UpdatePrompt } from './shell/UpdatePrompt';
-import { StudioPreviewScreen } from './studio/Preview';
-import { StudioListScreen } from './studio/StudioList';
-import { StudioProjectScreen } from './studio/StudioProject';
 import './App.css';
+
+// Rarely used, heavier screens (creator studio with zip/QR, PC simulator) load on demand.
+const StudioListScreen = lazy(() => import('./studio/StudioList').then((m) => ({ default: m.StudioListScreen })));
+const StudioProjectScreen = lazy(() => import('./studio/StudioProject').then((m) => ({ default: m.StudioProjectScreen })));
+const StudioPreviewScreen = lazy(() => import('./studio/Preview').then((m) => ({ default: m.StudioPreviewScreen })));
+const DemoPcScreen = lazy(() => import('./screens/DemoPc').then((m) => ({ default: m.DemoPcScreen })));
 
 export const TITLE_APP = 'しおり帳';
 export const TITLE_CAMOUFLAGE = 'メモ';
@@ -385,7 +387,7 @@ function AppFrame({ onHide }: { onHide(): void }): ReactNode {
     <div className={`app${full ? ' is-fullscreen' : ' has-nav'}`} data-shell="app" data-route={route.name}>
       <Header onHide={onHide} />
       <div className="app-main" key={key}>
-        {screen}
+        <Suspense fallback={<div className="app-lazy" role="status" aria-live="polite">読み込み中…</div>}>{screen}</Suspense>
       </div>
       {full ? null : <BottomNav />}
     </div>

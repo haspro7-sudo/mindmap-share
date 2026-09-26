@@ -35,6 +35,9 @@ function cspPlugin(): Plugin {
 export default defineConfig({
   // Relative base + hash routing → works under any GitHub Pages subpath.
   base: process.env.VITE_BASE ?? './',
+  // The initial chunk (React + zod + bundled demo manifests) is ~200 kB gzipped and fully precached for offline use;
+  // the studio and PC simulator are lazy-loaded.
+  build: { chunkSizeWarningLimit: 700 },
   plugins: [
     react(),
     cspPlugin(),
