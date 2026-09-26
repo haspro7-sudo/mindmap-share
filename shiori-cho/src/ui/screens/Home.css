@@ -1,0 +1,279 @@
+/* #/ 本棚 */
+.home {
+  /* room for the floating 「＋ 追加」 button below the last card */
+  padding-bottom: calc(var(--nav-h) + 96px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.home-title {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+}
+
+/* ───────── banners ───────── */
+.home-banners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-banner {
+  min-height: var(--tap);
+}
+.home-banner-link {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.home-banner-link:hover {
+  border-color: var(--accent);
+}
+.home-banner-icon {
+  flex: none;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.home-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.home-banner-chev {
+  flex: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--muted);
+}
+.home-backup {
+  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.home-backup .home-banner-icon {
+  margin-top: 2px;
+}
+.home-backup-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-backup-text {
+  margin: 0;
+}
+.home-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.home-backup-actions .btn {
+  min-height: var(--tap);
+}
+
+/* ───────── 続きから ───────── */
+.home-resume {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.home-resume-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-resume-kicker {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.home-resume-work {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--tap);
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+.home-resume-name {
+  min-width: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.home-resume-info {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.home-resume-info > div {
+  display: grid;
+  grid-template-columns: 6.5em minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.home-resume-info dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.home-resume-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ───────── list toolbar ───────── */
+.home-library {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.home-list-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.home-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.home-sort {
+  flex: none;
+}
+.home-sort-select {
+  width: auto;
+  min-width: 9.5em;
+  padding-right: 8px;
+}
+.home-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.home-chip {
+  min-height: var(--tap);
+  gap: 6px;
+  padding: 0 12px;
+}
+.home-chip-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.home-none {
+  margin: 8px 0;
+  text-align: center;
+}
+
+/* ───────── work cards ───────── */
+.home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.home-list > li {
+  display: flex;
+  min-width: 0;
+}
+.home-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+.home-card:hover {
+  border-color: var(--border-strong);
+}
+.home-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.home-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.home-card-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.home-card-new {
+  flex: none;
+  margin-top: 1px;
+}
+.home-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+.home-card-last {
+  color: var(--muted);
+}
+.home-card-progress {
+  margin-top: 2px;
+}
+
+/* ───────── empty ───────── */
+.home-empty {
+  padding: 0;
+}
+
+/* ───────── floating 「＋ 追加」 ───────── */
+.home-fab {
+  position: fixed;
+  z-index: 15;
+  bottom: calc(var(--app-bottom-offset, env(safe-area-inset-bottom)) + 16px);
+  right: max(var(--gutter), calc(env(safe-area-inset-right) + var(--gutter)), calc((100vw - 720px) / 2 + var(--gutter)));
+  min-height: 52px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 1rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.18), 0 8px 20px rgb(0 0 0 / 0.14);
+}
+.home-fab-plus {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.home-fab:focus-visible {
+  outline-offset: 3px;
+}

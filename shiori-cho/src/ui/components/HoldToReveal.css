@@ -1,0 +1,40 @@
+.htr {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: var(--tap);
+  padding: 0 16px 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+.htr:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.htr.is-holding {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.htr-ring {
+  flex: none;
+}
+.htr-ring-track {
+  stroke: var(--border);
+}
+.htr-ring-fill {
+  stroke: var(--accent);
+}
+.htr-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

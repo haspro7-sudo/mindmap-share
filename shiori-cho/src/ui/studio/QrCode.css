@@ -1,0 +1,17 @@
+/* On-screen QR (QrCode.tsx). Always black on white: scanners need a light quiet zone, even in dark mode. */
+.qrc {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  background: #ffffff;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.qrc-error {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}

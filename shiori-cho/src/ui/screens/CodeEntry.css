@@ -1,0 +1,318 @@
+/* #/code 合言葉を入れる */
+.ce {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ce-title {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+}
+.ce-lead {
+  margin: -6px 0 0;
+  font-size: 0.92rem;
+}
+.ce-h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* ───────── form ───────── */
+.ce-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ce-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.ce-select {
+  margin-top: 2px;
+}
+.ce-invalid {
+  margin: 0;
+}
+.ce-submit {
+  min-height: 52px;
+  font-size: 1.05rem;
+}
+.ce-spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: ce-spin 0.8s linear infinite;
+}
+@keyframes ce-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ce-spin {
+    animation: none;
+    border-top-color: color-mix(in srgb, currentColor 30%, transparent);
+    border-right-color: currentColor;
+  }
+}
+
+/* ───────── notices (deep-link hand-off) ───────── */
+.ce-note {
+  align-items: flex-start;
+  padding-right: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.ce-note.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.ce-note-close {
+  flex: none;
+  margin: -8px 0 -8px -4px;
+  color: var(--muted);
+}
+.ce-note-icon {
+  flex: none;
+  font-size: 1.1rem;
+  line-height: 1.5;
+}
+.ce-note-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ce-note-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ce-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ce-note-actions .btn {
+  min-height: var(--tap);
+}
+.ce-ios-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.ce-ios-row .btn {
+  min-height: var(--tap);
+}
+.ce-ios-code {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+/* ───────── result ───────── */
+.ce-result-slot:empty {
+  display: none;
+}
+.ce-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: ce-in 180ms ease-out;
+}
+.ce-result.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+  background: color-mix(in srgb, var(--ok-soft) 55%, var(--surface));
+}
+.ce-result.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--warn-soft) 60%, var(--surface));
+}
+@keyframes ce-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.ce-result-kicker {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ok);
+}
+.ce-result-title {
+  margin: 0;
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+.ce-result-title:focus,
+.ce-result-title:focus-visible {
+  /* focused programmatically so the outcome is announced; a heading is not a control */
+  outline: none;
+}
+.ce-result-work,
+.ce-result-body,
+.ce-result-extra {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ce-result-msg {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.ce-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ce-result-actions .btn {
+  flex: 1 1 140px;
+}
+.ce-batch {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ce-batch-link {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--tap);
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  text-decoration: none;
+}
+.ce-batch-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ce-empty {
+  margin: 0;
+}
+
+/* ───────── pending ───────── */
+.ce-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ce-pending-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ce-pending-head .btn {
+  min-height: var(--tap);
+}
+.ce-count {
+  font-weight: 600;
+}
+.ce-pending-lead {
+  margin: -4px 0 0;
+}
+.ce-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ce-pending-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ce-pending-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ce-pending-code {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
+}
+.ce-pending-del {
+  flex: none;
+  color: var(--muted);
+}
+.ce-pending-del:hover {
+  color: var(--danger);
+}
+
+/* ───────── where do codes come from ───────── */
+.ce-where {
+  padding: 0;
+}
+.ce-where-summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.ce-where-summary::-webkit-details-marker {
+  display: none;
+}
+.ce-where-summary::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.ce-where[open] > .ce-where-summary::before {
+  transform: rotate(45deg);
+}
+.ce-where-list {
+  margin: 0;
+  padding: 0 14px 0 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ce-where-more {
+  margin: 8px 14px 12px;
+}
+.ce-where-more a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+}
+
+.ce-load-error {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.ce-load-error-text {
+  flex: 1 1 12em;
+}

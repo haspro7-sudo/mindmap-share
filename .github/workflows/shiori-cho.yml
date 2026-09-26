@@ -1,0 +1,57 @@
+name: shiori-cho
+
+on:
+  push:
+    paths: ['shiori-cho/**', '.github/workflows/shiori-cho.yml']
+  pull_request:
+    paths: ['shiori-cho/**', '.github/workflows/shiori-cho.yml']
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to GitHub Pages'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: shiori-cho
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: shiori-cho/package-lock.json
+      - run: npm ci
+      # public/licenses.txt (third-party notices) must match the installed runtime dependencies
+      - run: npx tsx scripts/gen-licenses.ts --check
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:dist
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        with:
+          path: shiori-cho/dist
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

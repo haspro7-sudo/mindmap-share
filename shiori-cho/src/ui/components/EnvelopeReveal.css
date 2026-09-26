@@ -1,0 +1,216 @@
+.env-root {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgb(20 18 14 / 0.74);
+  display: flex;
+  outline: none;
+}
+.env-skip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  border: 0;
+  background: transparent;
+  color: #fffdf8;
+  cursor: pointer;
+  padding: 24px var(--gutter) calc(24px + env(safe-area-inset-bottom));
+}
+.env-skip:focus-visible {
+  outline-offset: -6px;
+}
+.env-stage {
+  position: relative;
+  display: block;
+  width: 200px;
+  height: 160px;
+}
+.env-svg {
+  display: block;
+  overflow: visible;
+}
+.env-paper {
+  fill: #fffdf8;
+  stroke: #cfc4ad;
+  stroke-width: 2;
+}
+.env-lines {
+  stroke: #cfc4ad;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.env-body {
+  fill: #f1e3c4;
+  stroke: #b9a67e;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.env-fold {
+  stroke: #b9a67e;
+  stroke-width: 2;
+  fill: none;
+}
+.env-flap {
+  fill: #e8d6b0;
+  stroke: #b9a67e;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  transform-origin: 100px 60px;
+  transform-box: view-box;
+}
+.env-seal {
+  fill: #b0413b;
+}
+.env-kind {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  transform: translateX(-50%);
+  font-size: 28px;
+  line-height: 1;
+  opacity: 0;
+}
+.env-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.env-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.env-label {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+  max-width: 28ch;
+}
+.env-hint {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+/* full animation (≤ 1.5 s): pop in → flap opens → letter rises → fade */
+.env-animated {
+  animation: env-fade-out calc(var(--env-ms) * 0.18) ease-in calc(var(--env-ms) * 0.82) forwards;
+}
+.env-animated .env-stage {
+  animation: env-pop calc(var(--env-ms) * 0.22) ease-out both;
+}
+.env-animated .env-flap-closed {
+  animation: env-flap-close calc(var(--env-ms) * 0.14) ease-in calc(var(--env-ms) * 0.22) both;
+}
+.env-animated .env-flap-open {
+  animation: env-flap-open calc(var(--env-ms) * 0.14) ease-out calc(var(--env-ms) * 0.36) both;
+}
+.env-animated .env-letter {
+  animation: env-rise calc(var(--env-ms) * 0.32) ease-out calc(var(--env-ms) * 0.45) both;
+}
+.env-animated .env-seal {
+  animation: env-seal-off calc(var(--env-ms) * 0.12) ease-in calc(var(--env-ms) * 0.2) both;
+}
+.env-animated .env-kind {
+  animation: env-kind-in calc(var(--env-ms) * 0.2) ease-out calc(var(--env-ms) * 0.62) both;
+}
+
+/* prefers-reduced-motion: a short fade, nothing moves */
+.env-reduced {
+  animation: env-fade-in var(--env-ms) ease-out both;
+}
+.env-reduced .env-flap-closed {
+  transform: scaleY(0);
+}
+.env-reduced .env-letter {
+  transform: translateY(-34px);
+}
+.env-reduced .env-seal {
+  opacity: 0;
+}
+.env-reduced .env-kind {
+  opacity: 1;
+}
+
+@keyframes env-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes env-flap-close {
+  from {
+    transform: scaleY(1);
+  }
+  to {
+    transform: scaleY(0);
+  }
+}
+@keyframes env-flap-open {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes env-rise {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-34px);
+  }
+}
+@keyframes env-seal-off {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes env-kind-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes env-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes env-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 「隠す」 (outside the full-screen skip button, top-right, clear of the notch) */
+.env-hide {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  color: #fffdf8;
+  border-color: rgb(255 253 248 / 0.5);
+}
+.env-hide:hover {
+  background: rgb(255 253 248 / 0.12);
+}
+
+/* The global reduced-motion rule (theme.css) shortens every animation to ~0; the specified 200 ms fade
+   (F12 AC2) is the reduced-motion version itself, so it keeps its duration. */
+@media (prefers-reduced-motion: reduce) {
+  .env-root.env-reduced {
+    animation-duration: var(--env-ms) !important;
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "schema": "shiori/1",
+  "work": {
+    "id": "demo-hoshiyomi",
+    "title": "星読みの図書館",
+    "safeTitle": "サンプルA",
+    "circle": "サンプル工房（架空）",
+    "kind": "game",
+    "engine": "rpgmaker-mz",
+    "version": "1.0.0"
+  },
+  "author": {
+    "kind": "creator",
+    "name": "サンプル工房（架空）"
+  },
+  "kdf": {
+    "alg": "PBKDF2-SHA256",
+    "iterations": 200000,
+    "salt": "1LR3NrgsdDOc8fy-bTL-fQ"
+  },
+  "checkpoints": [
+    {
+      "id": "ch1",
+      "label": "第1章"
+    },
+    {
+      "id": "ch2",
+      "label": "第2章"
+    },
+    {
+      "id": "ch3",
+      "label": "第3章"
+    },
+    {
+      "id": "ch4",
+      "label": "第4章"
+    },
+    {
+      "id": "epilogue",
+      "label": "終章"
+    }
+  ],
+  "groups": [
+    {
+      "id": "endings",
+      "label": "エンディング"
+    },
+    {
+      "id": "ach",
+      "label": "実績"
+    }
+  ],
+  "goals": [
+    {
+      "id": "end-a",
+      "group": "endings",
+      "label": "END 1",
+      "teaser": "星の地図をたどった先で",
+      "spoiler": 1,
+      "hints": [
+        "書架で見つかる古い星図は、並べ方に意味があるようです",
+        "星図を3枚そろえたら、閲覧室の天文の棚で並べてみましょう",
+        "天文の棚で、星図を北・東・南の順に並べるとEND 1です"
+      ],
+      "unlock": {
+        "type": "code",
+        "codeKind": "b32",
+        "tag": "vxi0r0qyCzIkBCmvDcewhQ"
+      },
+      "secret": {
+        "iv": "ljRF1-47NwoqSjdW",
+        "ct": "MZq0mIPfkyuE_NxN-ryffpsREbdA5L2gCPNUkjeWGsdSOf4ZeXQe00xtCFDdwAs0q_6_3p6ogFptclPlAZHajy_Ru7xWlqbmZRzUjGvwNeFkguAiVNm09ygste-_49lO_LCrLsQ31po11vqkzEHtuF58udgi4HctTNeylGktrTnXuzrMZaBmXfsnDTDhPEtBad4WT2T0O8HiZwTIDbYjHkXLNbg4SEfT0EpF-zKtc51Y3BadIa-JZ6gjs6eVp0tNGC5eKnDdikTHBtqE5ja8NmULIBlQMfhuN4RnEGWOY92jbNujRb86WwKGxbI27Sp_1Y8R7WzO7UUxJTIghHoYy4KYAQnFCFuw1Phs-RkWzsVVAneooXWW3lQNbYIWZHJF5KoIOoUHLa1Hb3-koq9PyynG-ieFJLKSmOGqIG8kCMJntwUt52hacAWDVRSwI4Bwab1X8bzhcBscflY3tjGTI9N0YMigTVugG-2u1OkADs0Y0oU"
+      }
+    },
+    {
+      "id": "end-b",
+      "group": "endings",
+      "label": "END 2",
+      "teaser": "閉館のあとの、静かな時間",
+      "spoiler": 1,
+      "hints": [
+        "夜の閲覧室には、昼とは違う景色があるようです",
+        "閉館の鐘が鳴ったあと、帰らずに閲覧室に残ってみましょう",
+        "閉館後も窓際の席で月を待ち、「もう少し待つ」を選ぶとEND 2です"
+      ],
+      "unlock": {
+        "type": "code",
+        "codeKind": "b32",
+        "tag": "exglCuixaVXt-_hRFdXVPw"
+      },
+      "secret": {
+        "iv": "wqhUCWbJ75G4GWB6",
+        "ct": "A4DitUHtpbqpJF0c2NiAz01R8djBOFie-9i_HalsyYdIxEqhzJ2ADpjJHy3sCg-fVIPPYpNaDBNGuUCNP8kPGLxuYa5leoPXz5FqHKaGngXswCcYja-BTyL0hbQqkOiI_L18jXPBF-Ed55JG_WHI10PQGE-YBrI8VtNukwvIvxik6Ns2BrqRzgJ-M7XoijwoszedupcEdRi6FH1WGIiVWZmalas3TPVpK2w29agomqF3Zo-q-cT8htpxXyv3639j_DG7_yJXv3uVsASqUUvbw7y96EBBAAjndYWslc0-kgtr-4B5B73DIxaw5_h9rMwIi_Q7khQgjzQL3b-e_5rGJ_omQj4ia5CIGwQGmqH_o48os7v8B6jytJUcTKTh5jmtPuP4ZWqhvjqeEHDb0F-o0lVNJYoGdzdTx1fPOEWRLT2EiDIfD7WeACvcQeatE_9bp6djdyVL-sDO57OgqNkU3agd94ewHFOvZP4DWEMvfmd0F-tUUQ_wlHtL2lE"
+      }
+    },
+    {
+      "id": "end-c",
+      "group": "endings",
+      "label": "END 3",
+      "teaser": "小さな案内人についていくと",
+      "spoiler": 1,
+      "hints": [
+        "図書館の猫は、ただ気まぐれに歩いているわけではなさそうです",
+        "猫がこちらを振り返ったら、そのあとをついて行ってみましょう",
+        "猫について地下書庫へ降り、いちばん奥の棚を調べるとEND 3です"
+      ],
+      "unlock": {
+        "type": "code",
+        "codeKind": "b32",
+        "tag": "Fv-RbHZgjIdLFadK-6jrpw"
+      },
+      "secret": {
+        "iv": "bP8MAk12SQmRKB_p",
+        "ct": "ojoqkgygmxnhLvHbLvk1SHcASV0pfzPd3cvVSpr6gKdcWBYqTYgF9N41thhC3TUxGOXOY-AQuF3kTWSkfJ4YWGnfpE1-3F3dxQjK3xF49fqN1baqZQOYCmQeqF6UQTz5-YnxFSrO6Zox4VCPVaoLTOqs5S2qaxunD95A7WvREhZEc6Yyicexl7xgEr6zaYEhDalH4yxmMNvoGHCLLGb8SNiwJGky-6oEoJx0ebWDXWIt6ZtS-HimiPsN5VAVuh82JKPDEjip6nLh3TnW_54vxKpSYyGIZa-C5ediP1b9CMQa8qE0uoIHjpb-vxh-UmfuFY_ttE44LfQ5L5N9b-AmLLWEjyjDN5z9o-QrUjQd--17MrZWSpE1DVdIiUaqec1xClqJmPdX7B4rz9CPDaEgpzZAt3zqmXPsKUUKNC0qdT4q4aH0oEoEIGbYJzOORVq-Tdop2fJgOMonYnMOT86-UAchudRrKBU"
+      }
+    },
+    {
+      "id": "end-true",
+      "group": "endings",
+      "label": "END 4",
+      "teaser": "図書館のいちばん上で",
+      "spoiler": 2,
+      "hints": [
+        "図書館のいちばん上には、まだ行っていない場所があるかもしれません",
+        "第3章のうちに、司書ミナともう一度ゆっくり話しておきましょう",
+        "第3章でミナから天文台の鍵を受け取り、屋上の望遠鏡を2回のぞくとEND 4です"
+      ],
+      "missable": {
+        "before": "ch4",
+        "warn": "この先に進む前に、図書館の中をもう一度見て回ろう"
+      },
+      "unlock": {
+        "type": "code",
+        "codeKind": "b32",
+        "tag": "1D2gFtQ5M0gknkTrX8Q3Ow"
+      },
+      "secret": {
+        "iv": "ukOhdlbXH-rD6yhA",
+        "ct": "Oggz8B4A10wRBbruavxp-f6qqRSF2uEPL7iZ2B_ASruCFwH5HLMwtqD0WpSIEMj0Qu6rAgdPetCCQgWYsMOt19EITPbxrUCtBo0cfxPYJKBiwp9iQL8-zNxaFu5sP0y036XKD-sJ9t3MIVNVFtsfYjbDa1FhkSZiwEL5lhlxCrCDSRrMbju2MHxg4uULHYCUoY91_r70PT2BdCpTarKkzmjM55bB_VAE7x_c_roVBVSdfYMMxUTvxusOOoM5tILR4f3IP5MbcUH3TGtspRT2WVZhE7k9GgZce_8x-VZAqtT-9LwQC_viymMGHez3R0KnMkD1XqQgcWTIZKptCR18Rzzn2A_WjPlhV0tExx9U7mufzwub4YhSXEhAUksRA5x_I2fkw142cS9nTEpf0zWwU3-MAnvgNzqQJWKj3TW-rKrKdKa4sgoFU8RhqBBDbxkJRY1Bf_bqVt5p-oG3EsRpCSVC6OkB2uRGUPK7ABW4oNRmL8AkZZ4HXUMx81A7yzZs7plqoEgfkYsI5hhwaviX7wavWpA0wSQFIA0KnU_qMPI"
+      }
+    },
+    {
+      "id": "ach-shelves",
+      "group": "ach",
+      "label": "全ての書架を調べた",
+      "teaser": "図書館じゅうの本棚を見て回ろう",
+      "spoiler": 0,
+      "hints": [
+        "書架は、閲覧室のほかにもあります",
+        "地下書庫と司書室の本棚も数に入ります",
+        "閲覧室の8つ、地下書庫の3つ、司書室の1つ、合わせて12の書架を調べると達成です"
+      ],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "ach-cat",
+      "group": "ach",
+      "label": "図書館の猫と3回話した",
+      "teaser": "気まぐれな猫と、なかよくなろう",
+      "spoiler": 0,
+      "hints": [
+        "猫は、章によって居場所が変わります",
+        "閲覧室、階段、司書室を探してみましょう",
+        "第1章から第3章まで、各章で1回ずつ猫に話しかけると達成です"
+      ],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "ach-starmaps",
+      "group": "ach",
+      "label": "星図を3枚集めた",
+      "teaser": "本のあいだに眠る、古い地図",
+      "spoiler": 0,
+      "hints": [
+        "星図は、本のあいだにはさまっていることがあります",
+        "第1章と第2章の書架を、もう一度よく調べてみましょう",
+        "天文の棚、児童書の棚、司書室の本棚に1枚ずつあります"
+      ],
+      "missable": {
+        "before": "ch3",
+        "warn": "第3章に進む前に、書架の本をもう一度よく調べておこう"
+      },
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "ach-stealth",
+      "group": "ach",
+      "label": "閉館後に誰にも見つからずに第2章を終えた",
+      "teaser": "足音をしのばせて",
+      "spoiler": 1,
+      "hints": [
+        "見回りの足音に、耳をすませてみましょう",
+        "見回りの灯りが近づいたら、書架の陰でやり過ごせます",
+        "第2章の閉館後、見回りに一度も見つからずに司書室までたどり着くと達成です"
+      ],
+      "unlock": {
+        "type": "manual"
+      }
+    }
+  ],
+  "sealed": [
+    {
+      "id": "letter-mina",
+      "label": "司書ミナからの手紙",
+      "teaser": "どれか1つのエンディングで開きます",
+      "kind": "letter",
+      "unlock": {
+        "mode": "anyOf",
+        "goals": [
+          "end-a",
+          "end-b",
+          "end-c",
+          "end-true"
+        ],
+        "wraps": [
+          {
+            "goal": "end-a",
+            "iv": "EARPS3PriFVc9Ke9",
+            "ct": "BEypeH5QxdBhmkZhscHxvReiY6P7cRZp35zrxwgbD1uasNsgLaphFO1pVv3pjW3r"
+          },
+          {
+            "goal": "end-b",
+            "iv": "H6ZlpCsu09RIDIxb",
+            "ct": "TY84LHcK-r1sLIcXRPlUvPz3S95NzpnFK97q6L6TBsCGItFnYjz0ZPtg6cNGrF6o"
+          },
+          {
+            "goal": "end-c",
+            "iv": "npEV200EdeVk2W9x",
+            "ct": "iSrJH3u61fCNq8D6VZSvAsDv8d5tOQmumGQpR5iO-QjfL8QaC0Pg8kbT8tOHM5E1"
+          },
+          {
+            "goal": "end-true",
+            "iv": "zTJR_GcYqeRu_DQe",
+            "ct": "9UFB6zovXgy08bXAsrWVgZH2cEL0Azny8VLDklFXTJWmDHJgCH82q8i3kfoaR16W"
+          }
+        ]
+      },
+      "box": {
+        "iv": "QZgB8qRH_Esu7nxT",
+        "ct": "SxbUPCGBQ2exe7cTg4dNO33Ub9zAP194dpvuS3eF7ApWE2hBIjizo0udl2KEq7Er5iuD06KvZP3dLX2kKDiBbdFJ7iumDlCbOHIgWo5p8exNsC0CBYLc8VRyM5B8kGkk3YGj0GkS2q22Q7Wr-qFS4cyPmsWaTjsWX112Ol9DawyacrHQiK83WKOq4TTgfuRfXce2qTRnEro5EBybV-RSOM-pzX-InLR3PEblGVPwSiRxFK-IoyLQcmEQbqgUlwGyFqdFpcTRfCm26jmlAuZYz9L28dDE_Ot_sGZApE0bbyLES-THiyD0_8BOkH3p4D8VS320VWAOTkia8A5vmkNUfDr_-QY82UcIUDMwkDiy2SJ896CXxKaS_5a53FDMedQ-A3iMTqLjWOLr1KyiyrZJLuxWWFqkZypqvckDjGtd2xXUgwcoloD8V35_BrfmOQdZWTZTiwNb9gtBevb0IYd0YGAyD3s_Px4bWZOF1NfrKdsyL8toZCkxiVyRVS5x3pwcMZSIrZ_ZFGe2bXlY-uG2naDYezKC4bHBnXidXCZTl9B0iX2K7IpjkKn2fURZLrkfxy5zDDZmqxGBzsWkzdnYtlEOVNjNc9KQ2Y0747CZP_FmJuKBnCxbty6l5-jGsS0K0085f68pTgGS_PdkN5awxyg9IjUpJ6QM__sBbJYDihvz7WQTYJs5PsN_zRGdHtJNFkorffkgcm2R3LDEe8wCXFfufksy9GBynhSIIWzDGBgC6rgKeBz8T6L967iEumGsh_qE6oA0Ky3mjiJ-s9F6PATgbvjsl__3j7vGtO5T0UFzRPFxqFmJrrdV1GO3aPlPjVDK8ULznBfZEeJOS-vpim6WfEicmQwZzeIUTeE1gPFJ18WSrSscQ2ul77cb-CX825ohoQPtFNghEkrKb-43nuq_74Y8-w6THSeyVXbVFZBCYmXWKoGXyMQCNWHIXpPvxkGGfs1KhhkUtoAz7Z_J_VXdheDEUCg_eTPGoQqUkLHYWFxgJxBcc3IGcLsE-LmWNoa7a-KASViR-WARIh3A5-ARbjOe7xqz-JrLI36_JycR_4YRVI2MbKihK18S7keOGFxRKISX6IjjA7YwENUtGRTE9kwH-8wUT_xIonk8PyNYCjO-0dQILt3mJHVpqGc8SvxC5d4NHNvzEwgQi5XiL7gE7M8y2U1HRLbSK9Wz-wbbDiapSUhB7v-RLKGg5jbbGLNuIMr3GEHwHKL9h9YxR8Bxt_xFqZgvbG33g33ZE72Wn-JEd1TTxYb-YWjHTvTl1vFzNSJUfiMnZPmXP1-pYBwQBNvXcs1MPdRIs7Oy7wk034e8lHlPOiYKd8cbHGfBB73oiDrjvJzgjoAxOWMOw4Lb7mEgmQnKDvpBEWI7sPcm5BTeNoBtbDpISNKAgWX4jifFAmEndNZYImCaug"
+      }
+    },
+    {
+      "id": "afterword",
+      "label": "あとがき",
+      "teaser": "全てのエンディングで開きます",
+      "kind": "afterword",
+      "unlock": {
+        "mode": "allOf",
+        "goals": [
+          "end-a",
+          "end-b",
+          "end-c",
+          "end-true"
+        ]
+      },
+      "box": {
+        "iv": "cE-NH0JsRfsy4BFG",
+        "ct": "1KkqjdRTcsJppOSBi0wA3Nc7iqWz_Gc-FQg8YU0wHIaWGnPXbZkRnLsjrzfR1X2trsW3NDXhuX_ztAtFEW6BYSQj9zlscnJpcAgP_u-L5vTgjhWivZdyddbXXiVB-yAT_v3gp5eMp9JiTQpNm3kHzLPYtQauBtL-rbnFpGmTUzk4NCTR3x0Rhl1nT4X1lOjyGy_GdLr7sgIWEPMP5KuMA91M9DO7-2cGI2051f0bwJIQrUhLmyEquqO4mhbqs7rRAbYiwzT_70rq8Or5uaty7JGG-wSolDo6nhKhLULi31DuiKzc7AE-FmJBVaBAAKLkNuBWCpDzeFLtZ-xXCCPB3FL5lvW98qy7mG91sP-eGYgfvg00u_1Nq20uV8PjxjjeEd1xZOAkG5q1V-EgORh2rkEoQg7cXfiSZQijOakSAKYZprYO7_F9SuWYcmoZ7kY5kVsiVOkRMzZTQi15mIQiSZvOMJBSJdJ9Bx9UdFboMQQjWAwKtWmiZcd0IjXck0t5MT9Yc5Pr2Tnj2-HmOPt6OSAcywpYvY9gJXNEYEqHWEVcjmdWfjTfXMdRgEVYGkBpNd9HrDZ6BPgUmlivWoQyH1AbpXrIV4gxdSF9tYBqH7x5Y13NE_OmvwMSnXgKOW6Jxi29OFVZYpdvN68DgZVq0FcLNbhBZQmFq470ret0N5x_l6hLwaXjdreKDj00hni8Evq7erqI2J1ryQYsIYlFZOfn__yQMTL-riOaxpvevsr_himV-yTpXIVWcTgeVY1iqRUV1yeeMuG-Z25oiE6_7hCgTjHrIooemw-cQwXF1WgWqb2Jd-9w5CI6_4Zm3oEXk2LQkkgOsBcLcPVo-Rb_zoolpx9QECVuGMgrOtNB_ZX_93Ytu5uBiwa4aPR-bdeVHwXwLZF-NB-7UgegWjTEHXu3jr7ukLuuWn_qp15NDgIwXefAPGSaQcBDM1uCBxOnuJ3RLCQfh64OPlwLHLmNwasT704O7VxfVVT1zlKV5WEBq0YB7vfXuNPsfh21-4b9o-aBSQnDJ0v9QXBF9813sNuRAs7DSxGNsKhTEOpU8MldtPCkGz1Zn_eFKAKeIIJ7uYjTSu7OaS4O3LrgHQ-6J5KndUTLs6Q6SSy-gLFivOp6eASHKL41wediNQ5YeOALFhlSWNNOrkpH12K0q2pWjDQLcv64wauETeNQeriwls1VdAaeBagjiDlF_e60L1q4c9BTMiTxSfyL6nkG_fDHDiRIM2E4dLhOpWrj7_aT_7S3fX89u_rE79kABcFOMps1yqP7C0NHzpiO8DM43Lnx_lFm6tMnYyzKzaVCzjs221693EYbE8mG6-htUDv80MIIWV-AzAErdEyealMgudXok-YnwbFYM6F1onGX7IyHPdSs6vsU0X-tOAauiGJ63tZjqKMAkIz6o1-renRij9QCBINkDxd5UpS-aIVbHUztchDdWWgHO2-WZmThZ9_2NH8_Hcyh0f5T2FjRTEC0LRm0mUsthL3D_f1BNtt-h0RxSRmkSjxbWP67lN8TxCaznQxPIg1PM_he0FHn1qZthWNaopLBjHfzKbd3Ta85mlFLJgmuxj91G7vzdDq-ENoq-gd5-c9Nom5W60rVhLRdKD_nKudy4THimR7RiwIpT9ch-7Kss1ksqfH00DIGEic4GQMfwQdZYEGY6d0"
+      }
+    },
+    {
+      "id": "door-code",
+      "label": "図書館の扉の合言葉",
+      "teaser": "ゲームのタイトル画面で使う合言葉です",
+      "kind": "returnCode",
+      "unlock": {
+        "mode": "allOf",
+        "goals": [
+          "end-true"
+        ]
+      },
+      "box": {
+        "iv": "eS6Nkz46JV12gQ2P",
+        "ct": "P0sEgLAUAqATaWwCsy9oj0DTqCN5xQX_N_fFXAiBhT7OB0RtARJ8LpacRWZ4q6qlzvMbO_ioDQHJ8DbPcRJ9XFXwCHiKeTD52mVDjc7kH6xn9C_dUj9SVNKGiyhpH0XV_3JEAV1EF1JL_sSbbQL3w6FGeIEX5ugH2zLVihEoiv-mgDB8K0zFwrJng4qB72Dm3xOKdvhiRzoPHiBcXKZMvjGp-QjP79TBcyWFGlLWwgHOeXprEvdRJiYPDDWmirO5MnIe5pXIcNfNJUqVpsqvGB2hJjLWa3311RhlFdemCfv3BjwHXPIggfKmApEZ3qCkKCL1TaUepLHnMmPv8Ug36iyO_-MJzs4S2fy_yvlBEJY1hMAj6lMGgzUI3WcgfvZWAVApxNWvW2gdu0HtL29EUN6E-KFj3m-jO0f77uwoFmecNYT89UAd_DlnkcimIcEBycVFg3BdosI2eAdv6QLwpZd1lwZzZOvkqke9ZGlQcYevLA8mc-QFOVPeUHGo94Jx3NvJ2JT2GO6onrQSiIzaoLiLnErgETGsOUZfO9BDPSrO-MzJiUROQrkwJhqQ38ay5wF0-kKz2rh9woCWBgvdIw753OUCaYbrZ0o6eO8cs_4X962SqJPtGKGlFyz89LQ7cA8rzAVfDIIDfC1t89AgAEk4j6mzOZlFODFL4AMALUpLjwNc5r7ZGRJOfX68"
+      }
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-01",
+      "notes": "初版（しおり帳のサンプル）"
+    }
+  ]
+}

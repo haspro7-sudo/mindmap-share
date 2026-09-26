@@ -1,0 +1,188 @@
+/* ───────── toasts ─────────
+ * Toasts sit just above whatever fixed UI is at the bottom of the screen, from two explicit signals on <html>
+ * (no :has() needed):
+ * - data-bottom-nav (set by the bottom navigation while it is shown): lift by the nav height;
+ * - --toast-lift (published by sticky bottom bars through components/toastLift.ts, e.g. the work page's
+ *   session bar): lift by that bar's measured height. A sheet covers such bars, so it resets the lift
+ *   (data-sheet-open, set by Sheet while open).
+ */
+.ui-toasts {
+  --toast-base: 0px;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--toast-base) + var(--toast-lift, 0px) + 12px + env(safe-area-inset-bottom));
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--gutter);
+  pointer-events: none;
+}
+.ui-toasts:empty {
+  display: none;
+}
+html[data-bottom-nav] .ui-toasts {
+  --toast-base: var(--nav-h);
+}
+html[data-sheet-open] .ui-toasts {
+  --toast-lift: 0px;
+}
+.ui-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
+  min-height: 48px;
+  padding: 6px 4px 6px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  animation: ui-toast-in 180ms ease-out;
+}
+.ui-toast-ok {
+  border-left: 4px solid var(--ok);
+}
+.ui-toast-danger {
+  border-left: 4px solid var(--danger);
+  background: var(--danger-soft);
+}
+.ui-toast-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--surface);
+  background: var(--ok);
+}
+.ui-toast-danger .ui-toast-icon {
+  background: var(--danger);
+}
+.ui-toast-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+.ui-toast-action {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.ui-toast-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+@keyframes ui-toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* ───────── dialogs ───────── */
+.ui-dialog-root {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) var(--gutter) max(16px, env(safe-area-inset-bottom));
+}
+.ui-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(20 18 14 / 0.5);
+}
+.ui-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.28);
+  outline: none;
+  animation: ui-dialog-in 160ms ease-out;
+}
+.ui-dialog.is-danger {
+  border-top: 4px solid var(--danger);
+}
+.ui-dialog-title {
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+  padding-right: 88px; /* room for 「隠す」 */
+  overflow-wrap: anywhere;
+}
+.ui-dialog-hide {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--muted);
+}
+.ui-dialog-body {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: 0.95rem;
+}
+.ui-dialog-field {
+  margin-bottom: 12px;
+}
+.ui-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.ui-dialog-actions .btn {
+  min-width: 96px;
+}
+.ui-btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--surface);
+}
+@keyframes ui-dialog-in {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}

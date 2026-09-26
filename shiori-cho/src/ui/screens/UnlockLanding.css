@@ -1,0 +1,37 @@
+/* #/u/… deep-link landing: a neutral spinner while the code is checked */
+.ulp {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60dvh;
+}
+.ulp-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.ulp-text {
+  margin: 0;
+  color: var(--muted);
+}
+.ulp-spin {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: ulp-spin 0.9s linear infinite;
+}
+@keyframes ulp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ulp-spin {
+    animation: none;
+    border-right-color: var(--accent);
+  }
+}

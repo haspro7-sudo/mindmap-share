@@ -1,0 +1,89 @@
+.pg-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pg-bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+.pg-bar-label {
+  color: var(--ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pg-bar-pct {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.pg-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pg-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.pg-bar.is-compact .pg-track {
+  height: 6px;
+}
+.pg-bar.is-compact .pg-bar-pct {
+  font-size: 0.78rem;
+  min-width: 3.2em;
+  text-align: right;
+}
+.pg-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms ease-out;
+}
+.pg-ring {
+  position: relative;
+  flex: none;
+  display: inline-block;
+}
+.pg-ring svg {
+  display: block;
+}
+.pg-ring-track {
+  stroke: var(--surface-2);
+}
+.pg-ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 300ms ease-out;
+}
+.pg-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  text-align: center;
+}
+.pg-ring-pct {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pg-ring-unit {
+  font-size: 0.6em;
+  margin-left: 1px;
+}
+.pg-ring-caption {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 2px;
+}

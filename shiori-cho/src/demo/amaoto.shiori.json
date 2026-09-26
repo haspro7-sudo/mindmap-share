@@ -1,0 +1,182 @@
+{
+  "schema": "shiori/1",
+  "work": {
+    "id": "demo-amaoto",
+    "title": "雨音と読書の時間",
+    "safeTitle": "サンプルB",
+    "circle": "サンプル工房（架空）",
+    "kind": "voice",
+    "version": "1.0.0"
+  },
+  "author": {
+    "kind": "creator",
+    "name": "サンプル工房（架空）"
+  },
+  "kdf": {
+    "alg": "PBKDF2-SHA256",
+    "iterations": 200000,
+    "salt": "LP1Cya8C7z8M294rYv5NUA"
+  },
+  "checkpoints": [],
+  "groups": [
+    {
+      "id": "tracks",
+      "label": "トラック"
+    },
+    {
+      "id": "bonus",
+      "label": "おまけ"
+    }
+  ],
+  "goals": [
+    {
+      "id": "track-1",
+      "group": "tracks",
+      "label": "Track 1 雨の降りはじめ",
+      "teaser": "窓をたたく最初の雨粒と、古書店のドアベル",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "track-2",
+      "group": "tracks",
+      "label": "Track 2 窓辺でお茶を",
+      "teaser": "あたたかいお茶を淹れて、読書の準備",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "track-3",
+      "group": "tracks",
+      "label": "Track 3 ページをめくる音",
+      "teaser": "お気に入りの短い童話を、ゆっくり読み聞かせてもらう時間",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "track-4",
+      "group": "tracks",
+      "label": "Track 4 遠くの雷と毛布",
+      "teaser": "遠くで鳴る雷。毛布にくるまって、続きをもう少しだけ",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "track-5",
+      "group": "tracks",
+      "label": "Track 5 雨宿りの猫",
+      "teaser": "軒先に迷いこんだ、小さなお客さま",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "track-6",
+      "group": "tracks",
+      "label": "Track 6 雨上がりの約束",
+      "teaser": "雨がやんだら、またいらしてくださいね",
+      "spoiler": 0,
+      "hints": [],
+      "unlock": {
+        "type": "manual"
+      }
+    },
+    {
+      "id": "bonus-talk",
+      "group": "bonus",
+      "label": "おまけ：Track 6 の合言葉",
+      "teaser": "Track 6 の最後に語られる合言葉で開きます",
+      "spoiler": 0,
+      "hints": [
+        "Track 6 は、最後まで聞いてみてください",
+        "Track 6 のお話が終わったあと、少し間をおいてから語られます",
+        "「しおり帳の合言葉は」に続く、ひらがなの5つの言葉を入力してください"
+      ],
+      "unlock": {
+        "type": "code",
+        "codeKind": "kana",
+        "tag": "93nYCRFcPT7ws3lTBURqrQ"
+      },
+      "secret": {
+        "iv": "vTCcJC5yJDjq9FEv",
+        "ct": "8HjoaPKvLYjuQUdN9fWASj3CJrrbXBR-V2IU_DjItEfkX9TI5o2uCCam_WwEBrwuQIBgPn-3v8xA8j6tWebhhtz0EoBB5wVgUC6U5nP8IT5YAdcPjIdctszyuwYEPJkzpiM1YhvgfhiHrXcee1GUeNO0_M9YNSO3Wdn3Hrl4q4nNOUnGvvHXbVEMrJqdYRmqVGV6SGMEbxGR6S0aA-z7v0IZrFZCVr3SbxCeRN3TRPV9Ga2n4CMdhqL9NyY8na23K7a82jHc9GKN7hyIgDEqhvXsUtwmbCd6axpqVWSra15o4etn6_aztrgBXs5whs7LtWhxAPayFe95IsjlmtIEofK1nA9qzHqBNEJNIxU4lFwQI__i6vOgEAeU8gCZsdI1sv1muVpSfKadP56eyZFmkbUghNMsdNYZPvZ9licMak9nU_R6O3a-JwahxC-L1z5wS61DbGKygsiWSCL3BLcBMjaUn_mp8FH8_rUqnaiutiZnXOev5GDfx2DYFE27o6asbS-rlZe5AyRR-YCsxTX5O_sDNpALefYt9fDt"
+      }
+    },
+    {
+      "id": "script-page",
+      "group": "bonus",
+      "label": "おまけ：台本の合言葉",
+      "teaser": "台本の最後のページに載っている合言葉で開きます",
+      "spoiler": 0,
+      "hints": [
+        "同梱の台本を開いてみましょう",
+        "台本のいちばん最後のページを見てください",
+        "最後のページの下のほうに、英数字9文字の合言葉が載っています"
+      ],
+      "unlock": {
+        "type": "code",
+        "codeKind": "b32",
+        "tag": "5IxQ5lHquexKIhlEZn-mGA"
+      },
+      "secret": {
+        "iv": "iutIds1sfU2jcfo4",
+        "ct": "NWGjauZgiBxy_65-eu3vKxgoJ59Czx3tz_rWC92GSGbDGOPc1JXBjvDnfCEM5W0Rsf3LFcuRpaQzvH1PoCSCO-cKm9AsO1kg8OaC_TfPWaO7om0-zBownFbsPFqzkW0lHNhyvdYmBOKFm3FyOUciMduxORMn2mKwEblwTyVnwZnKaYdbmVl6iJwq87MuH4atOfAw-sxVwvKILKpo0G1Gdz3E4JgKfp3Q0ruo2ro0spBcO5vP58DFFTeDq7U2TKbV0MfatIzuh6ioROdo_O8yo65nkw0ptFm3WfSPmKTYCkcHQYHt4yyEt-KhKyoV_jPbTg8WE_XbswLB2i8EQrO2j6U5Ie6MIxXloLJzJWE-U1pBr9_WCl8bVkwL69ctI4wL9decDTUxPaoivoDjfBxwq3RsKsVCy_hKtyaYhfkjBwI-b2M1A02FULWlHvJEsge2RrJGZJDH6JguImsg-Py9JCPlc4vFTQq2bcetV-cT"
+      }
+    }
+  ],
+  "sealed": [
+    {
+      "id": "after-talk",
+      "label": "アフタートーク（文字版）",
+      "teaser": "Track 6 の合言葉で開きます",
+      "kind": "story",
+      "unlock": {
+        "mode": "allOf",
+        "goals": [
+          "bonus-talk"
+        ]
+      },
+      "box": {
+        "iv": "J9xnSEQPpS08L7GM",
+        "ct": "C867zdtD82c7f3eE5wX-h0F51GYdmspK3sVkgYst9D96WkWynvW29I-l5uHVS-ocNGpfk4rF5X1J_ewAFLHOuBL0CI8bndu2WfuDIuZurGdExufRJXD4bkeNw2DwLFbo1kG0Toz-meg9qno2pPYGlPVfs2Lcwy4TeHgoQRsYcOyFcbz1Hawt9v1nTbiTfxCN8eHjddFIfcUxhAcjxlKsMDLwXhisV-2g1anmlRI4kmW7PjGbyvIcXQqt-3eYZYFRujun3fpMEM4o4_6sH-mCL_V-1T-OEDuRLlmy7GA7bBRcWb3Y2bF97tjwDN-alIr9M3gXKKa3T06j9nEKAbgtMX_KcPI0pGsbQaczXtKI_oaw16fIQU9j4PutmTIWkcybDqFYF_5j1MMW5QcZMfEUbXwsCKK0UnxOyg3bbjQxGppW7_H6cyB5AVokAVIVRjxpNLm6tm_u-CL-rK6XJBy3cWzQkyADRrC3iZGm-vZuURS_4rTtVIrVx2xKNQ__3MUt5lWX6uoYQD6TvVqVdMwZ7cgtpRYQv9OQ4JVTFV8JxbW-_sujXYBwH12gSU0kOME0OhMp1qiq8K_F-LJOSX-Di6GJbB9CByDJbNYFfDcNOYIIjTNiW-URkZH2YOAEiQ67E63xUDOqqrHNiYtRi3mdvVswvJzfylbcoIh115ceD-4MwbRc14_Q1I8Pfu6h2PZeayx2mKU4E7rzJhleCnfLpKD7zbQYxfj8lbfdAY5c2duuAIFLlG_xnuz455LsViYwT1dTcfwJ5n7K3hfn7gFyaY-G0JRsbysPlMUWE64A5FEdmbE32U-C7jaTbE93p3hCRVzWaYyEM92TWfPZ99KUr6iHKktlhOSOqyQaRRri3lra2n8pik0w5wXyt6lSYzaDg7G_vncxCnAVVOBKRqXHszWBaCPY7w9VUbj6VuIdrVW8SoKt0AKsJjHBZJqeqSXvM5cIRymWYvBWIBWs3xZgJxPQ0kVEbWdTur6PGVG_1MXefl2VSfOfhYci_6HmQFqrl7gMHpOC_A3gRKRG7andrtymv2w9fCpDwa9PAxahM7Tg4j5VsOmKVK6LTbcj2rZLwBjTA0d358mryYZCP_H0P6x4G8EtnpwjF7cjhz7UgtElYAKiTxwNuUyoD9LyisOUiBj6aaffLaWwnDXDXZ9ZepxpQV1T0liG5_1egRf2RpexVoOsMt0jtYiUoIbjKAXSX8oLu-kmgIqdOslo7ny1VIGyoRTxTrTmczZQbVZu3zNlB5KV-1_WhOkIZ_b2zyFrE4VLcMOtaIZMYqOENl7sn7AFo-z459Q9ipwEe1xlAmQYhSrNAiZStyL9_TM1WV5tdcsNmQmKnr6UZmG0IL_Eo976OAvZVEV1LYiXEjxWRGQL9qW8668s-f0ZjsLbTS6-xgyy5CGma2ppcZ04hvxc7AKWcsuIQoCju6ALR958i8DVuv31GKcJhGWNJmv3UAx6LhUGQhCB8gr2HswIz1L_smPXZILuD4qYHodG11fqIhB7P8rBjvHa8b2EJgrBsB5sUq-0l2Ak1Av7C3f5SLxJ8JzLdN9rmym3x_XzG0pxvyKXUEmda_EpAi9rGYNEZjjVrrSdLuHcpGW96O_4jPktVNx_QQ38a5Zz79GLuAA6Zz4MzScblZlswsbD29sqT2-Vg2lRvyMMBpbIGSIhVUti7anbgKEp6ucNm43adpw8wvT8gFnbl_XXfv_nKmZiVvVDqtDJ4b1tljhOzh7_EoHc0wfFyIUNAWd3FJmR6TEXvxesN-50jKwHM6pfWuojpIx23aK4gFPs5XEQWT43sC-r3Df3lDvK3pKb5EaC1YUb1QMAknfcWlyACQSAgiA2Zw674jakpiwmc8JWMGxzYou_xbx1el0Euy1FlaPzjm_wC8it_w"
+      }
+    },
+    {
+      "id": "profile",
+      "label": "登場人物紹介",
+      "teaser": "台本の合言葉で開きます",
+      "kind": "profile",
+      "unlock": {
+        "mode": "allOf",
+        "goals": [
+          "script-page"
+        ]
+      },
+      "box": {
+        "iv": "NsribGbXZfzqiFQi",
+        "ct": "_Ae_THjaO2RLmPvDeHdKTfRul3-UsIjm5CkJ3m49NJBFKXK71INUYjgdS1vq-WN4Kk9SbHL0Y8OPb1inar4kmiCzfaImTViVUOGcSjvYjWWCJoLXv2-Gl73bCsnvlzF7b6XNXzXv6jY--DsiGgwZkcrlNslkOmk_H-42xu58MPEgUPMGWtwx-uFV364o7FSQX4rmZAp3Y2sTuCIGfznBFTT6C87dmrBSCHEAmqBWLsoIdWm6lRDC0tpskpt-R20TVLvtVoz8CGkdSACYQQ4sysTmwzVj3dDXkTXKFuXkGZATK79zM0u3rvTz2CIjx2QJOJ2f1o3LyaBOE6EJrtgFpIp2LdQ7aY-X60NLkKlYuQixkCCmTHvV9U_0qAbc67feyhkxq98bYz1rbP9FpHSYJZVLjOUK1L9zPm1EJTYdzoupnh6rgIetlAA4FiUC4rrizj_ZR31LJSXkjoRntK5tzwTRSfnycnPtsM6zD_pAXdc3v_hjNSHimUNNywMWyUPvo5iKGq4jJOq0WNphTZs_SWcAcKExo-odCwuPAdUQ6w29TprZtbq-QyCZho-cQFwU1dTYTfInlk6ZvpVL01L5BOg_jhKTZx7JM2t4aAbo5my2RUhWn-YD7ax9R4YdFb5jEFCfmey2UAautgzm1tT4EDDr6uDgBop73nzKXyvlYjlncBvVqgwohww0vzBJBAKQ-j26JGtyvnO90_-8NbBb7dSuhab95IQvX4qTEzF5q3ZfAzkRT2rtAh4ylL1BABZ6EYvDSs-AAzZyyTdr3IJfuSTZB-93RQ5sEnX-RRh-EZln7Pipy6fS9evGFxu8a8WCrl_CFucdrDNw4Qa3VCiCqsdKX2MXAYWkEE-1tjmvvXiyJzVHtrP6UZ1unW8vakvwLJZNwzpApgp4oL5UTfi0fP0ENpuIm8JErfegLx13m_CxAywUaaiNRIqkdxMSM-4JAt5NIH5GailI0yI9nSmIb7vcQpwWN2onaba76VzwSeMdFl_sVwlBHBf-MUvwukyr9yvCI8Gt9hqa4VcaLzwNPatKMaESNTXC9BWhngyUgbQlooZ-PbNCNnMlcAXAG_kgK_1gSN4YfWpiRgYtctOtaaCHe96fI1PivRkc8xug9CTkEgwUSJ6ZurLkO6UHWh8u0avXorHOkoucnW0Sg5glJhXhkmLmgwULyk44KCDuL-nf165f5hDf-mAujbudhPJrB6yrLtVCTzX-5P1-vY0NEXbKDsUrgwmdHjr_1pKgfAH0za6Zrsl3TcVeC3e-ib6juK2bL4XqpItDMZq71dgIvrJF-K8u06TU1AP5A9EmDnlVNyYirnQVQN9WcICo06Sb09YwJf1pZKkVuSm5g3YuDpM0OtL1rSoGkPXR6ccS-zLXNZmv3U3lagrLpxHk1BVMb4ShCypUMelvamYAz_A5uULe1ktJvDpAgEo7P-4-1YOAsOZw7SDap20iBq0ZEIh-zgXnN3CPKKTQJj2epm7fQiBdkwPdiwiLa2I4WZw4AvV4LWRi9pvV3xnQUVny6CbWdHOg1zH5I-8IT5uTCLTIJUBkfC2Q4LR2n3U4vOmY"
+      }
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-01",
+      "notes": "初版（しおり帳のサンプル）"
+    }
+  ]
+}
