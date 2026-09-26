@@ -1,0 +1,235 @@
+"""M1 scalping simulator: fixed take-profit / stop-loss / time-stop trades on bid/ask.
+
+OANDA M1 bars are mid prices.  Each bar gets a half spread from the Titan FX Zero Blade
+table (fxlab.instruments) times an hour-of-day multiplier (rollover and the Asian session
+are wider), so every order is simulated on the side it would really fill on:
+
+  long   entry = ask(open) + slip          TP/SL are set relative to the fill, on the bid
+  short  entry = bid(open) - slip          TP/SL are set relative to the fill, on the ask
+
+  * the decision is made on the close of the signal bar; entry is the next bar's open
+    (skipped when that bar is more than `max_entry_delay_min` later, e.g. after a weekend)
+  * stop-loss beats take-profit when both are inside the same bar (conservative)
+  * a bar that opens beyond a level fills at that open (gap)
+  * stop-loss fills pay extra `stop_slip_pips`; market exits (time stop) pay `slip_pips`
+  * time stop: market exit at the open of the first bar at or after entry + hold
+  * commission: Blade JPY account 720 JPY per lot round turn, converted to pips
+  * one position at a time per symbol; signals while a trade is open are ignored
+
+Everything is in pips; R = net pips / stop pips.  `cost_mult` scales spread, slippage
+and commission together (use 2.0 for the cost stress test).
+
+    m1 = load("EURUSD")
+    sig = pd.DataFrame({"dir": ..., "tp": ..., "sl": ..., "hold": ...}, index=signal_bar_times)
+    tr = simulate(m1, sig, "EURUSD")
+    print(stats(tr)); print(by_period(tr))
+"""
+from __future__ import annotations
+
+import math
+
+import numba as nb
+import numpy as np
+import pandas as pd
+
+from . import data as D
+from .instruments import INSTRUMENTS
+
+IS_END = pd.Timestamp("2015-01-01")          # in-sample 2005-2014, out-of-sample 2015-2020-05
+
+# Spread multiplier by server hour (server = New York + 7h, so 00:00 is the NY 17:00 rollover)
+SPREAD_MULT_BY_SERVER_HOUR = np.ones(24)
+SPREAD_MULT_BY_SERVER_HOUR[0] = 5.0          # rollover: Blade spreads jump for ~1 hour
+SPREAD_MULT_BY_SERVER_HOUR[23] = 2.0         # last hour before rollover, thin book
+SPREAD_MULT_BY_SERVER_HOUR[1:3] = 1.5        # early Asia
+SPREAD_MULT_BY_SERVER_HOUR[3:9] = 1.2        # Tokyo session
+
+# Rough JPY value of one unit of each quote currency (for the commission in pips)
+_JPY_PER = {"JPY": 1.0, "USD": 110.0, "EUR": 125.0, "GBP": 145.0, "AUD": 80.0, "CAD": 85.0}
+COMMISSION_JPY_RT = 720.0
+
+
+def commission_pips(symbol: str) -> float:
+    inst = INSTRUMENTS[symbol]
+    jpy = inst.commission_jpy_rt if inst.commission_jpy_rt is not None else COMMISSION_JPY_RT
+    return jpy / (inst.pip * inst.contract * _JPY_PER[inst.quote])
+
+
+def load(symbol: str, start=None, end=None) -> pd.DataFrame:
+    """OANDA M1 mid bars on the server-time clock (naive index, NY+7h)."""
+    m1 = D.load_m1(symbol)
+    df = m1.set_axis(D.to_server_time(m1.index))
+    df = df[~df.index.duplicated(keep="first")]
+    if start is not None:
+        df = df[df.index >= pd.Timestamp(start)]
+    if end is not None:
+        df = df[df.index < pd.Timestamp(end)]
+    return df
+
+
+def local_time(server_index: pd.DatetimeIndex, tz: str = "Asia/Tokyo") -> pd.DatetimeIndex:
+    """Convert a naive server-time index to naive local time in `tz` (JST by default)."""
+    ny = (server_index - D.SERVER_OFFSET).tz_localize(
+        "America/New_York", ambiguous="NaT", nonexistent="shift_forward")
+    return ny.tz_convert(tz).tz_localize(None)
+
+
+@nb.njit(cache=True)
+def _kernel(t, o, h, l, hs, sig_bar, sig_dir, tp, sl, hold_ns, slip, stop_slip, max_delay_ns):
+    n = o.shape[0]
+    m = sig_bar.shape[0]
+    e_i = np.full(m, -1)
+    x_i = np.full(m, -1)
+    e_px = np.zeros(m)
+    x_px = np.zeros(m)
+    reason = np.zeros(m, np.int8)            # 1 TP, 2 SL, 3 time, 4 end of data
+    busy = -1
+    k = 0
+    for s in range(m):
+        b = sig_bar[s]
+        i = b + 1
+        if i >= n or i <= busy:
+            continue
+        if t[i] - t[b] > max_delay_ns:
+            continue
+        d = sig_dir[s]
+        if d == 0:
+            continue
+        if d > 0:
+            ent = o[i] + hs[i] + slip
+            tpx = ent + tp[s]
+            slx = ent - sl[s]
+        else:
+            ent = o[i] - hs[i] - slip
+            tpx = ent - tp[s]
+            slx = ent + sl[s]
+        t_end = t[i] + hold_ns[s]
+        j = i
+        done = False
+        while j < n:
+            # exit side quotes: long exits on the bid, short exits on the ask
+            if d > 0:
+                qo, qh, ql = o[j] - hs[j], h[j] - hs[j], l[j] - hs[j]
+            else:
+                qo, qh, ql = o[j] + hs[j], h[j] + hs[j], l[j] + hs[j]
+            if j > i:
+                if t[j] >= t_end:
+                    px = qo - slip if d > 0 else qo + slip
+                    x_px[k], reason[k] = px, 3
+                    done = True
+                elif (d > 0 and qo <= slx) or (d < 0 and qo >= slx):
+                    x_px[k], reason[k] = (qo - stop_slip if d > 0 else qo + stop_slip), 2
+                    done = True
+                elif (d > 0 and qo >= tpx) or (d < 0 and qo <= tpx):
+                    x_px[k], reason[k] = qo, 1
+                    done = True
+            if not done:
+                if (d > 0 and ql <= slx) or (d < 0 and qh >= slx):
+                    x_px[k], reason[k] = (slx - stop_slip if d > 0 else slx + stop_slip), 2
+                    done = True
+                elif (d > 0 and qh >= tpx) or (d < 0 and ql <= tpx):
+                    x_px[k], reason[k] = tpx, 1
+                    done = True
+            if done:
+                break
+            j += 1
+        if not done:
+            j = n - 1
+            x_px[k] = (l[j] + h[j]) * 0.5 - d * hs[j]
+            reason[k] = 4
+        e_i[k], x_i[k], e_px[k] = i, j, ent
+        sig_dir[k] = d                       # compact in place (s >= k always)
+        tp[k], sl[k] = tp[s], sl[s]
+        busy = j
+        k += 1
+    return e_i[:k], x_i[:k], e_px[:k], x_px[:k], reason[:k], sig_dir[:k], tp[:k], sl[:k]
+
+
+def half_spread_series(index: pd.DatetimeIndex, symbol: str, cost_mult: float = 1.0) -> np.ndarray:
+    inst = INSTRUMENTS[symbol]
+    mult = SPREAD_MULT_BY_SERVER_HOUR[index.hour.to_numpy()]
+    return 0.5 * inst.spread_pips * inst.pip * mult * cost_mult
+
+
+def simulate(m1: pd.DataFrame, signals: pd.DataFrame, symbol: str, cost_mult: float = 1.0,
+             max_entry_delay_min: float = 5.0) -> pd.DataFrame:
+    """signals: index = signal bar open time (must exist in m1.index; decision on its close),
+    columns dir (+1/-1), tp, sl (pips, > 0), hold (minutes)."""
+    inst = INSTRUMENTS[symbol]
+    pip = inst.pip
+    sig = signals[signals["dir"] != 0].sort_index()
+    pos = m1.index.get_indexer(sig.index)
+    if (pos < 0).any():
+        raise ValueError(f"{(pos < 0).sum()} signal times are not bars of m1")
+    t = m1.index.as_unit("ns").asi8.astype(np.int64)      # pandas may store us resolution
+    hs = half_spread_series(m1.index, symbol, cost_mult)
+    tp = sig["tp"].to_numpy(float) * pip
+    tp = np.where(np.isfinite(tp) & (tp > 0), tp, 1e9)
+    sl = sig["sl"].to_numpy(float) * pip
+    if not (np.isfinite(sl) & (sl > 0)).all():
+        raise ValueError("every signal needs a positive stop-loss")
+    hold = (sig["hold"].to_numpy(float) * 60e9).astype(np.int64)
+    e_i, x_i, e_px, x_px, reason, d, tp_, sl_ = _kernel(
+        t, m1["open"].to_numpy(float), m1["high"].to_numpy(float), m1["low"].to_numpy(float),
+        hs, pos.astype(np.int64), sig["dir"].to_numpy(np.int64).copy(), tp.copy(), sl.copy(),
+        hold, inst.slip_pips * pip * cost_mult, inst.stop_slip_pips * pip * cost_mult,
+        int(max_entry_delay_min * 60e9))
+    gross = d * (x_px - e_px) / pip
+    comm = commission_pips(symbol) * cost_mult
+    net = gross - comm
+    out = pd.DataFrame({
+        "symbol": symbol,
+        "entry_time": m1.index[e_i], "exit_time": m1.index[x_i], "dir": d,
+        "entry_px": e_px, "exit_px": x_px,
+        "tp_pips": tp_ / pip, "sl_pips": sl_ / pip,
+        "gross_pips": gross, "net_pips": net,
+        "R": net / (sl_ / pip),
+        "reason": pd.Categorical.from_codes(reason - 1, ["tp", "sl", "time", "end"]),
+    })
+    out["minutes"] = (out.exit_time - out.entry_time).dt.total_seconds() / 60.0
+    return out
+
+
+def stats(tr: pd.DataFrame) -> dict:
+    n = len(tr)
+    if n == 0:
+        return {"n": 0}
+    net = tr["net_pips"].to_numpy()
+    sd = net.std(ddof=1) if n > 1 else float("nan")
+    wins, losses = net[net > 0].sum(), -net[net < 0].sum()
+    years = max((tr.entry_time.max() - tr.entry_time.min()).days / 365.25, 1e-9)
+    return {
+        "n": n,
+        "trades_per_year": n / years,
+        "win_rate": float((net > 0).mean()),
+        "avg_net_pips": float(net.mean()),
+        "avg_gross_pips": float(tr["gross_pips"].mean()),
+        "avg_R": float(tr["R"].mean()),
+        "profit_factor": float(wins / losses) if losses > 0 else float("inf"),
+        "t_stat": float(net.mean() / sd * math.sqrt(n)) if sd and sd > 0 else float("nan"),
+        "total_net_pips": float(net.sum()),
+        "avg_minutes": float(tr["minutes"].mean()),
+    }
+
+
+def by_period(tr: pd.DataFrame) -> pd.DataFrame:
+    ins = tr[tr.entry_time < IS_END]
+    oos = tr[tr.entry_time >= IS_END]
+    return pd.DataFrame({"is_2005_2014": stats(ins), "oos_2015_2020": stats(oos),
+                         "all": stats(tr)}).T
+
+
+def by_year(tr: pd.DataFrame) -> pd.DataFrame:
+    g = tr.groupby(tr.entry_time.dt.year)
+    return pd.DataFrame({"n": g.size(), "win_rate": g.net_pips.apply(lambda x: (x > 0).mean()),
+                         "avg_net_pips": g.net_pips.mean(), "total_net_pips": g.net_pips.sum()})
+
+
+def random_signals(m1: pd.DataFrame, n: int, tp: float, sl: float, hold: float,
+                   server_hours=range(9, 22), seed: int = 0) -> pd.DataFrame:
+    """Random-time, random-direction entries: the no-edge baseline for any TP/SL shape."""
+    rng = np.random.default_rng(seed)
+    ok = np.flatnonzero(np.isin(m1.index.hour, list(server_hours)))
+    pick = np.sort(rng.choice(ok[:-1], size=min(n, len(ok) - 1), replace=False))
+    return pd.DataFrame({"dir": rng.choice([-1, 1], size=len(pick)), "tp": tp, "sl": sl,
+                         "hold": hold}, index=m1.index[pick])
