@@ -10,7 +10,7 @@ import { z } from 'zod';
 const CONTROL_MULTILINE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/;
 // eslint-disable-next-line no-control-regex
 const CONTROL_SINGLELINE = /[\u0000-\u001F\u007F-\u009F]/;
-const BIDI = /[‪-‮⁦-⁩]/;
+const BIDI = /[\u202A-\u202E\u2066-\u2069]/;
 
 export const CONTROL_CHAR_CODE = 'controlChar';
 export const BIDI_CHAR_CODE = 'bidiChar';
