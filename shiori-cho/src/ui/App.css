@@ -1,0 +1,54 @@
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* distance from the viewport bottom that fixed/sticky screen UI should keep (bottom nav + safe area) */
+  --app-bottom-offset: env(safe-area-inset-bottom);
+}
+.app.has-nav {
+  --app-bottom-offset: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+}
+.app.is-fullscreen .app-main > .screen {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+.app-boot {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px var(--gutter);
+}
+.app-error-card {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.app-error-card p {
+  margin: 0;
+}
+.app-error-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.app-error-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.app-error-tips {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -1,0 +1,378 @@
+/* #/add 作品を追加 + its forms (QuickPackForm, ManualWorkForm, AddWorkFields) */
+.aw-heading {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+}
+.aw-heading:focus,
+.aw-heading:focus-visible {
+  /* focused programmatically when a view opens; a heading is not a control */
+  outline: none;
+}
+.aw-lead {
+  margin: 4px 0 0;
+}
+.aw-error {
+  margin: 0;
+}
+
+/* ───────── menu ───────── */
+.aw-import {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-width: 1.5px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.aw-import.is-dragging {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.aw-entry-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.aw-entry-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.aw-entry-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.aw-entry-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.aw-entry-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.aw-drop-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  display: none;
+}
+.aw-import.is-dragging .aw-drop-hint {
+  color: var(--accent);
+  font-weight: 600;
+}
+@media (hover: hover) and (pointer: fine) {
+  .aw-drop-hint {
+    display: block;
+  }
+}
+.aw-paste {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.aw-paste-toggle {
+  width: 100%;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.aw-chev {
+  color: var(--muted);
+}
+.aw-paste-panel {
+  padding-top: 4px;
+}
+.aw-paste-panel[hidden] {
+  display: none;
+}
+.aw-paste-labelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.aw-paste-labelrow .btn {
+  min-height: var(--tap);
+}
+.aw-paste-text {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  min-height: 120px;
+  overflow-wrap: anywhere;
+}
+
+.aw-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.aw-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 14px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease;
+}
+.aw-entry:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.aw-entry:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.aw-entry-chev {
+  flex: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* ───────── forms ───────── */
+.aw-form-head {
+  display: flex;
+  flex-direction: column;
+}
+.aw-section-title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.aw-req,
+.aw-opt {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+.aw-req {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.aw-opt {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.aw-store {
+  text-transform: none;
+  font-family: var(--mono);
+}
+.aw-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aw-fieldset > legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+/* kind: radio chips */
+.aw-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aw-radio {
+  position: relative;
+  display: inline-flex;
+}
+.aw-radio input,
+.aw-swatch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.aw-radio-face {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.aw-radio input:checked + .aw-radio-face {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.aw-radio input:focus-visible + .aw-radio-face,
+.aw-swatch input:focus-visible + .aw-swatch-face {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* counts */
+.aw-counts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aw-counts-hint {
+  margin: -4px 0 0;
+}
+.aw-count-list {
+  display: flex;
+  flex-direction: column;
+}
+.aw-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.aw-count-row:last-child {
+  border-bottom: 0;
+}
+.aw-count-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.aw-count-label > label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.aw-stepper {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.aw-step {
+  width: var(--tap);
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.aw-count-input {
+  width: 4.2em;
+  padding: 8px 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.aw-count-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.aw-count-total {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/* cover pickers */
+.aw-cover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.aw-cover-preview {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.aw-cover-name {
+  min-width: 0;
+  max-width: 10em;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aw-emojis,
+.aw-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aw-swatch {
+  position: relative;
+  display: inline-flex;
+}
+.aw-swatch-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.aw-color .aw-swatch-face {
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.aw-swatch input:checked + .aw-swatch-face {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.aw-color input:checked + .aw-swatch-face::after {
+  content: '✓';
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.aw-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.aw-actions .btn {
+  min-width: 7.5em;
+}
+@media (max-width: 420px) {
+  .aw-actions .btn {
+    flex: 1;
+  }
+}

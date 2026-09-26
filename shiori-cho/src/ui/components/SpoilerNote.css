@@ -1,0 +1,28 @@
+.spn {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.spn-hidden {
+  display: inline;
+  padding: 0 2px;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.spn-hidden-text {
+  filter: blur(5px);
+}
+.spn-open {
+  background: var(--warn-soft);
+  border-radius: 4px;
+  padding: 0 2px;
+}

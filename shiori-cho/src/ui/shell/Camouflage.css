@@ -1,0 +1,42 @@
+.camo {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: max(12px, env(safe-area-inset-top)) var(--gutter) max(12px, env(safe-area-inset-bottom));
+  background: var(--surface);
+  color: var(--ink);
+  max-width: 720px;
+  margin: 0 auto;
+}
+.camo-title {
+  align-self: flex-start;
+  margin: 8px 0 8px;
+  padding: 6px 8px 6px 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  cursor: default;
+}
+.camo-title:focus {
+  outline: none;
+}
+.camo-title:focus-visible {
+  outline: 2px solid var(--border-strong);
+  border-radius: 6px;
+}
+.camo-text {
+  flex: 1;
+  width: 100%;
+  min-height: 60dvh;
+  padding: 4px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.8;
+}

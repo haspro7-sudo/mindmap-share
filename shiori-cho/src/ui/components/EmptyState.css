@@ -1,0 +1,30 @@
+.es {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 32px 16px;
+}
+.es-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.es-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.es-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 34em;
+}
+.es-action {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}

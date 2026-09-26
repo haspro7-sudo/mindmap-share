@@ -1,0 +1,31 @@
+.upd {
+  position: fixed;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.16);
+}
+.upd-text {
+  margin: 0;
+  font-weight: 600;
+}
+.upd-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.upd-actions .btn {
+  min-height: var(--tap);
+}
