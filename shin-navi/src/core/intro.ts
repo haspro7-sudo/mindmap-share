@@ -72,10 +72,13 @@ export function introWait(k: IntroKey, m: IntroMode = mode()): number {
   return Math.max(0, introDelay(k, m) - introElapsedMs() / 1000)
 }
 
-/** True while the moment `k` is still ahead (i.e. an entrance animation should play). */
+/**
+ * True while the moment `k` is still ahead (i.e. an entrance animation should play).
+ * A 250 ms grace covers the first render pass, so t=0 entrances still play on mount.
+ */
 export function introPending(k: IntroKey, m: IntroMode = mode()): boolean {
   if (m === 'none') return false
-  return introElapsedMs() < INTRO_TIMELINE[k] * INTRO_SCALE[m] + 50
+  return introElapsedMs() < INTRO_TIMELINE[k] * INTRO_SCALE[m] + 250
 }
 
 /** Whether the whole intro sequence has finished. */
