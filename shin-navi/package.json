@@ -9,7 +9,8 @@
     "preview": "vite preview --host",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
-    "e2e": "node tests/e2e/run.mjs"
+    "e2e": "node tests/e2e/run.mjs",
+    "artifact": "vite build && node scripts/build-artifact.mjs"
   },
   "dependencies": {
     "motion": "^13.4.4",
