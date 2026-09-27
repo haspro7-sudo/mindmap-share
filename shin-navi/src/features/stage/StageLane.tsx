@@ -7,9 +7,10 @@
 import { AnimatePresence, animate, motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { Member, MemberId, NowPlaying, Order, QueueItem, SungEntry } from '../../core/types'
-import { useNavi } from '../../core/store'
-import { selMyTurnIn } from '../../core/selectors'
+import { isMine, useNavi } from '../../core/store'
+import { selMyTurnIn, selRoomUnlinked } from '../../core/selectors'
 import { bus } from '../../core/events'
+import { sound } from '../../core/sound'
 import { registerTarget } from '../../core/targets'
 import { introDelay, introPending } from '../../core/intro'
 import { usePhoneMetrics } from '../../core/layout'
@@ -17,7 +18,7 @@ import { SPRING } from '../../core/ui/motion'
 import { SongTitle } from '../../core/ui/SongTitle'
 import { SONG_BY_ID } from '../../data/songs'
 import { S } from './strings'
-import { glassSlots, lightColor, splitAround } from './model'
+import { glassSlots, lightColor, soonestEta, splitAround } from './model'
 import { MiniDots, ProgressRing, SongDisc, TagPills, cometLanded, useIncoming, useMemberName } from './parts'
 import { FlowLine } from './FlowLine'
 import './stage.css'
@@ -48,7 +49,9 @@ function useColors(privateOk: boolean) {
 export function MyTurnText({ n, className, short }: { n: number; className?: string; short?: boolean }) {
   const t = S.useT()
   if (n === 0) return <span className={className}>{t('myTurnNow')}</span>
-  const [a, b] = splitAround(t(short ? 'myTurnShort' : 'myTurnIn', { n: '\u0001' }), '\u0001')
+  // the number is styled on its own, so pick the singular key by hand (vars.n is a marker here)
+  const key = short ? (n === 1 ? 'myTurnShort.one' : 'myTurnShort') : n === 1 ? 'myTurnIn.one' : 'myTurnIn'
+  const [a, b] = splitAround(t(key, { n: '\u0001' }), '\u0001')
   return (
     <span className={className}>
       {a}
@@ -105,7 +108,10 @@ function HorizontalLane({ compact }: { compact: boolean }) {
   const now = useNavi(s => s.room.now)
   const queue = useNavi(s => s.room.queue)
   const orders = useNavi(s => s.orders.list)
-  const myTurn = useNavi(selMyTurnIn)
+  const myTurnLive = useNavi(selMyTurnIn)
+  // after the exit the lane is no longer the live room: no "your turn", no NEXT (E-12, QA POLICY#0)
+  const unlinked = useNavi(selRoomUnlinked)
+  const myTurn = unlinked ? null : myTurnLive
   const color = useColors(true)
   const name = useMemberName()
   const incoming = useIncoming('phone')
@@ -114,7 +120,7 @@ function HorizontalLane({ compact }: { compact: boolean }) {
   const rest = now ? queue : queue.slice(1)
   const rowCount = (now ? 1 : 0) + queue.length
   const glasses = useMemo(() => glassSlots(rowCount, openOrders(orders)), [rowCount, orders])
-  const empty = !head
+  const empty = !head || unlinked
 
   // flight targets
   const mouth = useRef<HTMLDivElement>(null)
@@ -248,7 +254,17 @@ function HorizontalLane({ compact }: { compact: boolean }) {
       transition={{ ...SPRING.soft, delay: intro ? introDelay('lane') : 0 }}
     >
       <div className="sg-lane__row" style={{ height: chipH }}>
-        {empty ? (
+        {unlinked ? (
+          <div className="sg-empty is-bye" data-testid="lane-unlinked">
+            <span className="sg-empty__well" ref={well}>
+              <span className="sg-lbl">BYE</span>
+            </span>
+            <span className="sg-empty__dash" aria-hidden="true" />
+            <span className="sg-empty__txt">
+              {t('unlinkedBye')} · {t('unlinked')}
+            </span>
+          </div>
+        ) : empty ? (
           <>
             <div className="sg-empty" data-testid="lane-slot-empty">
               <span className="sg-empty__well" ref={well}>
@@ -257,7 +273,7 @@ function HorizontalLane({ compact }: { compact: boolean }) {
               <span className="sg-empty__dash" aria-hidden="true" />
               <span className="sg-empty__txt">{t('nowEmpty')}</span>
             </div>
-            {glasses.get(0) ? <Glass count={glasses.get(0)!} eta={2} /> : null}
+            {glasses.get(0) ? <Glass count={glasses.get(0)!} eta={soonestEta(orders)} /> : null}
           </>
         ) : (
           <>
@@ -271,6 +287,7 @@ function HorizontalLane({ compact }: { compact: boolean }) {
                 incoming={!!incoming[head!.item.id]}
                 h={chipH}
                 compact={compact}
+                finish={!compact}
                 refFn={!now ? el => (insertEl.current = el) : undefined}
               />
             </AnimatePresence>
@@ -308,35 +325,76 @@ function HorizontalLane({ compact }: { compact: boolean }) {
   )
 }
 
-function HeadTile({ item, now, color, name, incoming, h, compact, refFn }: { item: QueueItem; now: NowPlaying; color: string; name: string; incoming: boolean; h: number; compact: boolean; refFn?: (el: HTMLElement | null) => void }) {
+function HeadTile({ item, now, color, name, incoming, h, compact, finish, refFn }: { item: QueueItem; now: NowPlaying; color: string; name: string; incoming: boolean; h: number; compact: boolean; finish: boolean; refFn?: (el: HTMLElement | null) => void }) {
   const t = S.useT()
   const playing = !!now
-  const mine = item.by === 'me' || item.with === 'me'
+  const mine = isMine(item)
+  // my song is on: the chip keeps a gold pulse for as long as I sing (QA OWNER#3)
+  const onstage = playing && mine
   const ring = compact ? h - 6 : h - 4
   return (
     <motion.div
       ref={refFn as never}
       layout="position"
-      className={`sg-head${playing ? ' is-playing' : ' is-waiting'}${mine ? ' is-mine' : ''}${item.tags.includes('navi') ? ' is-navi' : ''}${item.tags.includes('finale') ? ' is-finale' : ''}`}
+      className={`sg-head${playing ? ' is-playing' : ' is-waiting'}${mine ? ' is-mine' : ''}${onstage ? ' is-onstage' : ''}${item.tags.includes('navi') ? ' is-navi' : ''}${item.tags.includes('finale') ? ' is-finale' : ''}`}
       {...itemData(item, playing ? 'lane-now' : 'lane-item')}
+      data-onstage={onstage ? '1' : undefined}
       style={{ height: h, ['--c' as string]: color }}
       initial={incoming ? { opacity: 0, scale: 0.5 } : { opacity: 0, x: 28 }}
       animate={incoming ? { opacity: 0, scale: 0.5 } : { opacity: 1, x: 0, scale: [null, 1.12, 1] as unknown as number }}
       exit={{ opacity: 0, x: -28, transition: { duration: 0.22 } }}
       transition={incoming ? { duration: 0 } : { duration: 0.42, ease: 'easeOut' }}
     >
-      <ProgressRing now={now} size={ring} color={color} waiting={!playing}>
+      {onstage ? <span className="sg-head__pulse" aria-hidden="true" /> : null}
+      <ProgressRing now={now} size={ring} color={onstage ? '#FFD36B' : color} waiting={!playing}>
         <SongDisc songId={item.songId} size={ring - 9} playing={playing} />
       </ProgressRing>
       <span className="sg-head__txt">
         <span className="sg-head__top">
           <span className="sg-lbl sg-lbl--now">{playing ? 'NOW' : 'NEXT'}</span>
           <span className="sg-head__by">{playing ? name : t('upNext')}</span>
-          <TagPills tags={item.tags} iconOnly max={2} />
+          <TagPills tags={item.tags} iconOnly max={onstage ? 1 : 2} />
         </span>
         <SongTitle songId={item.songId} variant="lane" />
       </span>
+      {onstage && finish ? <FinishPill /> : null}
     </motion.div>
+  )
+}
+
+/**
+ * The demo-only "I finished" control (handshake 1): a small ghost pill inside my NOW chip, never
+ * the biggest thing on screen. It asks the room sim to end my song (presenter/cmd finishMine).
+ */
+function FinishPill() {
+  const t = S.useT()
+  const ref = useRef<HTMLButtonElement>(null)
+  const finish = (e: { stopPropagation(): void }) => {
+    e.stopPropagation()
+    const r = ref.current?.getBoundingClientRect()
+    sound.play('fanfare')
+    sound.haptic([10, 40, 10])
+    if (r) bus.emit({ type: 'fx/burst', at: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, preset: 'prism' })
+    bus.emit({ type: 'presenter/cmd', cmd: { t: 'finishMine' } })
+  }
+  return (
+    <motion.button
+      ref={ref}
+      type="button"
+      className="sg-finish"
+      data-testid="btn-finish"
+      aria-label={t('finish')}
+      title={t('finish')}
+      onClick={finish}
+      onPointerDown={e => e.stopPropagation()}
+      initial={{ opacity: 0, x: 8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, delay: 0.5 }}
+      whileTap={{ scale: 0.94 }}
+    >
+      <span className="sg-finish__main">{t('finishPill')}</span>
+      <span className="sg-finish__demo">{t('finishPillDemo')}</span>
+    </motion.button>
   )
 }
 
@@ -375,6 +433,8 @@ function VerticalLane() {
   const queue = useNavi(s => s.room.queue)
   const sung = useNavi(s => s.room.sung)
   const orders = useNavi(s => s.orders.list)
+  // E-12 exit: the room screen is unlinked from this phone — nothing personal, orders closed
+  const unlinked = useNavi(selRoomUnlinked)
   const color = useColors(false)
   const name = useMemberName()
   const incoming = useIncoming('room')
@@ -411,9 +471,10 @@ function VerticalLane() {
   const intro = introPending('lane')
   const rows: ReactNode[] = []
   const startAt = head ? 1 : 0
-  const g0 = (glasses.get(0) ?? 0) + (head ? glasses.get(1) ?? 0 : 0)
-  if (g0) rows.push(<Glass key="g-start" count={g0} eta={Math.max(1, startAt)} vertical />)
-  rest.forEach((item, i) => {
+  // an empty lane shows its one glass inside the empty card (QA ROBUST#15), never a second row
+  const g0 = head ? (glasses.get(0) ?? 0) + (glasses.get(1) ?? 0) : 0
+  if (g0) rows.push(<Glass key="g-start" count={g0} eta={1} vertical />)
+  if (!unlinked) rest.forEach((item, i) => {
     const pos = now ? i + 1 : i + 2
     const eta = startAt + i
     rows.push(<VRow key={item.id} item={item} pos={pos} eta={eta} color={color(item.by)} name={name(item.by)} incoming={!!incoming[item.id]} />)
@@ -421,7 +482,7 @@ function VerticalLane() {
     const g = glasses.get(at)
     if (g && at < rowCount) rows.push(<Glass key={`g${at}`} count={g} eta={at} vertical />)
   })
-  if (rowCount > startAt && glasses.get(rowCount)) rows.push(<Glass key="g-end" count={glasses.get(rowCount)!} eta={rowCount} vertical />)
+  if (!unlinked && rowCount > startAt && glasses.get(rowCount)) rows.push(<Glass key="g-end" count={glasses.get(rowCount)!} eta={rowCount} vertical />)
 
   return (
     <motion.div
@@ -436,33 +497,42 @@ function VerticalLane() {
     >
       <div className="sg-vlane__head">
         <span className="sg-lbl">STAGE</span>
-        <span className="sg-vlane__count">{t('queueCount', { n: queue.length })}</span>
+        {unlinked ? null : <span className="sg-vlane__count">{t('queueCount', { n: queue.length })}</span>}
       </div>
-      {history.length ? (
+      {unlinked ? (
+        <motion.div className="sg-vbye" data-testid="lane-unlinked" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={SPRING.soft}>
+          <span className="sg-vbye__moon" aria-hidden="true" />
+          <span className="sg-vbye__txt">{t('laneClosed')}</span>
+          <span className="sg-vbye__sub">{t('ordersClosed')}</span>
+        </motion.div>
+      ) : null}
+      {!unlinked && history.length ? (
         <div className="sg-vlane__hist">
           {history.map(e => (
             <HistRow key={e.item.id + e.endedAt} e={e} color={color(e.item.by)} name={name(e.item.by)} />
           ))}
         </div>
       ) : null}
-      <div className="sg-vlane__rail" aria-hidden="true" />
-      {head ? (
+      {unlinked ? null : <div className="sg-vlane__rail" aria-hidden="true" />}
+      {unlinked ? null : head ? (
         <AnimatePresence mode="popLayout" initial={false}>
           <VNow key={head.item.id} item={head.item} now={head.playing ? now : null} color={color(head.item.by)} name={name(head.item.by)} incoming={!!incoming[head.item.id]} />
         </AnimatePresence>
       ) : (
         <div className="sg-vempty" data-testid="lane-slot-empty">
           <span className="sg-vempty__txt">{t('roomLaneEmpty')}</span>
-          {glasses.get(0) ? <Glass count={glasses.get(0)!} eta={2} vertical /> : null}
+          {glasses.get(0) ? <Glass count={glasses.get(0)!} eta={soonestEta(orders)} vertical /> : null}
         </div>
       )}
       <div className="sg-vlane__list" ref={list}>
         <AnimatePresence mode="popLayout" initial={false}>
           {rows}
         </AnimatePresence>
-        <div className="sg-vlane__end" ref={end} aria-hidden="true">
-          <span className="sg-vlane__plus">+</span>
-        </div>
+        {unlinked ? null : (
+          <div className="sg-vlane__end" ref={end} aria-hidden="true">
+            <span className="sg-vlane__plus">+</span>
+          </div>
+        )}
       </div>
     </motion.div>
   )

@@ -493,7 +493,8 @@
   flex-direction: column;
   align-items: center;
   width: 100%;
-  height: 138px;
+  /* room for the glyph, a two-line name and the Free / No order tag (ROBUST#13) */
+  height: 146px;
   padding: 10px 6px 10px;
   border-radius: 22px;
   border: 1px solid hsla(var(--h), 90%, 72%, 0.3);
@@ -511,7 +512,7 @@
 }
 .is-small .ord-tile,
 .phone-shell.is-small .ord-tile {
-  height: 124px;
+  height: 134px;
 }
 .ord-tile__halo {
   position: absolute;
@@ -531,6 +532,7 @@
 }
 .ord-tile__glyph {
   position: relative;
+  flex: none;
   display: block;
   margin-top: 2px;
 }
@@ -541,6 +543,7 @@
 }
 .ord-tile__name {
   position: relative;
+  flex: none;
   margin-top: 4px;
   font-size: 13px;
   font-weight: 800;
@@ -555,6 +558,7 @@
 }
 .ord-tile__tag {
   position: relative;
+  flex: none;
   margin-top: 3px;
   padding: 1px 8px;
   border-radius: 999px;
@@ -757,7 +761,7 @@
 }
 
 .ord-eta-card {
-  height: 138px;
+  height: 146px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -770,8 +774,8 @@
   color: var(--ink-dim);
 }
 .phone-shell.is-small .ord-eta-card {
-  height: 124px;
-  font-size: 10.5px;
+  height: 134px;
+  font-size: 11px;
 }
 .ord-eta-card__lane {
   display: flex;
@@ -806,6 +810,9 @@
   height: 100%;
   text-align: center;
 }
+.co > * {
+  flex: none;
+}
 .co__title {
   display: flex;
   flex-direction: column;
@@ -822,14 +829,14 @@
   color: transparent;
 }
 .co__cause {
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--ink-dim);
 }
 .co__drinks {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .co-drink {
   --hc: hsl(var(--h) 95% 66%);
@@ -872,36 +879,36 @@
 .co-drink__name {
   position: relative;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.15;
-  max-width: 70px;
+  max-width: 74px;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
+/* the navi's pick: a small gold star on the coaster's rim (its name is in the title / aria) */
 .co-drink__pick {
   position: absolute;
   z-index: 2;
-  top: -9px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 8.5px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
+  top: -3px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   color: #2a1600;
   background: var(--gold);
+  box-shadow: 0 0 0 2px rgba(10, 26, 45, 0.9), 0 0 10px rgba(255, 211, 107, 0.55);
 }
 .co-drink__ticket {
   position: absolute;
   z-index: 2;
-  top: 40px;
-  right: -4px;
+  top: 38px;
+  right: -6px;
   padding: 2px 6px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   color: #062416;
@@ -932,10 +939,11 @@
 .co__dup,
 .co__closed {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  margin-top: 9px;
+  gap: 4px 8px;
+  margin-top: 7px;
   min-height: 30px;
 }
 .co__rest {
@@ -951,7 +959,7 @@
   background: rgba(138, 107, 255, 0.16);
   color: #eee6ff;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -967,7 +975,7 @@
   background: none;
   color: var(--neon-cyan);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -976,7 +984,7 @@
   gap: 5px;
 }
 .co__dupnote {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 800;
   color: #fff1c9;
   font-variant-numeric: tabular-nums;
@@ -992,7 +1000,7 @@
   color: #231200;
   background: linear-gradient(100deg, #ffd36b, #ffb547);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -1003,10 +1011,29 @@
 }
 .co__eta {
   margin-top: auto;
-  font-size: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
+  font-size: 12px;
   line-height: 1.3;
   color: var(--ink-dim);
-  max-width: 210px;
+  max-width: 240px;
+}
+.co__etan {
+  font-weight: 700;
+}
+/* the demo signal before anything is ordered (the ETA fine print sits in its title) */
+.co__demo {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(125, 249, 255, 0.32);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  color: rgba(201, 251, 255, 0.72);
 }
 .co__etaok {
   display: inline-flex;
@@ -1042,11 +1069,18 @@
 }
 .co.is-small .co__row,
 .co.is-small .co__dup {
-  margin-top: 6px;
+  margin-top: 4px;
+}
+.co.is-small .co__drinks {
+  margin-top: 5px;
+}
+/* 360×740: the receipt line alone (the ETA is on the order tab and the lane's glass) */
+.co.is-small .co__etan {
+  display: none;
 }
 .co.is-small .co__rest,
 .co.is-small .co__menu {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* ============================================================ bring-in discs */
@@ -1218,20 +1252,36 @@
   height: 100%;
   gap: 8px;
 }
+/* nothing on the front may be squeezed: the body is sized to fit the stitch card (296 / 260 px) */
+.imp > * {
+  flex: none;
+}
 .imp__lead {
-  font-size: 12.5px;
-  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 14px;
+  line-height: 1.3;
   color: #eef0fa;
   padding-right: 4px;
 }
 .imp__leadtext {
-  font-weight: 800;
+  min-width: 0;
+  font-weight: 900;
+  letter-spacing: 0.01em;
 }
-.imp__src {
-  margin-left: 6px;
-  font-size: 10.5px;
-  color: rgba(238, 240, 250, 0.62);
-  white-space: nowrap;
+/* the demo-data signal (the full "e.g. Apple Music · demo data" is on the back and in the sheet) */
+.imp__demo {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(238, 240, 250, 0.32);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  color: rgba(238, 240, 250, 0.72);
 }
 .imp__shelf {
   display: flex;
@@ -1258,7 +1308,7 @@
 .imp__artist {
   flex: none;
   max-width: 40%;
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(238, 240, 250, 0.7);
   white-space: nowrap;
   overflow: hidden;
@@ -1281,21 +1331,6 @@
   font-weight: 700;
   opacity: 0.75;
 }
-.imp__priv {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 2px 0 0;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: rgba(238, 240, 250, 0.66);
-}
-.imp__priv i {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-}
 .imp__vers {
   display: flex;
   flex-wrap: wrap;
@@ -1305,14 +1340,15 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 11px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   background: rgba(10, 8, 26, 0.35);
   color: #e8eaf6;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
+  white-space: nowrap;
   font-weight: 700;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease;
@@ -1344,15 +1380,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 3px 6px 3px 11px;
   border-radius: 999px;
   border: 1px solid rgba(125, 249, 255, 0.45);
   background: rgba(8, 26, 42, 0.45);
   color: #c9fbff;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 1.15;
+  text-align: left;
   cursor: pointer;
   overflow: hidden;
 }
@@ -1362,10 +1400,22 @@
   place-items: center;
 }
 .imp-show__text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: -0.02em;
+  flex: 1 1 auto;
+  min-width: 0;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+/* "10 s": how long the room sees it, as a tiny timer chip */
+.imp-show__sec {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #062026;
+  background: rgba(125, 249, 255, 0.78);
 }
 .imp-show.is-on {
   color: #062026;
@@ -1400,8 +1450,8 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  width: 42px;
-  height: 30px;
+  width: 44px;
+  height: 34px;
   padding: 0;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -1413,26 +1463,28 @@
   cursor: pointer;
 }
 .imp.is-small {
-  gap: 6px;
+  gap: 5px;
+}
+.imp.is-small .imp__shelf {
+  padding-top: 5px;
+  padding-bottom: 0;
 }
 .imp.is-small .imp__lead {
-  font-size: 11.5px;
+  font-size: 13px;
 }
 .imp.is-small .imp__title {
   font-size: 14px;
 }
 .imp.is-small .imp-show {
-  gap: 4px;
-  padding: 0 8px;
-  font-size: 10px;
+  gap: 5px;
+  padding: 3px 5px 3px 10px;
 }
 .imp.is-small .imp-show__icon {
   display: none;
 }
 .imp.is-small .imp-ver {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 10.5px;
+  height: 25px;
+  padding: 0 9px;
 }
 
 /* ---- import sheet */
@@ -1442,9 +1494,10 @@
 }
 .imps__titlerow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 4px 10px;
   padding-right: 40px;
 }
 .imps__title {
@@ -1472,17 +1525,15 @@
   white-space: nowrap;
 }
 .imps__lock {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
+  /* never shrinks to just the glyph: it wraps under the title when the row is full */
+  flex: none;
   white-space: nowrap;
-  text-overflow: ellipsis;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 3px 10px 3px 8px;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 800;
   color: #dfe3f3;
   border: 1px dashed rgba(255, 255, 255, 0.35);
@@ -1619,10 +1670,13 @@
 }
 .imps__show {
   width: 100%;
-  height: 36px;
+  min-height: 38px;
   margin-top: 7px;
   justify-content: center;
-  font-size: 12px;
+  font-size: 13px;
+}
+.imps__show .imp-show__text {
+  flex: 0 1 auto;
 }
 .imps__empty {
   margin: 16px 0;

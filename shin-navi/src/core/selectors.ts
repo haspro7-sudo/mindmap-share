@@ -2,7 +2,7 @@
 import type { NaviState } from './store/types'
 import type { DeckCard, KnowView, Member, Night, NowPlaying, Order, QueueItem, SongId, Face, MoodWordId, AuroraKey } from './types'
 import { presentMembers, isMine } from './store/room'
-import { auroraFor, heatAfter, heatBucket, knowView, roomMinutesLeft } from './rules'
+import { auroraFor, heatAfter, knowView, moodWordFor, pKnow, roomMinutesLeft } from './rules'
 import { SONG_BY_ID } from '../data/songs'
 
 export const selTopCard = (s: NaviState): DeckCard | undefined => s.deck.cards[0]
@@ -110,14 +110,27 @@ export const selReserveBudget = (s: NaviState): { pending: number; budget: numbe
 export const selRoomUnlinked = (s: NaviState): boolean => s.session.phase !== 'live'
 
 /**
- * "ナビの見立て": where the room's air is heading given what is playing and the next two songs
- * (projected heat with an average know share). null when nothing is playing or queued.
- * The hero (mood word, aurora) previews it right after a reservation so every action moves the top half.
+ * "ナビの見立て": where the room's air is heading given what is playing and the next two songs.
+ * null when nothing is playing or queued. The hero (mood word, aurora) previews it right after a
+ * reservation so every action moves the top half. The bucket is the aurora colour the mood word
+ * would then have (same heat model as the flow line: expected know share of the people present
+ * and a claps estimate; same word rules as the store), so the stage's forecast word and the fx
+ * wall always agree (the raw heat buckets and the word thresholds differ around 0.45–0.55).
  */
 export const selForecast = (s: NaviState): { bucket: AuroraKey; heat: number; rising: boolean } | null => {
-  const upcoming = [...(s.room.now ? [s.room.now.item] : []), ...s.room.queue.slice(0, 2)]
-  if (!upcoming.length) return null
-  let h = s.room.heat
-  for (const q of upcoming) h = heatAfter(h, { energy: SONG_BY_ID[q.songId]?.energy ?? 0.5, knowShare: 0.6, claps: 0 })
-  return { bucket: heatBucket(h) as AuroraKey, heat: h, rising: h > s.room.heat + 0.02 }
+  const r = s.room
+  const ids = [...(r.now ? [r.now.item.songId] : []), ...r.queue.slice(0, 2).map(q => q.songId)].filter(id => SONG_BY_ID[id])
+  if (!ids.length) return null
+  const present = presentMembers(s)
+  const others = present.filter(m => m.id !== 'me').length
+  let h = r.heat
+  for (const id of ids) {
+    const song = SONG_BY_ID[id]
+    const knowShare = present.length ? present.reduce((a, m) => a + pKnow(m, song), 0) / present.length : 0.5
+    h = heatAfter(h, { energy: song.energy, knowShare, claps: others * Math.round(10 + 20 * h) })
+  }
+  const trend: -1 | 0 | 1 = h > r.heat + 0.02 ? 1 : h < r.heat - 0.02 ? -1 : 0
+  const recentEnergies = [...r.sung.map(e => SONG_BY_ID[e.item.songId]?.energy ?? 0.5), ...ids.map(id => SONG_BY_ID[id].energy)]
+  const word = moodWordFor({ heat: h, trend, started: true, recentEnergies })
+  return { bucket: auroraFor(word), heat: h, rising: trend > 0 }
 }

@@ -93,3 +93,57 @@ export function nearestStars(stars: readonly Star[], hype: number, fresh: number
   const d = (s: Star) => (s.hype - hype) ** 2 * aspect * aspect + (s.fresh - fresh) ** 2
   return [...stars].sort((a, b) => d(a) - d(b)).slice(0, n)
 }
+
+// ---------------------------------------------------------------- where the "nearest songs" callout sits
+
+export type Rect = { x: number; y: number; w: number; h: number }
+export type CalloutSide = 'r' | 'l' | 'c'
+export type CalloutSpot = { x: number; y: number; side: CalloutSide; slot: number }
+
+const overlap = (a: Rect, b: Rect): number => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+
+/**
+ * Put the callout (bw × bh) beside the puck at (px, py) inside a W × H pad: on the side away from
+ * the nearest edge, never over the axis labels or the puck, always inside the pad (ROBUST#14).
+ * Pure: candidates around the puck, clamped into the pad, scored by what they cover. `prev` (the
+ * slot used last time) is kept unless another slot is clearly better, so the list does not flicker
+ * from side to side while the puck is dragged.
+ */
+export function placeCallout(px: number, py: number, W: number, H: number, bw: number, bh: number, avoid: Rect[], prev = -1, puckR = 28, margin = 8): CalloutSpot {
+  const off = puckR + 6
+  const away: CalloutSide = px > W / 2 ? 'l' : 'r'
+  const xs: { x: number; side: CalloutSide }[] = [
+    { x: px + off, side: 'r' },
+    { x: px - off - bw, side: 'l' },
+    { x: px - bw / 2, side: 'c' },
+  ]
+  // beside the puck (centred, just below its row, just above it), clear of it vertically, or
+  // snapped to the free band next to a label
+  const ys = [py - bh / 2, py + 12, py - 12 - bh, py + off + 2, py - off - 2 - bh]
+  for (const a of avoid) ys.push(a.y + a.h + 1, a.y - bh - 1)
+  const maxX = Math.max(margin, W - margin - bw)
+  const maxY = Math.max(margin, H - margin - bh)
+  const puck: Rect = { x: px - puckR, y: py - puckR, w: puckR * 2, h: puckR * 2 }
+  const spots: CalloutSpot[] = []
+  const scores: number[] = []
+  let best = 0
+  xs.forEach((cx, i) =>
+    ys.forEach((cy, j) => {
+      const x = Math.min(maxX, Math.max(margin, cx.x))
+      const y = Math.min(maxY, Math.max(margin, cy))
+      const box = { x, y, w: bw, h: bh }
+      // labels and the puck must stay readable; sliding along the edge is cheap; beside the puck
+      // on the side away from the nearest edge reads best
+      let s = 20 * overlap(box, puck) + 4 * Math.abs(x - cx.x) + 2 * Math.abs(y - cy) + (cx.side === 'c' ? 60 : cx.side === away ? 0 : 30) + (j === 0 ? 0 : 15) + Math.abs(y + bh / 2 - py) * 0.5
+      for (const a of avoid) s += 20 * overlap(box, a)
+      const k = spots.length
+      spots.push({ x, y, side: cx.side, slot: k })
+      scores.push(s)
+      if (s < scores[best]) best = k
+      void i
+    }),
+  )
+  // keep the previous slot unless another one is clearly better (no flicker while dragging)
+  const pick = prev >= 0 && prev < spots.length && scores[prev] <= scores[best] + 200 ? prev : best
+  return spots[pick]
+}

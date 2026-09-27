@@ -5,7 +5,11 @@
 //   · room events insert cards by priority (finale > voice > redeal > shift > navMiss > link >
 //     invite > coaster), and every event-inserted card says why (reason.cause);
 //   · diversity: never the same kind twice in a row, ≥3 kinds in any 5, ≤2 songs in any 4;
-//   · the first three cards follow LOCALE_OPENERS for the viewing language (5-1).
+//   · the first three cards follow LOCALE_OPENERS for the viewing language (5-1);
+//   · fair share: once my pending songs reach my share of the queue, the dealer stops chaining
+//     reservations (no link after a reserve) and leans toward ask / gap / import / voice / coaster;
+//   · a link comes at most once per round, only after the round's first reservation;
+//   · Saki's request at most once per round; invites the presenter fires land on top.
 import type {
   CardAction,
   CardKind,
@@ -78,6 +82,8 @@ export type DirectorInput = {
   me: { faces: Record<SongId, Face>; links: Link[]; voice: VoiceReading | null; saved: SavedSong[]; imports: ImportCandidate[] }
   deck: { cards: DeckCard[]; history: { cardId: string; kind: CardKind; action: CardAction; at: number }[]; round: number; consumedInRound: number; offers: OfferLog }
   songs: Song[]
+  /** the presenter asked for this event right now (a panel button, a script step): it goes on top */
+  cue?: boolean
 }
 export type DirectorOutput = { cards: DeckCard[]; mode: 'append' | 'top' | 'at1' | 'replace'; cause?: TextRef; offers?: Partial<OfferLog> }
 
@@ -133,6 +139,8 @@ type Ctx = {
   tail: CardKind[]
   /** kind.variant acted in the current round (history since the last breather) */
   roundKinds: string[]
+  /** reservations made from cards in the current round */
+  roundReserves: number
   exclude: Set<SongId>
   passed: Set<SongId>
   offers: Partial<OfferLog>
@@ -166,12 +174,14 @@ function makeCtx(input: DirectorInput): Ctx {
     if (c.songId) exclude.add(c.songId)
     for (const o of c.options ?? []) exclude.add(o)
   }
-  const roundKinds = hist.slice(lastBreather + 1).map(h => parseCardId(h.cardId)?.kv ?? h.kind)
+  const roundHist = hist.slice(lastBreather + 1)
+  const roundKinds = roundHist.map(h => parseCardId(h.cardId)?.kv ?? h.kind)
   return {
     input,
     hand: input.deck.cards.slice(),
     tail: hist.map(h => h.kind).filter(k => k !== 'breather'),
     roundKinds,
+    roundReserves: roundHist.filter(h => RESERVING.has(h.action)).length,
     exclude,
     passed,
     offers: {},
@@ -198,6 +208,20 @@ const present = (ctx: Ctx, id: MemberId) => ctx.input.room.present.some(m => m.i
 const visitor = (ctx: Ctx): Member | null => ctx.input.room.present.find(m => m.id !== 'me' && m.locale !== 'ja') ?? null
 const energies = (ctx: Ctx) => ctx.input.room.sung.map(e => SONG_BY_ID[e.item.songId]?.energy ?? 0.5)
 const isMineItem = (i: QueueItem) => i.by === 'me' || i.with === 'me'
+
+/**
+ * My fair share of the queue (mirrors core `selReserveBudget`): my pending songs (queued + NOW)
+ * against max(2, ⌈queue ÷ people present⌉). `over` → the dealer stops feeding reservations.
+ */
+export function reserveBudget(room: Pick<DirectorInput['room'], 'queue' | 'now' | 'present'>): { pending: number; budget: number; over: boolean } {
+  const pending = room.queue.filter(isMineItem).length + (room.now && isMineItem(room.now.item) ? 1 : 0)
+  const len = room.queue.length + (room.now ? 1 : 0)
+  const budget = Math.max(2, Math.ceil(len / Math.max(1, room.present.length)))
+  return { pending, budget, over: pending >= budget }
+}
+const over = (ctx: Ctx) => reserveBudget(ctx.input.room).over
+/** Card actions that put a song in the queue. */
+const RESERVING: ReadonlySet<CardAction> = new Set<CardAction>(['reserve', 'accept', 'insert'])
 const myReserveCount = (ctx: Ctx) =>
   ctx.input.room.queue.filter(isMineItem).length + (ctx.input.room.now && isMineItem(ctx.input.room.now.item) ? 1 : 0) + ctx.input.room.sung.filter(e => isMineItem(e.item)).length
 
@@ -249,13 +273,21 @@ function buildImport(ctx: Ctx, rule: string): DeckCard | null {
   return card
 }
 
-function buildRequest(ctx: Ctx, rule: string): DeckCard | null {
+/** Saki's request was already offered in this round (dealt, answered or still in the hand). */
+function requestInRound(ctx: Ctx, roundNo: number, planned: readonly DeckCard[] = []): boolean {
+  if (offer(ctx, 'requestRound') === roundNo) return true
+  if (roundNo !== round(ctx)) return planned.some(c => c.kind === 'invite' && c.variant === 'request')
+  return ctx.roundKinds.includes('invite.request') || [...ctx.hand, ...planned].some(c => c.kind === 'invite' && c.variant === 'request')
+}
+
+function buildRequest(ctx: Ctx, rule: string, roundNo: number): DeckCard | null {
   if (Object.keys(ctx.input.me.faces).length < 2) return null
   const saki = memberById(ctx.input, 'saki')
   if (!saki) return null
   const s = pickRequest(ctx.input, saki, ctx.exclude)
   if (!s) return null
-  ctx.offers.requestRound = round(ctx)
+  // the round this card will be seen in (a breather may already sit in the hand before it)
+  ctx.offers.requestRound = roundNo
   return mk(ctx, { kind: 'invite', variant: 'request', from: 'saki', songId: s.id, reason: { source: 'dare', text: ref('reason.request', { member: { member: 'saki' }, song: { song: s.id } }) }, rule })
 }
 
@@ -295,7 +327,8 @@ function buildLink(ctx: Ctx, rule: string, center: SongId | undefined, cause?: T
 }
 
 function coasterDue(ctx: Ctx, posInRound: number, roundNo: number): boolean {
-  if (posInRound < 5 || posInRound > ROUND_SIZE) return false
+  // fair share reached: a toast is one of the next things to do that is not another reservation
+  if (posInRound < (over(ctx) ? 3 : 5) || posInRound > ROUND_SIZE) return false
   if (offer(ctx, 'coasterRound') === roundNo) return false
   if (offer(ctx, 'coasterDismissedRound') === roundNo - 1) return false
   const last = offer(ctx, 'coasterAtSim') ?? 0
@@ -353,8 +386,12 @@ function nextDiscovery(ctx: Ctx, seq: CardKind[], slot: Slot, planned: DeckCard[
     if (c) ctx.offers.gapRound = slot.roundNo
     return c
   }
-  const link = (): DeckCard | null => (planned.some(c => c.kind === 'link') ? null : buildLink(ctx, `${r}.link`, linkCenter(ctx), cause))
-  const request = (): DeckCard | null => (offer(ctx, 'requestRound') === slot.roundNo || !present(ctx, 'saki') ? null : buildRequest(ctx, `${r}.request`))
+  // a link at most once per round, and only once the round has a reservation to connect to
+  const linkOk = !has('link') && !planned.some(c => c.kind === 'link') && (slot.roundNo === round(ctx) ? ctx.roundReserves > 0 : false)
+  const link = (): DeckCard | null => (linkOk ? buildLink(ctx, `${r}.link`, linkCenter(ctx), cause) : null)
+  const request = (): DeckCard | null => (requestInRound(ctx, slot.roundNo, planned) || !present(ctx, 'saki') ? null : buildRequest(ctx, `${r}.request`, slot.roundNo))
+  /** "今夜の声を見てみる？" — measuring, not reserving: offered while my share of the queue is full */
+  const voice = (): DeckCard | null => mk(ctx, { kind: 'voice', reason: { source: 'voice', text: ref('reason.voice'), cause: causeOf('interval') }, rule: `${r}.voice` })
   const imports = (): DeckCard | null => {
     const shownCount = ctx.input.deck.history.filter(h => h.kind === 'import').length + planned.filter(c => c.kind === 'import').length
     if (slot.roundNo === 1 ? offer(ctx, 'importShown') : shownCount >= 2) return null
@@ -375,18 +412,25 @@ function nextDiscovery(ctx: Ctx, seq: CardKind[], slot: Slot, planned: DeckCard[
   }
 
   const unused = (kv: string) => !has(kv)
+  // Fair share (QA OWNER#2): once my pending songs fill my share of the queue, the cards whose next
+  // action is another reservation step back, and the ones that play, ask, open or measure come forward.
+  const full = over(ctx)
+  const asks = slot.kinds.filter(k => k === 'ask' || k.startsWith('ask.')).length
+  const askScore = offer(ctx, 'askRound') === slot.roundNo || asks > 0 ? (full && asks < 2 ? 3.4 : 1.2) : full ? 5.3 : 4.4
   if (coasterDue(ctx, slot.pos, slot.roundNo) && ctx.input.room.sung.length > 0)
     cands.push({ kind: 'coaster', score: 6 + j('coaster'), build: () => buildCoaster(ctx, `${r}.coaster`, slot.roundNo, isPeak3(energies(ctx)) ? causeOf('peak3') : cause) })
-  cands.push({ kind: 'song', score: 4.5 + j('song'), build: song })
-  if (visaLoc && unused('song.visa')) cands.push({ kind: 'song', score: 5 + j('visa'), build: visa })
+  cands.push({ kind: 'song', score: (full ? 3.1 : 4.5) + j('song'), build: song })
+  if (visaLoc && unused('song.visa')) cands.push({ kind: 'song', score: (full ? 3.6 : 5) + j('visa'), build: visa })
   // Saki's requests belong to the room sim; the dealer only stands in while the sim sends none
   const simRequests = ctx.input.room.invites.some(i => i.variant === 'request')
-  if (present(ctx, 'saki') && offer(ctx, 'requestRound') !== slot.roundNo && !simRequests) cands.push({ kind: 'invite', score: 4.7 + j('request'), build: request })
+  if (present(ctx, 'saki') && !requestInRound(ctx, slot.roundNo, planned) && !simRequests) cands.push({ kind: 'invite', score: (full ? 3.3 : 4.7) + j('request'), build: request })
   if (ctx.input.me.voice && !offer(ctx, 'duetDone')) cands.push({ kind: 'invite', score: 4.6 + j('duet'), build: () => buildDuet(ctx, `${r}.duet`) })
-  cands.push({ kind: 'ask', score: (offer(ctx, 'askRound') === slot.roundNo || has('ask') ? 1.2 : 4.4) + j('ask'), build: ask })
-  cands.push({ kind: 'gap', score: (offer(ctx, 'gapRound') === slot.roundNo || has('gap') ? 1.0 : 4.2) + j('gap'), build: gap })
-  cands.push({ kind: 'import', score: 3.9 + j('import'), build: imports })
-  cands.push({ kind: 'link', score: (has('link') ? 1.4 : 3.6) + j('link'), build: link })
+  cands.push({ kind: 'ask', score: askScore + j('ask'), build: ask })
+  cands.push({ kind: 'gap', score: (offer(ctx, 'gapRound') === slot.roundNo || has('gap') ? 1.0 : full ? 5.0 : 4.2) + j('gap'), build: gap })
+  cands.push({ kind: 'import', score: (full ? 4.9 : 3.9) + j('import'), build: imports })
+  if (full && !ctx.input.me.voice && !ctx.tail.includes('voice') && ![...ctx.input.deck.cards, ...planned].some(c => c.kind === 'voice'))
+    cands.push({ kind: 'voice', score: 4.8 + j('voice'), build: voice })
+  cands.push({ kind: 'link', score: (full ? 2.0 : 3.6) + j('link'), build: link })
   cands.sort((a, b) => b.score - a.score)
 
   for (const c of cands) {
@@ -473,8 +517,6 @@ function arrange(ctx: Ctx, fixed: DeckCard[], flex: DeckCard[], must: ReadonlySe
 /** How strongly a card holds its place at the front against a newer event (C-9 priority). */
 const RANK: [string, number][] = [
   ['insert.finale', 8],
-  // a toast the presenter cues (script step 9) is asked for right now: it goes on top
-  ['insert.coaster.cue', 7.5],
   ['insert.voice', 7],
   ['insert.shift', 5],
   ['insert.recover', 4],
@@ -482,7 +524,9 @@ const RANK: [string, number][] = [
   ['insert.invite', 2],
   ['insert.coaster', 1],
 ]
-export const rankOf = (c: Pick<DeckCard, 'rule'>): number => RANK.find(([p]) => c.rule.startsWith(p))?.[1] ?? 0
+/** What the presenter cues (a toast, Saki's request, a twin star…) is asked for right now: above all but the finale. */
+const CUE_RANK = 7.5
+export const rankOf = (c: Pick<DeckCard, 'rule'>): number => (c.rule.startsWith('insert.') && c.rule.endsWith('.cue') ? CUE_RANK : RANK.find(([p]) => c.rule.startsWith(p))?.[1] ?? 0)
 
 /**
  * Insert an event card by priority: 'top' events go first, 'next' events right behind the card
@@ -550,12 +594,18 @@ function refill(ctx: Ctx): DirectorOutput {
   return cards.length ? { cards, mode: 'append', offers: ctx.offers } : NOOP
 }
 
-/** "あなたが予約した" → つながる, at most once per two reservations (C-8 ④). */
+/**
+ * "あなたが予約した" → つながる (C-8 ④): at most once per two reservations, at most once per round
+ * and only after the round's first reservation — and never once my share of the queue is full,
+ * so one reservation does not chain into the next (QA OWNER#2).
+ */
 function afterReserve(ctx: Ctx): DirectorOutput {
   const center = ctx.input.trigger.songId
   if (!center) return NOOP
+  if (over(ctx)) return NOOP
   // reserving from a "つながる" card already was the connection: no second link right after it
   if (ctx.tail[ctx.tail.length - 1] === 'link') return NOOP
+  if (ctx.roundKinds.includes('link') || ctx.hand.some(c => c.kind === 'link') || ctx.roundReserves > 1) return NOOP
   const mine = myReserveCount(ctx)
   const last = offer(ctx, 'linkAtReserve')
   if (last != null && mine - last < 2) return NOOP
@@ -678,12 +728,19 @@ function navMiss(ctx: Ctx): DirectorOutput {
   return { cards: place(ctx, card, 'next'), mode: 'replace', offers: ctx.offers }
 }
 
-/** An invite opened by the room (request / twin / duet) becomes the next card. */
+/**
+ * An invite opened by the room (request / twin / duet) becomes the next card — or the top card
+ * when the presenter fired it (a panel button, a script step): the audience must see it now.
+ * Saki's request comes at most once per round; one that arrives after this round already had
+ * one (dealt, answered or dismissed with 「また今度」) is not offered again (C-8 ⑦).
+ */
 function invite(ctx: Ctx): DirectorOutput {
   const t = ctx.input.trigger
+  const cue = !!ctx.input.cue
   const inv = ctx.input.room.invites.find(i => i.status === 'open' && i.songId === t.songId && (!t.member || i.from === t.member))
   if (!inv || !SONG_BY_ID[inv.songId]) return NOOP
   if (ctx.hand.some(c => c.kind === 'invite' && c.variant === inv.variant && c.songId === inv.songId)) return NOOP
+  if (inv.variant === 'request' && !cue && requestInRound(ctx, round(ctx))) return NOOP
   const from = inv.from
   let reason: Reason
   if (inv.variant === 'request') {
@@ -700,8 +757,8 @@ function invite(ctx: Ctx): DirectorOutput {
     reason = { source: 'voice', text: ref('reason.duet', { member: { member: from }, pair: { pair: [mine, theirs] } }) }
     ctx.offers.duetDone = true
   }
-  const card = mk(ctx, { kind: 'invite', variant: inv.variant, from, songId: inv.songId, reason, rule: `insert.invite.${inv.variant}` })
-  return { cards: place(ctx, card, 'next'), mode: 'replace', offers: ctx.offers }
+  const card = mk(ctx, { kind: 'invite', variant: inv.variant, from, songId: inv.songId, reason, rule: `insert.invite.${inv.variant}${cue ? '.cue' : ''}` })
+  return { cards: place(ctx, card, cue ? 'top' : 'next'), mode: 'replace', offers: ctx.offers }
 }
 
 /** The best real cause for a toast suggestion that the presenter forces (script step 9). */

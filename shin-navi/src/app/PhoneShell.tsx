@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useRef, type CSSProperties, type PointerEvent } from 'react'
 import { useNavi, naviApi } from '../core/store'
 import { usePhoneMetrics } from '../core/layout'
+import { selRoomUnlinked } from '../core/selectors'
 import { TAB_FADE } from '../core/ui/motion'
 import type { AreaKey, Tab } from '../core/types'
 import { BackgroundCanvas, SpeckCanvas, BurstLayer } from '../features/fx'
@@ -155,6 +156,8 @@ function OtherTab({ tab }: { tab: Exclude<Tab, 'discover'> }) {
 export function PhoneShell() {
   const m = usePhoneMetrics()
   const tab = useNavi(s => s.ui.tab)
+  // after 退室 the lane (the room's live queue) is no longer mine to show (E-12; QA ROBUST#3)
+  const unlinked = useNavi(selRoomUnlinked)
   const laneH = tab === 'sing' ? 0 : tab === 'discover' ? m.lane : m.laneCompact
   const vars = {
     '--status-h': `${m.status}px`,
@@ -184,7 +187,12 @@ export function PhoneShell() {
         <div className="ps-body">
           <DiscoverLayer active={tab === 'discover'} />
           <AnimatePresence initial={false}>{tab !== 'discover' ? <OtherTab key={tab} tab={tab} /> : null}</AnimatePresence>
-          <div className={`ps-lane${tab === 'sing' ? ' is-hidden' : tab !== 'discover' ? ' is-compact' : ''}`} style={{ height: tab === 'discover' ? m.lane : m.laneCompact }}>
+          <div
+            className={`ps-lane${tab === 'sing' || unlinked ? ' is-hidden' : tab !== 'discover' ? ' is-compact' : ''}`}
+            style={{ height: tab === 'discover' ? m.lane : m.laneCompact }}
+            aria-hidden={unlinked || undefined}
+            data-unlinked={unlinked ? '1' : '0'}
+          >
             <StageLane orientation="horizontal" compact={tab === 'record' || tab === 'order'} />
           </div>
         </div>

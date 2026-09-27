@@ -74,10 +74,21 @@ export function LayoutProvider({ view, fixed, scale = 1, children, style, ...res
   )
 }
 
-/** Automatic choice: < 700 px wide → phone; ≥ 700 and landscape → room. dual is never automatic. */
+/**
+ * Automatic choice: the room layout needs a landscape box of at least 700×600; everything else
+ * (including a phone turned sideways, 844×390) stays phone (QA ROBUST#17). dual is never automatic.
+ */
 export function autoView(w: number, h: number): ViewMode {
-  if (w < 700) return 'phone'
-  return w > h ? 'room' : 'phone'
+  return w >= 700 && h >= 600 && w > h ? 'room' : 'phone'
+}
+
+/** The dual stage's design size (the laptop the demo is rehearsed on, SPEC F-5). */
+export const DUAL_DESIGN = { w: 1366, h: 768 } as const
+
+/** Uniform scale for the dual stage in a w×h box: 1 at or above the design size (QA ROBUST#7). */
+export function dualFit(w: number, h: number): number {
+  if (w >= DUAL_DESIGN.w && h >= DUAL_DESIGN.h) return 1
+  return Math.max(0.3, Math.min(w / DUAL_DESIGN.w, h / DUAL_DESIGN.h))
 }
 
 /** ?view > presenter setting (session.view unless 'auto') > automatic from the root box. */

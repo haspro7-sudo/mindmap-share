@@ -96,87 +96,90 @@ export function WallConstellation({ night, width, height, draw = false, publicOn
   const color = (by: MemberId) => (by === 'me' ? '#FFFFFF' : (MEMBER_PROFILES[by]?.color ?? '#FFF6D8'))
   const bright = (by: MemberId) => publicOnly || by === 'me'
 
+  // The box never grows past its container: the SVG scales down with its aspect ratio, and the
+  // empty-state line is HTML over it, so it wraps instead of being clipped (QA ROBUST#8 / DEMO#16).
   return (
-    <svg
-      className={`wc${animate ? ' is-draw' : ''}${publicOnly ? ' is-public' : ''}`}
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      aria-label={t('wc.aria', { n })}
-      data-testid="wall-constellation"
-      data-points={n}
-      data-private={publicOnly ? undefined : '1'}
-      style={{ ['--wc-line-delay' as string]: `${lineDelay}ms`, ['--wc-line-ms' as string]: `${LINE_MS}ms` } as CSSProperties}
-    >
-      <defs>
-        <linearGradient id={`l${uid}`} x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor={b} />
-          <stop offset="55%" stopColor={a} />
-          <stop offset="100%" stopColor={c} />
-        </linearGradient>
-        <linearGradient id={`f${uid}`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={a} stopOpacity="0.34" />
-          <stop offset="100%" stopColor={a} stopOpacity="0" />
-        </linearGradient>
-        <radialGradient id={`h${uid}`}>
-          <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
-        </radialGradient>
-      </defs>
+    <div className={`wc-box${publicOnly ? ' is-public' : ''}`} style={{ width, maxWidth: '100%' }}>
+      <svg
+        className={`wc${animate ? ' is-draw' : ''}${publicOnly ? ' is-public' : ''}`}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={t('wc.aria', { n })}
+        data-testid="wall-constellation"
+        data-points={n}
+        data-private={publicOnly ? undefined : '1'}
+        style={{ ['--wc-line-delay' as string]: `${lineDelay}ms`, ['--wc-line-ms' as string]: `${LINE_MS}ms` } as CSSProperties}
+      >
+        <defs>
+          <linearGradient id={`l${uid}`} x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor={b} />
+            <stop offset="55%" stopColor={a} />
+            <stop offset="100%" stopColor={c} />
+          </linearGradient>
+          <linearGradient id={`f${uid}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={a} stopOpacity="0.34" />
+            <stop offset="100%" stopColor={a} stopOpacity="0" />
+          </linearGradient>
+          <radialGradient id={`h${uid}`}>
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          </radialGradient>
+        </defs>
 
-      {/* heat guides: the wall's faint horizontal bands */}
-      {[0.33, 0.55, 0.78].map(k => (
-        <line key={k} className="wc__guide" x1={PAD_X} x2={width - PAD_X} y1={PAD_TOP + (1 - k) * (height - PAD_TOP - PAD_BOTTOM)} y2={PAD_TOP + (1 - k) * (height - PAD_TOP - PAD_BOTTOM)} />
-      ))}
-      <line className="wc__floor" x1={PAD_X - 6} x2={width - PAD_X + 6} y1={bottom} y2={bottom} />
+        {/* heat guides: the wall's faint horizontal bands */}
+        {[0.33, 0.55, 0.78].map(k => (
+          <line key={k} className="wc__guide" x1={PAD_X} x2={width - PAD_X} y1={PAD_TOP + (1 - k) * (height - PAD_TOP - PAD_BOTTOM)} y2={PAD_TOP + (1 - k) * (height - PAD_TOP - PAD_BOTTOM)} />
+        ))}
+        <line className="wc__floor" x1={PAD_X - 6} x2={width - PAD_X + 6} y1={bottom} y2={bottom} />
 
+        {n > 1 ? (
+          <>
+            <path className="wc__area" d={`${path} L${pts[n - 1].x.toFixed(1)} ${bottom} L${pts[0].x.toFixed(1)} ${bottom} Z`} fill={`url(#f${uid})`} />
+            <path className="wc__line wc__line--glow" d={path} pathLength={1} stroke={`url(#l${uid})`} />
+            <path className="wc__line" d={path} pathLength={1} stroke={`url(#l${uid})`} />
+          </>
+        ) : null}
+
+        {pts.map(p => {
+          const col = color(p.by)
+          const hi = bright(p.by)
+          const delay = { ['--d' as string]: `${p.i * step}ms` } as CSSProperties
+          return (
+            <g key={p.i} className={`wc__pt${hi ? ' is-bright' : ''}`} data-by={publicOnly ? undefined : p.by} style={delay}>
+              <circle className="wc__halo" cx={p.x} cy={p.y} r={p.r * (hi ? 3.2 : 2.3)} fill={col} />
+              {p.markers.includes('navi') ? <circle cx={p.x} cy={p.y} r={p.r + 3.6} fill="none" stroke="#FFD36B" strokeWidth="1.5" /> : null}
+              {p.markers.includes('allKnow')
+                ? PRISM.map((pc, k) => {
+                    const rr = p.r + (p.markers.includes('navi') ? 7 : 5)
+                    const a0 = (k / PRISM.length) * Math.PI * 2 - Math.PI / 2
+                    const a1 = a0 + (Math.PI * 2) / PRISM.length - 0.18
+                    return (
+                      <path
+                        key={pc}
+                        d={`M${(p.x + rr * Math.cos(a0)).toFixed(2)} ${(p.y + rr * Math.sin(a0)).toFixed(2)} A${rr} ${rr} 0 0 1 ${(p.x + rr * Math.cos(a1)).toFixed(2)} ${(p.y + rr * Math.sin(a1)).toFixed(2)}`}
+                        fill="none"
+                        stroke={pc}
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                      />
+                    )
+                  })
+                : null}
+              <circle className="wc__dot" cx={p.x} cy={p.y} r={p.r} fill={col} />
+              {hi && !publicOnly ? <circle cx={p.x} cy={p.y} r={p.r * 0.5} fill="#FFF6D8" /> : null}
+              <Markers p={p} />
+            </g>
+          )
+        })}
+      </svg>
       {n === 0 ? (
-        <text className="wc__empty" x={width / 2} y={height / 2 + 4} textAnchor="middle">
-          {t('wc.empty')}
-        </text>
+        <p className="wc__empty" data-testid="wall-empty">
+          <span>{t('wc.empty')}</span>
+        </p>
       ) : null}
-
-      {n > 1 ? (
-        <>
-          <path className="wc__area" d={`${path} L${pts[n - 1].x.toFixed(1)} ${bottom} L${pts[0].x.toFixed(1)} ${bottom} Z`} fill={`url(#f${uid})`} />
-          <path className="wc__line wc__line--glow" d={path} pathLength={1} stroke={`url(#l${uid})`} />
-          <path className="wc__line" d={path} pathLength={1} stroke={`url(#l${uid})`} />
-        </>
-      ) : null}
-
-      {pts.map(p => {
-        const col = color(p.by)
-        const hi = bright(p.by)
-        const delay = { ['--d' as string]: `${p.i * step}ms` } as CSSProperties
-        return (
-          <g key={p.i} className={`wc__pt${hi ? ' is-bright' : ''}`} data-by={publicOnly ? undefined : p.by} style={delay}>
-            <circle className="wc__halo" cx={p.x} cy={p.y} r={p.r * (hi ? 3.2 : 2.3)} fill={col} />
-            {p.markers.includes('navi') ? <circle cx={p.x} cy={p.y} r={p.r + 3.6} fill="none" stroke="#FFD36B" strokeWidth="1.5" /> : null}
-            {p.markers.includes('allKnow')
-              ? PRISM.map((pc, k) => {
-                  const rr = p.r + (p.markers.includes('navi') ? 7 : 5)
-                  const a0 = (k / PRISM.length) * Math.PI * 2 - Math.PI / 2
-                  const a1 = a0 + (Math.PI * 2) / PRISM.length - 0.18
-                  return (
-                    <path
-                      key={pc}
-                      d={`M${(p.x + rr * Math.cos(a0)).toFixed(2)} ${(p.y + rr * Math.sin(a0)).toFixed(2)} A${rr} ${rr} 0 0 1 ${(p.x + rr * Math.cos(a1)).toFixed(2)} ${(p.y + rr * Math.sin(a1)).toFixed(2)}`}
-                      fill="none"
-                      stroke={pc}
-                      strokeWidth="1.7"
-                      strokeLinecap="round"
-                    />
-                  )
-                })
-              : null}
-            <circle className="wc__dot" cx={p.x} cy={p.y} r={p.r} fill={col} />
-            {hi && !publicOnly ? <circle cx={p.x} cy={p.y} r={p.r * 0.5} fill="#FFF6D8" /> : null}
-            <Markers p={p} />
-          </g>
-        )
-      })}
-    </svg>
+    </div>
   )
 }
 

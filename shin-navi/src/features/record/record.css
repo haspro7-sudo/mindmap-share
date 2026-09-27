@@ -272,141 +272,532 @@
 }
 .rc-sec__sub {
   margin: 6px 0 0;
+  text-wrap: pretty;
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--ink-dim);
 }
 
-/* ---------------- hero */
-.rc-hero {
+/* ---------------- the stage: the ball, full-bleed (QA OWNER#8) */
+.rc-stage {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 8px;
-}
-.rc-hero__head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  z-index: 2;
-}
-.rc-hero__title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-  background: linear-gradient(90deg, #fff6d8, #ffd6f0 40%, #c9f6ff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.rc-hero__stage {
-  position: relative;
-  width: 100%;
-  height: 310px;
+  flex: none;
+  margin: -6px -16px 0;
   display: grid;
   place-items: center;
-  margin-top: -2px;
+  /* clip sideways (never a horizontal scroll); the glow may fall softly onto the line below */
+  overflow-x: clip;
+  overflow-y: visible;
+  isolation: isolate;
 }
-.rc-hero__rays {
+.rc-stage > i {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 520px;
-  height: 520px;
-  margin: -260px 0 0 -260px;
-  border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, rgba(255, 246, 216, 0.09) 0deg 5deg, rgba(255, 246, 216, 0) 5deg 20deg);
-  -webkit-mask-image: radial-gradient(circle, #000 18%, rgba(0, 0, 0, 0) 64%);
-  mask-image: radial-gradient(circle, #000 18%, rgba(0, 0, 0, 0) 64%);
-  animation: rc-spin 70s linear infinite;
   pointer-events: none;
 }
-.rc-hero__rays.is-still {
+.rc-stage__rays {
+  left: 50%;
+  top: 50%;
+  width: 640px;
+  height: 640px;
+  margin: -320px 0 0 -320px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 246, 216, 0.1) 0deg 5deg, rgba(255, 246, 216, 0) 5deg 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 20%, rgba(0, 0, 0, 0) 62%);
+  mask-image: radial-gradient(circle, #000 20%, rgba(0, 0, 0, 0) 62%);
+  animation: rc-spin 70s linear infinite;
+}
+.rc-stage.is-still > i {
   animation: none;
 }
-.rc-hero__halo {
-  position: absolute;
+/* two stage lights from the top corners (static gradients; they only sway) */
+.rc-stage__beam {
+  top: -40px;
+  width: 120px;
+  height: 420px;
+  border-radius: 0 0 50% 50%;
+  background: linear-gradient(180deg, rgba(255, 246, 216, 0.22), rgba(255, 246, 216, 0.05) 60%, rgba(255, 246, 216, 0));
+  transform-origin: 50% 0;
+  opacity: 0.8;
+}
+.rc-stage__beam.is-l {
+  left: 4%;
+  transform: rotate(-28deg);
+  animation: rc-sway-l 9s ease-in-out infinite alternate;
+}
+.rc-stage__beam.is-r {
+  right: 4%;
+  transform: rotate(28deg);
+  background: linear-gradient(180deg, rgba(46, 242, 255, 0.2), rgba(46, 242, 255, 0.05) 60%, rgba(46, 242, 255, 0));
+  animation: rc-sway-r 11s ease-in-out -3s infinite alternate;
+}
+@keyframes rc-sway-l {
+  from {
+    transform: rotate(-32deg);
+  }
+  to {
+    transform: rotate(-22deg);
+  }
+}
+@keyframes rc-sway-r {
+  from {
+    transform: rotate(33deg);
+  }
+  to {
+    transform: rotate(22deg);
+  }
+}
+.rc-stage__halo {
   left: 50%;
   top: 50%;
-  width: 360px;
-  height: 360px;
-  margin: -180px 0 0 -180px;
+  width: 460px;
+  height: 460px;
+  margin: -230px 0 0 -230px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(138, 107, 255, 0.34) 0%, rgba(255, 61, 168, 0.12) 40%, rgba(11, 6, 32, 0) 68%);
-  pointer-events: none;
+  background: radial-gradient(circle, rgba(138, 107, 255, 0.38) 0%, rgba(255, 61, 168, 0.14) 42%, rgba(11, 6, 32, 0) 68%);
 }
-.rc-hero__ball {
-  position: relative;
-  z-index: 1;
+/* a chip lights the stage in that state's colour (crossfaded, opacity only) */
+.rc-stage__tint {
+  left: 50%;
+  top: 50%;
+  width: 640px;
+  height: 640px;
+  margin: -320px 0 0 -320px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.35s var(--ease-out);
 }
-.rc-hero__floor {
+.rc-stage__tint.is-on {
+  opacity: 1;
+}
+.rc-stage__tint.is-sketch {
+  background: radial-gradient(circle closest-side, rgba(233, 236, 245, 0.34) 50%, rgba(201, 204, 216, 0.12) 72%, rgba(11, 6, 32, 0) 100%);
+}
+.rc-stage__tint.is-neon {
+  background: radial-gradient(circle closest-side, rgba(255, 61, 168, 0.5) 50%, rgba(255, 106, 61, 0.16) 72%, rgba(11, 6, 32, 0) 100%);
+}
+.rc-stage__tint.is-mirror {
+  background: radial-gradient(circle closest-side, rgba(255, 246, 216, 0.5) 50%, rgba(157, 180, 255, 0.18) 72%, rgba(11, 6, 32, 0) 100%);
+}
+.rc-stage__tint.is-prism {
+  background: conic-gradient(from 0deg, rgba(255, 61, 168, 0.55), rgba(255, 181, 71, 0.55), rgba(198, 255, 61, 0.5), rgba(46, 242, 255, 0.55), rgba(138, 107, 255, 0.55), rgba(255, 61, 168, 0.55));
+  -webkit-mask-image: radial-gradient(circle closest-side, #000 50%, rgba(0, 0, 0, 0.35) 72%, rgba(0, 0, 0, 0) 100%);
+  mask-image: radial-gradient(circle closest-side, #000 50%, rgba(0, 0, 0, 0.35) 72%, rgba(0, 0, 0, 0) 100%);
+}
+.rc-stage__tint.is-prism.is-on {
+  animation: rc-spin 18s linear infinite;
+}
+.rc-stage.is-sel .rc-stage__halo {
+  opacity: 0.45;
+  transition: opacity 0.35s var(--ease-out);
+}
+.rc-stage__floor {
+  left: 14%;
+  right: 14%;
+  bottom: 30px;
+  height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 246, 216, 0.24), rgba(255, 246, 216, 0) 70%);
+}
+.rc-stage__top {
   position: absolute;
-  left: 12%;
-  right: 12%;
-  bottom: 4px;
-  height: 22px;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(255, 246, 216, 0.22), rgba(255, 246, 216, 0) 70%);
-  pointer-events: none;
-}
-.rc-hero__count {
+  left: 16px;
+  right: 12px;
+  top: 12px;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 2px;
+  justify-content: space-between;
+  pointer-events: none;
 }
-.rc-hero__lit {
-  font-size: 54px;
-  line-height: 1;
+.rc-stage__info {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  pointer-events: auto;
+  transition: transform 0.12s var(--ease-out);
+}
+.rc-stage__info:active {
+  transform: scale(0.92);
+}
+.rc-stage__ball {
+  position: relative;
+  z-index: 2;
+}
+/* on a phone a vertical swipe over the big ball scrolls the page; a horizontal one spins it */
+.rc-stage__ball .mb.is-interactive {
+  touch-action: pan-y;
+}
+.rc-stage__hint {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 8px;
+  z-index: 3;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+.rc-stage__hint.is-empty {
+  color: var(--ink-dim);
+}
+
+/* ---------------- one line under the ball */
+.rc-line {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  min-height: 28px;
+  margin-top: -6px;
+}
+.rc-line__txt {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-align: center;
+}
+.rc-line__lit b {
+  margin: 0 1px;
+  font-size: 17px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em;
-  background: linear-gradient(180deg, #ffffff 10%, #ffd6f0 55%, #ff3da8);
+  background: linear-gradient(180deg, #ffffff 10%, #ffd6f0 60%, #ff6fb1);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 0 24px rgba(255, 61, 168, 0.25);
 }
-.rc-hero__of {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 15px;
-  font-weight: 800;
-}
-.rc-hero__litrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.rc-hero__tonight {
+.rc-line__tonight {
   display: inline-flex;
   align-items: center;
   height: 22px;
   padding: 0 9px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 900;
   color: #140a26;
   background: var(--prism-linear);
   box-shadow: 0 0 14px rgba(255, 61, 168, 0.45);
   font-variant-numeric: tabular-nums;
 }
-.rc-hero__total {
-  font-size: 12px;
+.rc-line__txt.is-sel b {
+  font-weight: 900;
+}
+.rc-line__n {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.rc-line__how {
   font-weight: 700;
   color: var(--ink-dim);
 }
+
+/* ---------------- the four face-state chips (tap: only those faces light on the ball) */
+.rc-chips {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: -4px;
+}
+.rc-chip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  height: 60px;
+  padding: 6px 4px;
+  border-radius: 16px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transition: opacity 0.22s var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.rc-chip--sketch {
+  --cc: #d8dce8;
+}
+.rc-chip--neon {
+  --cc: #ff3da8;
+}
+.rc-chip--mirror {
+  --cc: #fff6d8;
+}
+.rc-chip--prism {
+  --cc: #2ef2ff;
+}
+.rc-chips.has-sel .rc-chip:not(.is-on) {
+  opacity: 0.5;
+}
+.rc-chip.is-on {
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 0 0 1.5px var(--cc),
+    0 10px 24px -12px var(--cc);
+}
+.rc-chip--prism.is-on {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.7),
+    0 10px 24px -12px #ff3da8;
+}
+.rc-chip__glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--cc) 38%, transparent), rgba(0, 0, 0, 0) 72%);
+  opacity: 0;
+  transition: opacity 0.25s var(--ease-out);
+  pointer-events: none;
+}
+.rc-chip.is-on .rc-chip__glow {
+  opacity: 1;
+}
+.rc-chip__top {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-chip__sw {
+  transition: transform 0.25s var(--ease-out);
+}
+.rc-chip.is-on .rc-chip__sw {
+  transform: scale(1.15) rotate(-6deg);
+}
+.rc-chip__n {
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.rc-chip--neon .rc-chip__n {
+  color: #ffc1e3;
+}
+.rc-chip--prism .rc-chip__n {
+  background: var(--prism-linear);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.rc-chip.is-zero .rc-chip__n {
+  color: var(--ink-faint);
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+}
+.rc-chip__name {
+  position: relative;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-chip.is-on .rc-chip__name {
+  color: var(--ink);
+}
+
+/* ---------------- the pager: tonight's wall · calendar · pins */
+.rc-pager {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.rc-pager__tabs {
+  align-self: center;
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+.rc-pager__tab {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.rc-pager__tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-pager__tab b {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.rc-pager__tab.is-on {
+  color: #140a26;
+  background: linear-gradient(90deg, #fff6d8, #ffd6f0 50%, #c9f6ff);
+  box-shadow: 0 4px 16px -6px rgba(255, 214, 240, 0.8);
+}
+.rc-pager__track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc(100% - 26px);
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 0 16px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 16px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.rc-pager__track::-webkit-scrollbar {
+  display: none;
+}
+.rc-page {
+  position: relative;
+  min-width: 0;
+  scroll-snap-align: start;
+  padding: 14px 14px 16px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(31, 19, 64, 0.78), rgba(21, 11, 46, 0.66));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  opacity: 0.55;
+  transition: opacity 0.3s var(--ease-out);
+}
+.rc-page.is-on {
+  opacity: 1;
+}
+.rc-pager__dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.rc-pager__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  transition:
+    transform 0.25s var(--ease-out),
+    background-color 0.25s;
+}
+.rc-pager__dots i.is-on {
+  background: #fff;
+  transform: scale(1.3);
+}
+.rc-pg {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rc-pg__sub {
+  margin: 0;
+  text-wrap: pretty;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.rc-pg__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  text-align: center;
+}
+.rc-pg__melody {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rc-pg__melody .rc-mel {
+  flex: 1;
+  min-width: 0;
+}
+.rc-pg__faces {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rc-pg__h {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.rc-pg__h b {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rc-pg__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.rc-pg__tile {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  transition: transform 0.12s var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.rc-pg__tile:active {
+  transform: scale(0.9);
+}
+.rc-pg__more {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.rc-mini-btn.is-play {
+  gap: 6px;
+  padding: 0 14px 0 12px;
+  color: #140a26;
+  border: none;
+  background: linear-gradient(90deg, #fff6d8, #ffd6f0);
+}
+
+/* ---------------- the genre bands (legend sheet) */
 .rc-bands {
   display: flex;
   gap: 3px;
   width: 100%;
-  max-width: 340px;
   height: 10px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 .rc-bands__seg {
   position: relative;
@@ -425,45 +816,144 @@
   box-shadow: 0 0 8px var(--c);
   transition: transform 0.6s var(--ease-out);
 }
-.rc-bands__legend {
+
+/* ---------------- settings: one row at the bottom, the panel in a sheet */
+.rc-setrow {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 12px;
-  margin-top: 10px;
-  font-size: 11.5px;
-  font-weight: 700;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px 8px 14px;
+  border-radius: 18px;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.rc-setrow__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
   color: var(--ink-dim);
 }
-.rc-bands__chip {
+.rc-setrow__k {
+  flex: none;
+  font-size: 14px;
+  font-weight: 900;
+}
+.rc-setrow__v {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-setrow__go {
+  flex: none;
+  color: var(--ink-faint);
+}
+.rc-setsheet {
+  padding: 4px 18px 22px;
+}
+
+/* ---------------- the ⓘ legend sheet */
+.rc-legend {
+  padding: 2px 18px 26px;
+}
+.rc-legend__h {
+  margin: 16px 0 4px;
+  font-size: 14px;
+  font-weight: 900;
+}
+.rc-legend__h:first-child {
+  margin-top: 4px;
+}
+.rc-legend__sub {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+.rc-legend__states {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rc-legend__state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.rc-legend__txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+.rc-legend__txt b {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.rc-legend__genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+.rc-legend__genre {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
-.rc-bands__chip i {
-  width: 7px;
-  height: 7px;
+.rc-legend__genre.is-lit {
+  color: var(--ink-dim);
+}
+.rc-legend__genre i {
+  width: 8px;
+  height: 8px;
   border-radius: 2px;
 }
-.rc-bands__chip b {
+.rc-legend__genre b {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.rc-hero__hint {
-  margin: 10px 0 4px;
+.rc-legend__hint {
+  margin: 16px 0 0;
   font-size: 12px;
   color: var(--ink-faint);
+  text-align: center;
 }
 
 /* ---------------- farewell (closed phase) */
 .rc-bye {
+  position: relative;
+  z-index: 3;
   display: flex;
   gap: 14px;
   align-items: center;
   margin-top: 8px;
   padding: 16px;
   border-radius: 22px;
-  background: radial-gradient(120% 140% at 0% 0%, rgba(255, 211, 107, 0.2), rgba(255, 211, 107, 0) 55%), linear-gradient(135deg, rgba(255, 61, 168, 0.18), rgba(46, 242, 255, 0.1));
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 211, 107, 0.2), rgba(255, 211, 107, 0) 55%), linear-gradient(135deg, rgba(255, 61, 168, 0.18), rgba(46, 242, 255, 0.1)), rgba(20, 10, 44, 0.86);
   box-shadow: inset 0 0 0 1px rgba(255, 211, 107, 0.35);
 }
 .rc-bye__stamp {
@@ -504,47 +994,7 @@
   color: var(--gold);
 }
 
-/* ---------------- faces by state */
-.rc-states {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-.rc-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 4px 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.035);
-  text-align: center;
-}
-.rc-state__n {
-  margin-top: 4px;
-  font-size: 24px;
-  line-height: 1;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-}
-.rc-state--prism .rc-state__n {
-  background: var(--prism-linear);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.rc-state--neon .rc-state__n {
-  color: #ffc1e3;
-}
-.rc-state__name {
-  font-size: 12px;
-  font-weight: 800;
-}
-.rc-state__how {
-  font-size: 10.5px;
-  line-height: 1.35;
-  color: var(--ink-faint);
-}
+/* ---------------- marks legend (the ⓘ sheet and the face sheet) */
 .rc-marks {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -623,6 +1073,30 @@
   font-size: 11.5px;
   color: var(--ink-dim);
 }
+.rc-row--gap {
+  width: 100%;
+  text-align: left;
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s var(--ease-out);
+}
+.rc-row--gap:active {
+  transform: scale(0.98);
+}
+.rc-gap__open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 10px 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
 .rc-gap__globe {
   flex: none;
 }
@@ -637,6 +1111,68 @@
   50% {
     opacity: 1;
   }
+}
+
+/* ---------------- sleeping faces: a shelf of moons (tap → the face sheet, polish there) */
+.rc-moons {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 112px;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 2px 16px 4px;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding: 0 16px;
+  scrollbar-width: none;
+}
+.rc-moons::-webkit-scrollbar {
+  display: none;
+}
+.rc-moons > li {
+  scroll-snap-align: start;
+  min-width: 0;
+}
+.rc-moon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 100%;
+  padding: 12px 8px 10px;
+  border-radius: 16px;
+  color: var(--ink);
+  background: radial-gradient(90% 70% at 50% 0%, rgba(246, 231, 176, 0.12), rgba(246, 231, 176, 0) 70%), rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(246, 231, 176, 0.14);
+  transition: transform 0.12s var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.rc-moon:active {
+  transform: scale(0.95);
+}
+.rc-moon__title {
+  max-width: 100%;
+  font-size: 12.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-moon__meta {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.rc-moon__go {
+  margin-top: 2px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #fff6d8;
+  border: 1px solid rgba(246, 231, 176, 0.45);
 }
 
 /* ---------------- tonight */
@@ -659,48 +1195,96 @@
   opacity: 0.9;
 }
 
-/* ---------------- pins */
+/* ---------------- pins: a board of ten badges and one caption */
 .rc-pins {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rc-pins__board {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px 2px;
 }
 .rc-pin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0 2px;
+  border-radius: 14px;
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.rc-pin::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: 50px;
+  height: 50px;
+  margin-left: -25px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 246, 216, 0.85);
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity 0.2s var(--ease-out),
+    transform 0.2s var(--ease-out);
+  pointer-events: none;
+}
+.rc-pin.is-on::before {
+  opacity: 1;
+  transform: scale(1);
+}
+.rc-pin__name {
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+}
+/* spaced languages wrap between words, never inside one */
+:root:lang(en) .rc-pin__name,
+:root:lang(ko) .rc-pin__name {
+  white-space: normal;
+  word-break: keep-all;
+}
+.rc-pin:not(.is-earned) .rc-pin__name {
+  color: var(--ink-faint);
+}
+.rc-pins__cap {
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.rc-pins__capin {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.025);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
-.rc-pin.is-earned {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--pa, #fff) 10%, transparent), rgba(255, 255, 255, 0.03));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
-.rc-pin__txt {
+.rc-pins__captxt {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
-.rc-pin__name {
-  font-size: 13px;
+.rc-pins__captxt b {
+  font-size: 13.5px;
   font-weight: 900;
 }
-.rc-pin:not(.is-earned) .rc-pin__name {
-  color: var(--ink-dim);
-}
 .rc-pin__how {
-  font-size: 10.5px;
-  line-height: 1.4;
-  color: var(--ink-faint);
-}
-.rc-pin.is-earned .rc-pin__how {
+  font-size: 12px;
+  line-height: 1.45;
   color: var(--ink-dim);
 }
 .rc-pin__at {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--gold);
 }
@@ -1328,9 +1912,16 @@
 }
 
 /* ============================================================ wall constellation (SVG) */
+/* the box never outgrows its column: the SVG scales down, the empty line wraps (HTML) */
+.wc-box {
+  position: relative;
+  display: block;
+}
 .wc {
   display: block;
   overflow: visible;
+  max-width: 100%;
+  height: auto;
 }
 .wc__guide {
   stroke: rgba(255, 255, 255, 0.06);
@@ -1342,9 +1933,26 @@
   stroke-width: 1;
 }
 .wc__empty {
-  font-size: 12px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.wc__empty span {
+  max-width: 100%;
+  font-size: 12.5px;
   font-weight: 700;
-  fill: var(--ink-faint);
+  line-height: 1.5;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+:root:lang(ko) .wc__empty span {
+  word-break: keep-all;
 }
 .wc__line {
   fill: none;
@@ -2078,25 +2686,38 @@
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 8px 6px;
   padding: calc(12px + var(--sat)) 14px 6px 16px;
 }
 .rw__brand {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  min-width: 0;
   font-size: 12.5px;
   font-weight: 900;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .rw__mark {
+  flex: none;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: var(--prism);
+}
+/* the concept-prototype label (brief §6): its own quiet row under the title, never cut */
+.rw__proto {
+  grid-column: 1 / -1;
+  margin-top: -6px;
+  padding-left: 16px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  opacity: 0.6;
 }
 .rw__dots {
   display: flex;
@@ -2560,6 +3181,20 @@
   font-size: 11.5px;
   color: var(--ink-dim);
 }
+.rw-common__size {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.rw-common__n {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #fff6d8;
+  opacity: 0.85;
+  white-space: nowrap;
+}
 .rw-common__dots {
   display: flex;
   gap: 4px;
@@ -2650,6 +3285,14 @@
   align-items: center;
   width: 100%;
   max-width: 400px;
+}
+.rw-p5__brand {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  text-align: center;
 }
 .rw-p5__head {
   margin: 2px 0 12px;
@@ -2812,7 +3455,7 @@
   }
   .rc-face__prism,
   .rc-face__glint,
-  .rc-hero__rays,
+  .rc-stage > i,
   .rc-pinb__glow,
   .rc-gap__band,
   .rc-cal__halo,

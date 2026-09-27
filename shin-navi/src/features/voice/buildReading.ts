@@ -18,6 +18,12 @@ export const QUIZ: { [K in QuizKey]: QuizAnswers[K][] } = {
   style: ['ride', 'talk', 'sustain'],
 }
 export const QUIZ_ORDER: QuizKey[] = ['high', 'chorus', 'style']
+/**
+ * SPEC N beat 7 ("今回の声はエモーショナル → −2で予約"): in script mode the quiz marks these answers
+ * with a quiet ring so the presenter can reproduce the scripted reading (DEMO#14). They are an
+ * ordinary answer set; voice.test.ts checks they read as emotional with a lowered key.
+ */
+export const DEMO_ANSWERS: QuizAnswers = { high: 'hard', chorus: 'between', style: 'talk' }
 
 export const VOICE_TYPES: VoiceTypeId[] = ['clear', 'power', 'groove', 'emotional']
 

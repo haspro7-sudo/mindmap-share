@@ -160,44 +160,47 @@
   gap: 6px;
   text-align: center;
 }
-.gap-body__head {
-  font-size: 18px;
-  line-height: 1.32;
+.gap-body__reason {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+/* the area is the title: big, glowing like a lit face */
+.gap-body__title {
+  max-width: 100%;
+  font-size: 27px;
+  line-height: 1.18;
   font-weight: 900;
   letter-spacing: -0.01em;
-  color: var(--ink);
   text-wrap: balance;
-  text-shadow: 0 1px 10px rgba(10, 6, 30, 0.8);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  background: linear-gradient(90deg, #7df9ff, #e6f4ff 55%, #c9b8ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.gap-body__head b {
-  font-weight: 900;
-  white-space: nowrap;
-  color: #7df9ff;
-}
-.gap-body__cause {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 2px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink-dim);
-}
-.gap-body__count {
+.gap-body__line {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
+  max-width: 100%;
+  text-wrap: balance;
+  gap: 7px;
+  font-size: 14px;
   font-weight: 800;
-  letter-spacing: 0.02em;
-  color: #7df9ff;
+  line-height: 1.3;
+  color: #e7fbff;
+  text-shadow: 0 1px 8px rgba(10, 6, 30, 0.9);
 }
-.gap-body__count i {
-  width: 6px;
-  height: 6px;
+.gap-body__line i {
+  flex: none;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #7df9ff;
+  box-shadow: 0 0 8px rgba(125, 249, 255, 0.9);
   animation: gap-blink 1.1s ease-in-out infinite;
 }
 @keyframes gap-blink {
@@ -205,33 +208,21 @@
     opacity: 0.2;
   }
 }
+/* a peek at what is inside: one quiet line */
 .gap-body__songs {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
   max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-.gap-body__song {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 44%;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 700;
-  line-height: 22px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  color: var(--ink-dim);
+  text-shadow: 0 1px 6px rgba(10, 6, 30, 0.9);
 }
-.is-small .gap-body__head {
-  font-size: 16px;
+.is-small .gap-body__title {
+  font-size: 23px;
 }
 .is-small .gap-body__text {
   gap: 4px;

@@ -37,6 +37,10 @@ function ensureResolver() {
     return r.width > 0 ? r : null
   })
 }
+/** The phone floor light of a member (for the ON STAGE applause), if it is on screen. */
+export function floorOrbEl(id: MemberId): HTMLElement | undefined {
+  return floorEls.get(id)
+}
 function releaseResolver() {
   if (floorEls.size || columnEls.size) return
   resolverOff?.()
@@ -360,7 +364,8 @@ function ColumnOrbs() {
         const mem = members[id]
         if (!mem) return null
         // The shared screen shows me as a steady light: no first-tap state, no voice colour.
-        const st: OrbState = id === 'me' ? 'lit' : stateOf(mem, true, !!leaving[id])
+        // After leaving (exit) I am no longer here (E-12): my light fades out like anyone who leaves.
+        const st: OrbState = id === 'me' ? (mem.present ? 'lit' : leaving[id] ? 'leaving' : 'gone') : stateOf(mem, true, !!leaving[id])
         if (st === 'gone') return null
         const intro = introPending(INTRO_KEY[id])
         const singing = st === 'lit' && (singer === id || duetWith === id)

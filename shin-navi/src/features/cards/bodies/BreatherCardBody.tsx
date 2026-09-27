@@ -1,7 +1,7 @@
-// Breather body (SPEC C-8 11, C-6): a capsule between rounds. It only reports what really
-// happened this round (faces gained, songs reserved, songs until my turn) and its biggest
-// button is "put the phone down and listen". "One more round" is a full-width outlined button
-// of the same height, so stopping never feels like the lesser choice.
+// Breather body (SPEC C-8 11, C-6): a capsule between rounds. One line of what really happened
+// this round (faces gained, songs reserved), one calm line (my turn / just listen), and the
+// biggest button is "put the phone down and listen". "One more round" is a full-width outlined
+// button of almost the same height, so stopping never feels like the lesser choice.
 import { useEffect } from 'react'
 import { motion } from 'motion/react'
 import type { CardAction, CardBodyComponent, CardBodyProps } from '../../../core/types'
@@ -42,27 +42,16 @@ function BreatherBody({ card, setPrimary, act }: CardBodyProps) {
     setPrimary({ action: 'putDown', label: S.ref('putDown'), enabled: true })
   }, [card.id])
 
-  const turnVal = st.turn == null ? t('breather.turnNone') : st.turn === 0 ? t('breather.turnNow') : t('breather.turnVal', { n: st.turn })
   const summary = t('breather.summary', { f: st.faces, r: st.reserved, t: st.turn ?? '-' })
+  const line = st.listening ? t('breather.listen') : st.turn == null ? t('breather.turnNoneLine') : st.turn === 0 ? t('breather.turnNowLine') : t('breather.turnLine', { n: st.turn })
   return (
     <div className="breather" aria-label={summary}>
-      <div className="breather__title">{st.listening ? t('breather.listen') : t('breather.round')}</div>
       <div className="breather__stats" data-testid="breather-stats">
-        <div className="bstat">
-          <span className="bstat__k">{t('breather.faces')}</span>
-          <span className="bstat__v">{t('breather.facesVal', { n: st.faces })}</span>
-        </div>
-        <span className="bstat__sep" aria-hidden="true" />
-        <div className="bstat">
-          <span className="bstat__k">{t('breather.reserved')}</span>
-          <span className="bstat__v">{t('breather.reservedVal', { n: st.reserved })}</span>
-        </div>
-        <span className="bstat__sep" aria-hidden="true" />
-        <div className="bstat">
-          <span className="bstat__k">{t('breather.turn')}</span>
-          <span className="bstat__v">{turnVal}</span>
-        </div>
+        {t('breather.stats', { f: st.faces, r: st.reserved })
+          .split(/(\+?\d+)/)
+          .map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part))}
       </div>
+      <div className="breather__line">{line}</div>
       <motion.button type="button" className="breather__down" data-testid="breather-putdown" whileTap={{ scale: 0.96 }} transition={SPRING.snappy} onClick={() => act('putDown')}>
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="6" y="2.5" width="8" height="15" rx="2" />

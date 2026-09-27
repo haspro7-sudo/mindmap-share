@@ -13,7 +13,7 @@ import { params } from '../../core/params'
 import { AuroraPainter, PaletteTracker, auroraIntro, type IntroMode } from './aurora'
 import { TIERS } from './governor'
 import { fxDebug } from './debug'
-import { fxClock, fxRuntime, phoneCovered } from './signals'
+import { fxClock, fxPreview, fxRuntime, phoneCovered } from './signals'
 import { rgbCss } from './sprites'
 import './fx.css'
 
@@ -82,6 +82,7 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
     let visClock = 0
     let geoClock = 0
     let lastPalette = ''
+    let lastPreview = ''
     let lastGold = ''
     let lastTier = ''
 
@@ -137,6 +138,9 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
       // palette/gold as data attributes for the static (tier 0) look — written only on change
       const key = fxState.aurora
       if (key !== lastPalette) el.dataset.palette = lastPalette = key
+      // the forecast lean: the static look shows the coming palette's layer part-way (fx.css)
+      const pv = fxPreview.key && fxPreview.target > 0 ? fxPreview.key : ''
+      if (pv !== lastPreview) el.dataset.preview = lastPreview = pv
       const g = fxState.gold > 0.25 ? '1' : '0'
       if (g !== lastGold) el.dataset.gold = lastGold = g
       const mode = q === 0 ? 'static' : 'canvas'
@@ -144,7 +148,7 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
         el.dataset.mode = lastTier = mode
         if (mode === 'static') ctx.clearRect(0, 0, cv.width, cv.height)
       }
-      const colors = pal.update(fxState)
+      const colors = pal.update(fxState, fxPreview)
       // the horizon glow picks up the palette's lightest colour
       const c2 = colors[2]
       const hz = rgbCss([Math.min(255, c2[0] + 90), Math.min(255, c2[1] + 90), Math.min(255, c2[2] + 90)])
@@ -199,7 +203,7 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
   }, [variant])
 
   return (
-    <div ref={root} className={`fx-bg fx-bg--${variant}`} data-mode="canvas" data-palette="quiet" data-gold="0" data-floor="1" aria-hidden="true">
+    <div ref={root} className={`fx-bg fx-bg--${variant}`} data-mode="canvas" data-palette="quiet" data-preview="" data-gold="0" data-floor="1" aria-hidden="true">
       <div className="fx-bg__static">
         <i className="fx-static fx-static--quiet" />
         <i className="fx-static fx-static--mellow" />

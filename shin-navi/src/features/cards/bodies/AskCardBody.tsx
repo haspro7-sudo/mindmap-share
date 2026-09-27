@@ -1,6 +1,8 @@
 // Ask card body (SPEC C-8 2): a round medallion with one anonymous dot per person around the
 // rim. "Know / Just the chorus" fill my own dot; the primary asks the room, and once the count
 // is over it turns into Reserve. Unknown and unanswered look identical (an empty ring).
+// Card-front contract: question, title, artist, one reason line and the answer controls; how the
+// count works lives on the evidence side.
 import { useEffect, useMemo } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { CardBodyComponent, CardBodyProps, KnowView } from '../../../core/types'
@@ -11,7 +13,6 @@ import { KnowDots } from '../../../core/ui/KnowDots'
 import { SongTitle } from '../../../core/ui/SongTitle'
 import { SONG_BY_ID } from '../../../data/songs'
 import { useBox } from '../../../core/layout'
-import { common } from '../../../i18n/common'
 import { ReasonLine } from '../CardShell'
 import { FRAMES } from '../frames'
 import { S } from '../strings'
@@ -46,7 +47,6 @@ function RimDots({ view, size, d, meIndex }: { view: KnowView | null; size: numb
 
 function AskBody({ card, setPrimary, act }: CardBodyProps) {
   const t = S.useT()
-  const tc = common.useT()
   const box = useBox()
   const small = box.h < 760 || box.w < 375
   const songId = card.songId ?? ''
@@ -127,15 +127,21 @@ function AskBody({ card, setPrimary, act }: CardBodyProps) {
           <div className="ask__mine">
             <motion.button type="button" className="ask__btn" data-testid="ask-know" whileTap={{ scale: 0.93 }} onClick={() => act('answer', { songId, answer: 'know' })}>
               <span className="ask__glyph ask__glyph--know" aria-hidden="true" />
-              {tc('know')}
+              {t('ask.know')}
             </motion.button>
             <motion.button type="button" className="ask__btn" data-testid="ask-chorus" whileTap={{ scale: 0.93 }} onClick={() => act('answer', { songId, answer: 'chorus' })}>
               <span className="ask__glyph ask__glyph--chorus" aria-hidden="true" />
-              {tc('chorus')}
+              {t('ask.chorus')}
             </motion.button>
           </div>
         )}
-        <div className="ask__note">{all ? <b className="ask__allmsg">{t('ask.all')}</b> : asked && counted ? t('ask.done') : t('ask.note')}</div>
+        {all ? (
+          <div className="ask__note">
+            <b className="ask__allmsg">{t('ask.all')}</b>
+          </div>
+        ) : asked && counted ? (
+          <div className="ask__note">{t('ask.done')}</div>
+        ) : null}
       </div>
     </div>
   )

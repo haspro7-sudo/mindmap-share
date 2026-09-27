@@ -1,31 +1,42 @@
-// The record tab (SPEC F-1 S6, D-1…D-12): where the collection is admired. The big rotatable
-// ball comes from the shell (slot), then the faces by state with the legend of marks, sleeping
-// faces, tonight's wall of light, still-dark areas, the ten pins with public conditions, the
-// month calendar with stamps, night pages (seeded demo nights say so), the voice log, My Songs
-// and settings. Everything here is personal (data-private) and never shown on the room screen.
-import { motion } from 'motion/react'
-import { useMemo, useRef, useState, useLayoutEffect, type CSSProperties, type ReactNode, type RefObject } from 'react'
-import type { AreaKey, Face, Night, Tempo } from '../../core/types'
+// The record tab (SPEC F-1 S6, D-1…D-12; QA OWNER#8): the collection as a toy. The big rotatable
+// ball (a slot from the shell) fills most of the first screen, with one line under it and four
+// face-state chips that light only those faces on the ball (fxState.ballHighlight). Tonight's
+// wall of light, the calendar and the pins share a horizontal pager under it; the dark areas,
+// sleeping faces, night pages, voice log and My Songs follow; the legend of marks lives behind ⓘ
+// and the settings behind a single row. Everything here is personal (data-private) and never
+// shown on the room screen.
+import { AnimatePresence, motion } from 'motion/react'
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
+import type { AreaKey, Face, FaceState, Night, Pin, Tempo } from '../../core/types'
 import { naviApi, useNavi } from '../../core/store'
 import { useNaviStable } from '../../core/useStable'
 import { selFaceStats } from '../../core/selectors'
 import { areaColor, gapAreas, isSleeping } from '../../core/rules'
+import { fxState } from '../../core/fxState'
 import { sound } from '../../core/sound'
-import { SONGS, SONG_BY_ID, GENRES, type Genre } from '../../data/songs'
-import { useLocale, useTr, varText } from '../../i18n'
+import { useBox, usePhoneMetrics } from '../../core/layout'
+import { SPRING } from '../../core/ui/motion'
+import { SONGS, type Genre } from '../../data/songs'
+import { LOCALES, songTitle, useLocale, useTr, varText } from '../../i18n'
 import { SongTitle } from '../../core/ui/SongTitle'
 import { Icon } from '../../core/ui/Icon'
-import { FACE_STATES, FaceSwatch, MARKS, MarkGlyph, SectionHead, StampArt } from './parts'
+import { FACE_STATES, FaceSwatch, SectionHead, StampArt } from './parts'
 import { Pins } from './Pins'
 import { Calendar } from './Calendar'
 import { VoiceLog } from './VoiceLog'
 import { SavedList } from './SavedList'
 import { Settings } from './Settings'
 import { WallConstellation } from './WallConstellation'
+import { MelodyNotes } from './Melody'
+import { displayPalette } from './nightName'
+import { Pager, type PagerPage } from './Pager'
+import { Legend } from './Legend'
+import { LocalSheet } from './LocalSheet'
 import { useNightName } from './useNight'
 import { R } from './strings'
 
-const TOTAL = SONGS.length
+/** Chime per state when a chip lights its faces (C5 E5 G5 C6: the chips play a chord). */
+const CHIP_NOTE: Record<FaceState, number> = { sketch: 72, neon: 76, mirror: 79, prism: 84 }
 
 /** Section wrapper: rises into view once (transform/opacity only). */
 function Sec({ children, className, reduced, testid }: { children: ReactNode; className?: string; reduced: boolean; testid?: string }) {
@@ -60,6 +71,16 @@ function useWidth<T extends HTMLElement>(fallback: number): [RefObject<T>, numbe
   return [ref, w]
 }
 
+/** The first screen belongs to the ball: ≥ 70 % of what is visible between the lane and the dock. */
+function useStageSize(): { stageH: number; ball: number } {
+  const box = useBox()
+  const m = usePhoneMetrics()
+  const visible = Math.max(420, box.h - m.status - m.dock - m.laneCompact)
+  const stageH = Math.round(visible * 0.7)
+  const ball = Math.round(Math.max(220, Math.min(box.w - 44, stageH - 118, 356)))
+  return { stageH, ball }
+}
+
 export function RecordScreen(p: { ball: ReactNode }): JSX.Element {
   const t = R.useT()
   const reduced = useNavi(s => s.ui.reduced)
@@ -75,62 +96,80 @@ export function RecordScreen(p: { ball: ReactNode }): JSX.Element {
   const gaps = useMemo(() => gapAreas(faces, SONGS), [faces])
   const now = Date.now()
   const sleeping = useMemo(() => Object.values(faces).filter(f => isSleeping(f, now)), [faces])
+  const root = useRef<HTMLDivElement>(null)
+  const { stageH, ball } = useStageSize()
+  const sized = isValidElement(p.ball) ? cloneElement(p.ball as ReactElement<{ size?: number }>, { size: ball }) : p.ball
+
+  // the chips light one state on the ball (the ball dims the rest); cleared when the tab goes
+  const [sel, setSel] = useState<FaceState | null>(null)
+  useEffect(() => {
+    fxState.ballHighlight = sel
+  }, [sel])
+  useEffect(
+    () => () => {
+      fxState.ballHighlight = null
+    },
+    [],
+  )
+  const pick = (st: FaceState) => {
+    sound.play('faceChime', { note: CHIP_NOTE[st] })
+    setSel(v => (v === st ? null : st))
+  }
+
+  const [sheet, setSheet] = useState<'legend' | 'settings' | null>(null)
+
+  const pages: PagerPage[] = [
+    { id: 'wall', label: t('pager.wall'), node: <TonightPage night={tonight} faces={faces} /> },
+    { id: 'cal', label: t('cal.title'), node: <CalendarPage nights={nights} tonightId={nightId} /> },
+    { id: 'pins', label: t('pins.title'), aside: t('pins.got', { n: pins.length }), node: <PinsPage pins={pins} reduced={reduced} /> },
+  ]
 
   return (
-    <div className="rc" data-testid="record-screen" data-anchor="record" data-private="1" aria-label={t('screen.aria')}>
+    <div className="rc" ref={root} data-testid="record-screen" data-anchor="record" data-private="1" data-sel={sel ?? ''} aria-label={t('screen.aria')}>
       <i className="rc-veil" aria-hidden="true" />
       {phase === 'closed' && tonight ? <Farewell night={tonight} reduced={reduced} /> : null}
 
-      <Hero ball={p.ball} lit={stats.lit} faces={faces} reduced={reduced} tonight={tonight?.facesGained.length ?? 0} />
+      <Stage ball={sized} height={stageH} lit={stats.lit} sel={sel} reduced={reduced} onInfo={() => setSheet('legend')} />
+      <HeroLine lit={stats.lit} tonight={tonight?.facesGained.length ?? 0} sel={sel} count={sel ? stats[sel] : 0} reduced={reduced} />
+      <div
+        className={`rc-chips${sel ? ' has-sel' : ''}`}
+        role="group"
+        aria-label={t('faces.title')}
+        data-testid="record-stats"
+        data-sketch={stats.sketch}
+        data-neon={stats.neon}
+        data-mirror={stats.mirror}
+        data-prism={stats.prism}
+        data-lit={stats.lit}
+      >
+        {FACE_STATES.map(st => (
+          <motion.button
+            key={st}
+            type="button"
+            className={`rc-chip rc-chip--${st}${sel === st ? ' is-on' : ''}${stats[st] ? '' : ' is-zero'}`}
+            data-testid="record-state-chip"
+            data-state={st}
+            aria-pressed={sel === st}
+            onClick={() => pick(st)}
+            whileTap={reduced ? undefined : { scale: 0.93 }}
+            transition={SPRING.snappy}
+          >
+            <i className="rc-chip__glow" aria-hidden="true" />
+            <span className="rc-chip__top">
+              <FaceSwatch state={st} size={20} songId={st === 'neon' ? 'marigold' : undefined} className="rc-chip__sw" />
+              <b className="rc-chip__n">{stats[st]}</b>
+            </span>
+            <span className="rc-chip__name">{t(`state.${st}`)}</span>
+          </motion.button>
+        ))}
+      </div>
 
-      <Sec reduced={reduced} className="rc-sec--faces">
-        <SectionHead label="FACES" title={t('faces.title')} aside={t('faces.total', { n: stats.total })} />
-        <div className="rc-states" data-testid="record-stats" data-sketch={stats.sketch} data-neon={stats.neon} data-mirror={stats.mirror} data-prism={stats.prism} data-lit={stats.lit}>
-          {FACE_STATES.map(st => (
-            <div key={st} className={`rc-state rc-state--${st}`}>
-              <FaceSwatch state={st} size={38} songId={st === 'neon' ? 'marigold' : undefined} />
-              <b className="rc-state__n">{stats[st]}</b>
-              <span className="rc-state__name">{t(`state.${st}`)}</span>
-              <span className="rc-state__how">{t(`how.${st}`)}</span>
-            </div>
-          ))}
-        </div>
-        <h4 className="rc-sub">{t('marks.title')}</h4>
-        <ul className="rc-marks">
-          {MARKS.map(m => (
-            <li key={m} className="rc-marks__item">
-              <MarkGlyph mark={m} size={24} />
-              <span className="rc-marks__txt">
-                <b>{t(`mark.${m}`)}</b>
-                <span>{t(`markHow.${m}`)}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Sec>
-
-      {sleeping.length ? (
-        <Sec reduced={reduced} className="rc-sec--sleep">
-          <SectionHead label="SLEEPING" title={t('sleep.title')} aside={String(sleeping.length)} sub={t('sleep.body')} />
-          <ul className="rc-list">
-            {sleeping.slice(0, 6).map(f => (
-              <SleepRow key={f.songId} face={f} />
-            ))}
-          </ul>
-        </Sec>
-      ) : null}
-
-      {tonight && tonight.points.length ? (
-        <Sec reduced={reduced} className="rc-sec--tonight">
-          <SectionHead label="TONIGHT" title={t('tonight.title')} sub={t('tonight.sub')} />
-          <TonightWall night={tonight} />
-        </Sec>
-      ) : null}
+      <Pager pages={pages} label={t('pager.label')} reduced={reduced} />
 
       <Sec reduced={reduced} className="rc-sec--gaps">
         <SectionHead label="DARK AREAS" title={t('gaps.title')} aside={gaps.length ? String(gaps.length) : undefined} sub={gaps.length ? t('gaps.body') : undefined} />
         {gaps.length ? (
-          <ul className="rc-list">
+          <ul className="rc-list rc-list--gaps">
             {gaps.slice(0, 5).map(a => (
               <GapRow key={a} area={a} />
             ))}
@@ -140,15 +179,16 @@ export function RecordScreen(p: { ball: ReactNode }): JSX.Element {
         )}
       </Sec>
 
-      <Sec reduced={reduced} className="rc-sec--pins">
-        <SectionHead label="PINS" title={t('pins.title')} aside={t('pins.got', { n: pins.length })} sub={t('pins.body')} />
-        <Pins pins={pins} reduced={reduced} />
-      </Sec>
-
-      <Sec reduced={reduced} className="rc-sec--cal">
-        <SectionHead label="CALENDAR" title={t('cal.title')} sub={t('cal.body')} />
-        <Calendar nights={nights} tonightId={nightId} mode="record" onOpenNight={id => naviApi.getState().openSheet('night', { nightId: id })} />
-      </Sec>
+      {sleeping.length ? (
+        <Sec reduced={reduced} className="rc-sec--sleep">
+          <SectionHead label="SLEEPING" title={t('sleep.title')} aside={String(sleeping.length)} sub={t('sleep.body')} />
+          <ul className="rc-moons">
+            {sleeping.slice(0, 12).map(f => (
+              <SleepRow key={f.songId} face={f} />
+            ))}
+          </ul>
+        </Sec>
+      ) : null}
 
       <Sec reduced={reduced} className="rc-sec--nights">
         <SectionHead label="NIGHTS" title={t('nights.title')} aside={String(nights.length)} />
@@ -173,53 +213,82 @@ export function RecordScreen(p: { ball: ReactNode }): JSX.Element {
         </Sec>
       ) : null}
 
-      <Sec reduced={reduced} className="rc-sec--set">
-        <SectionHead label="SETTINGS" title={t('set.title')} />
-        <Settings />
-      </Sec>
+      <SettingsRow onOpen={() => setSheet('settings')} />
+
+      <LocalSheet id="legend" anchor={root} open={sheet === 'legend'} onClose={() => setSheet(null)} title={t('legend.open')}>
+        <Legend faces={faces} />
+      </LocalSheet>
+      <LocalSheet id="settings" anchor={root} open={sheet === 'settings'} onClose={() => setSheet(null)} title={t('set.title')}>
+        <div className="rc-setsheet">
+          <Settings />
+        </div>
+      </LocalSheet>
     </div>
   )
 }
 
-// ---------------------------------------------------------------- hero
+// ---------------------------------------------------------------- the stage (the ball, full-bleed)
 
-function Hero({ ball, lit, faces, reduced, tonight }: { ball: ReactNode; lit: number; faces: Record<string, Face>; reduced: boolean; tonight: number }) {
-  const t = R.useT()
-  const tr = useTr()
-  const bands = useMemo(() => {
-    const total = new Map<Genre, number>()
-    const on = new Map<Genre, number>()
-    for (const s of SONGS) total.set(s.genre, (total.get(s.genre) ?? 0) + 1)
-    for (const id of Object.keys(faces)) {
-      const g = SONG_BY_ID[id]?.genre
-      if (g) on.set(g, (on.get(g) ?? 0) + 1)
-    }
-    return GENRES.map(g => ({ g, n: total.get(g) ?? 0, k: on.get(g) ?? 0 }))
-  }, [faces])
-  const top = [...bands]
-    .filter(b => b.k > 0)
-    .sort((a, b) => b.k - a.k)
-    .slice(0, 4)
+function InfoGlyph() {
   return (
-    <section className="rc-hero">
-      <div className="rc-hero__head">
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 10.8v5.6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="12" cy="7.7" r="1.35" fill="currentColor" />
+    </svg>
+  )
+}
+
+function Stage({ ball, height, lit, sel, reduced, onInfo }: { ball: ReactNode; height: number; lit: number; sel: FaceState | null; reduced: boolean; onInfo(): void }) {
+  const t = R.useT()
+  return (
+    <section className={`rc-stage${sel ? ` is-sel is-sel-${sel}` : ''}${reduced ? ' is-still' : ''}`} style={{ height }} data-testid="record-stage">
+      <i className="rc-stage__rays" aria-hidden="true" />
+      <i className="rc-stage__beam is-l" aria-hidden="true" />
+      <i className="rc-stage__beam is-r" aria-hidden="true" />
+      <i className="rc-stage__halo" aria-hidden="true" />
+      {FACE_STATES.map(st => (
+        <i key={st} className={`rc-stage__tint is-${st}${sel === st ? ' is-on' : ''}`} aria-hidden="true" />
+      ))}
+      <i className="rc-stage__floor" aria-hidden="true" />
+      <div className="rc-stage__top">
         <span className="rc-lbl">MY MIRRORBALL</span>
-        <h2 className="rc-hero__title">{t('hero.title')}</h2>
+        <button type="button" className="rc-stage__info" data-testid="record-legend-open" aria-label={t('legend.open')} onClick={onInfo}>
+          <InfoGlyph />
+        </button>
       </div>
-      <div className="rc-hero__stage">
-        <i className={`rc-hero__rays${reduced ? ' is-still' : ''}`} aria-hidden="true" />
-        <i className="rc-hero__halo" aria-hidden="true" />
-        <div className="rc-hero__ball">{ball}</div>
-        <i className="rc-hero__floor" aria-hidden="true" />
-      </div>
-      <div className="rc-hero__count">
-        <b className="rc-hero__lit">{lit}</b>
-        <span className="rc-hero__of">
-          <span className="rc-hero__litrow">
-            {t('hero.lit')}
+      <div className="rc-stage__ball">{ball}</div>
+      <p className={`rc-stage__hint${lit ? '' : ' is-empty'}`}>{lit ? t('hero.hint') : t('hero.empty')}</p>
+    </section>
+  )
+}
+
+/** One line under the ball: "33 faces lit · Tonight +3", or what the chosen chip means. */
+function HeroLine({ lit, tonight, sel, count, reduced }: { lit: number; tonight: number; sel: FaceState | null; count: number; reduced: boolean }) {
+  const t = R.useT()
+  const litText = t('hero.litN', { n: lit })
+  const [pre, post] = litText.includes(String(lit)) ? [litText.slice(0, litText.indexOf(String(lit))), litText.slice(litText.indexOf(String(lit)) + String(lit).length)] : ['', litText]
+  const anim = reduced ? { initial: false as const, animate: { opacity: 1 }, exit: { opacity: 0 } } : { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -6 } }
+  return (
+    <div className="rc-line" data-testid="record-line" aria-live="polite">
+      <AnimatePresence mode="wait" initial={false}>
+        {sel ? (
+          <motion.p key={sel} className={`rc-line__txt is-sel is-${sel}`} {...anim} transition={{ duration: 0.18 }}>
+            <FaceSwatch state={sel} size={16} songId={sel === 'neon' ? 'marigold' : undefined} />
+            <b>{t(`state.${sel}`)}</b>
+            <span className="rc-line__n">{t('faces.total', { n: count })}</span>
+            <span className="rc-line__how">{t(`how.${sel}`)}</span>
+          </motion.p>
+        ) : (
+          <motion.p key="all" className="rc-line__txt" {...anim} transition={{ duration: 0.18 }}>
+            <span className="rc-line__lit">
+              {pre}
+              <b>{lit}</b>
+              {post}
+            </span>
             {tonight > 0 ? (
               <motion.span
-                className="rc-hero__tonight"
+                className="rc-line__tonight"
                 initial={reduced ? false : { scale: 0.4, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 22, delay: 0.3 }}
@@ -227,29 +296,129 @@ function Hero({ ball, lit, faces, reduced, tonight }: { ball: ReactNode; lit: nu
                 {t('hero.tonight', { n: tonight })}
               </motion.span>
             ) : null}
-          </span>
-          <span className="rc-hero__total">{t('hero.of', { total: TOTAL })}</span>
-        </span>
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- pager pages
+
+function TonightPage({ night, faces }: { night: Night | undefined; faces: Record<string, Face> }) {
+  const t = R.useT()
+  const tr = useTr()
+  const l = useLocale()
+  const [ref, w] = useWidth<HTMLDivElement>(320)
+  const name = useNightName(night)
+  const [playKey, setPlayKey] = useState(0)
+  const stop = useRef<(() => void) | null>(null)
+  useEffect(() => () => stop.current?.(), [])
+  const play = () => {
+    if (!night?.melody.length) return
+    stop.current?.()
+    stop.current = sound.playMelody(night.melody)
+    setPlayKey(k => k + 1)
+  }
+  const points = night?.points.length ?? 0
+  const gained = night?.facesGained ?? []
+  return (
+    <div className="rc-pg rc-pg--wall">
+      <p className="rc-pg__sub">{t('tonight.sub')}</p>
+      <div className="rc-tonight" ref={ref}>
+        {night ? <WallConstellation night={night} width={w} height={Math.round(Math.min(190, w * 0.56))} draw /> : null}
+        {points && name ? <span className="rc-tonight__name">{tr(name)}</span> : null}
       </div>
-      <div className="rc-bands" role="img" aria-label={bands.map(b => `${tr({ key: `vocab.genre.${b.g}` })} ${b.k}/${b.n}`).join(', ')}>
-        {bands.map(b => (
-          <span key={b.g} className="rc-bands__seg" style={{ flexGrow: Math.max(1, b.n), ['--c' as string]: areaColor(b.g) } as CSSProperties}>
-            <i style={{ transform: `scaleX(${b.n ? Math.min(1, b.k / b.n) : 0})` }} />
+      {night?.melody.length ? (
+        <div className="rc-pg__melody">
+          <MelodyNotes notes={night.melody} playKey={playKey} palette={displayPalette(night)} />
+          <button type="button" className="rc-mini-btn is-play" data-testid="record-melody-play" onClick={play}>
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" />
+            </svg>
+            {t('night.play')}
+          </button>
+        </div>
+      ) : (
+        <p className="rc-pg__note">{t('wrap.noMelody')}</p>
+      )}
+      {gained.length ? (
+        <div className="rc-pg__faces">
+          <span className="rc-pg__h">
+            {t('wrap.p1')}
+            <b>+{gained.length}</b>
           </span>
-        ))}
-      </div>
-      {top.length ? (
-        <div className="rc-bands__legend">
-          {top.map(b => (
-            <span key={b.g} className="rc-bands__chip">
-              <i style={{ background: areaColor(b.g) }} />
-              {tr({ key: `vocab.genre.${b.g}` })} <b>{b.k}</b>
-            </span>
-          ))}
+          <div className="rc-pg__tiles">
+            {gained.slice(0, 16).map(id => (
+              <button
+                key={id}
+                type="button"
+                className="rc-pg__tile"
+                data-testid="record-tonight-face"
+                data-song={id}
+                aria-label={songTitle(id, l).main}
+                onClick={() => {
+                  sound.play('tap')
+                  naviApi.getState().openSheet('face', { songId: id })
+                }}
+              >
+                <FaceSwatch state={faces[id]?.state ?? 'sketch'} songId={id} size={30} marks={faces[id]?.marks} />
+              </button>
+            ))}
+            {gained.length > 16 ? <span className="rc-pg__more">+{gained.length - 16}</span> : null}
+          </div>
         </div>
       ) : null}
-      <p className="rc-hero__hint">{lit ? t('hero.hint') : t('hero.empty')}</p>
-    </section>
+    </div>
+  )
+}
+
+function CalendarPage({ nights, tonightId }: { nights: Night[]; tonightId: string }) {
+  const t = R.useT()
+  return (
+    <div className="rc-pg rc-pg--cal">
+      <p className="rc-pg__sub">{t('cal.body')}</p>
+      <Calendar nights={nights} tonightId={tonightId} mode="record" onOpenNight={id => naviApi.getState().openSheet('night', { nightId: id })} />
+    </div>
+  )
+}
+
+function PinsPage({ pins, reduced }: { pins: Pin[]; reduced: boolean }) {
+  const t = R.useT()
+  return (
+    <div className="rc-pg rc-pg--pins">
+      <p className="rc-pg__sub">{t('pins.body')}</p>
+      <Pins pins={pins} reduced={reduced} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- settings: one row, a sheet behind it
+
+function SettingsRow({ onOpen }: { onOpen(): void }) {
+  const t = R.useT()
+  const locale = useLocale()
+  const muted = useNavi(s => s.session.muted)
+  const lang = LOCALES.find(l => l.id === locale)?.label ?? locale
+  return (
+    <button type="button" className="rc-setrow" data-testid="record-settings" onClick={onOpen}>
+      <span className="rc-setrow__icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24">
+          <path
+            d="M12 8.6a3.4 3.4 0 1 1 0 6.8a3.4 3.4 0 0 1 0-6.8zM10.3 3.5h3.4l.5 2.3 1.6.9 2.2-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.2-.8-1.6.9-.5 2.3h-3.4l-.5-2.3-1.6-.9-2.2.8-1.7-2.9 1.8-1.6v-1.9L4.4 8.8l1.7-2.9 2.2.8 1.6-.9z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <b className="rc-setrow__k">{t('set.title')}</b>
+      <span className="rc-setrow__v">
+        {lang} · {t('set.sound')} {muted ? t('set.off') : t('set.on')}
+      </span>
+      <Icon name="chevron" size={16} className="rc-setrow__go" />
+    </button>
   )
 }
 
@@ -278,25 +447,26 @@ function Farewell({ night, reduced }: { night: Night; reduced: boolean }) {
 
 // ---------------------------------------------------------------- rows
 
+/** A sleeping face on the moon shelf: tap it to open the face and polish it there. */
 function SleepRow({ face }: { face: Face }) {
   const t = R.useT()
   const l = useLocale()
   return (
-    <li className="rc-row">
-      <FaceSwatch state={face.state} songId={face.songId} size={34} moon marks={face.marks} />
-      <div className="rc-row__txt">
-        <SongTitle songId={face.songId} variant="chip" className="rc-row__title" />
-        <span className="rc-row__meta">{t('sleep.last', { date: varText({ date: face.lastSungAt ?? face.firstAt }, l) })}</span>
-      </div>
+    <li>
       <button
         type="button"
-        className="rc-mini-btn is-moon"
+        className="rc-moon"
+        data-testid="record-sleeping"
+        data-song={face.songId}
         onClick={() => {
           sound.play('tap')
           naviApi.getState().openSheet('face', { songId: face.songId })
         }}
       >
-        {t('sleep.polish')}
+        <FaceSwatch state={face.state} songId={face.songId} size={40} moon marks={face.marks} />
+        <SongTitle songId={face.songId} variant="chip" className="rc-moon__title" />
+        <span className="rc-moon__meta">{t('sleep.last', { date: varText({ date: face.lastSungAt ?? face.firstAt }, l) })}</span>
+        <span className="rc-moon__go">{t('sleep.polish')}</span>
       </button>
     </li>
   )
@@ -310,43 +480,33 @@ function GapRow({ area }: { area: AreaKey }) {
   const n = SONGS.filter(s => s.tempo === tempo && s.genre === genre).length
   const c = areaColor(genre)
   return (
-    <li className="rc-row rc-row--gap">
-      <svg className="rc-gap__globe" width="34" height="34" viewBox="0 0 22 22" aria-hidden="true">
-        <circle cx="11" cy="11" r="9.5" fill="#150B2E" stroke="rgba(255,255,255,.18)" />
-        <ellipse cx="11" cy="11" rx="4.2" ry="9.5" fill="none" stroke="rgba(255,255,255,.1)" />
-        <path d={`M3 ${TEMPO_Y[tempo]}h16`} stroke={c} strokeWidth="3.2" strokeLinecap="round" strokeDasharray="1.5 2.2" className="rc-gap__band" />
-      </svg>
-      <div className="rc-row__txt">
-        <span className="rc-row__title">{t('gaps.area', { tempo: { tempo }, genre: { genre } })}</span>
-        <span className="rc-row__meta">
-          {t(`tempo.${tempo}`)} · {t('gaps.n', { n })}
-        </span>
-      </div>
+    <li>
       <button
         type="button"
-        className="rc-mini-btn"
+        className="rc-row rc-row--gap"
         data-testid="record-gap-open"
         onClick={() => {
           sound.play('tap')
           naviApi.getState().openSheet('search', { filters: { tempo, genre } })
         }}
       >
-        {t('gaps.open')}
-        <Icon name="chevron" size={14} strokeWidth={2.4} />
+        <svg className="rc-gap__globe" width="34" height="34" viewBox="0 0 22 22" aria-hidden="true">
+          <circle cx="11" cy="11" r="9.5" fill="#150B2E" stroke="rgba(255,255,255,.18)" />
+          <ellipse cx="11" cy="11" rx="4.2" ry="9.5" fill="none" stroke="rgba(255,255,255,.1)" />
+          <path d={`M3 ${TEMPO_Y[tempo]}h16`} stroke={c} strokeWidth="3.2" strokeLinecap="round" strokeDasharray="1.5 2.2" className="rc-gap__band" />
+        </svg>
+        <span className="rc-row__txt">
+          <span className="rc-row__title">{t('gaps.area', { tempo: { tempo }, genre: { genre } })}</span>
+          <span className="rc-row__meta">
+            {t(`tempo.${tempo}`)} · {t('gaps.n', { n })}
+          </span>
+        </span>
+        <span className="rc-gap__open">
+          {t('gaps.open')}
+          <Icon name="chevron" size={14} strokeWidth={2.4} />
+        </span>
       </button>
     </li>
-  )
-}
-
-function TonightWall({ night }: { night: Night }) {
-  const [ref, w] = useWidth<HTMLDivElement>(340)
-  const tr = useTr()
-  const name = useNightName(night)!
-  return (
-    <div className="rc-tonight" ref={ref}>
-      <WallConstellation night={night} width={w} height={Math.round(Math.min(200, w * 0.5))} draw />
-      <span className="rc-tonight__name">{tr(name)}</span>
-    </div>
   )
 }
 

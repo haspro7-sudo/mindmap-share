@@ -124,11 +124,17 @@ export async function run({ openApp, assert, step }) {
     await page.locator('[data-testid=card-top][data-kind=coaster]').waitFor({ state: 'visible' })
     const card = page.locator('[data-testid=card-top][data-kind=coaster]')
     assert.match(await card.innerText(), /ここらで乾杯する？/)
-    assert.match(await card.innerText(), /今頼むと2曲後に届く目安（デモ）/)
+    // card-front contract: the ETA fine print is a small DEMO badge until something is ordered
+    assert.doesNotMatch(await card.innerText(), /今頼むと2曲後に届く目安/)
+    assert.equal((await card.locator('[data-testid=coaster-demo]').innerText()).trim(), 'デモ')
+    assert.equal(await card.locator('[data-testid=coaster-demo]').getAttribute('title'), '今頼むと2曲後に届く目安（デモ）')
     assert.equal(await card.locator('[data-testid=coaster-drink]').count(), 3)
     const first = card.locator('[data-testid=coaster-drink]').first()
     await first.click()
     await page.waitForFunction(() => window.__navi.get().orders.list[0]?.status === 'accepted', null, { timeout: 2000 })
+    // …then the line answers with the venue's receipt and the order's own ETA
+    await card.locator('.co__etaok').waitFor({ state: 'visible' })
+    assert.match(await card.locator('.co__eta').innerText(), /店舗で受付済み \d\d:\d\d[\s\S]*(\d曲後に届く目安|まもなく届きます)/)
     await first.click()
     await card.locator('[data-testid=coaster-dup-note]').waitFor({ state: 'visible' })
     assert.equal(await orders(page), 1)
@@ -207,6 +213,113 @@ export async function run({ openApp, assert, step }) {
     await page.waitForTimeout(10_300)
     assert.equal(await S(page, () => window.__navi.get().room.prompt), null, 'the room display ends after 10 s')
     noErrors(errors, 'import card')
+  })
+
+  // ---------------------------------------------------------------- card-front contract (OWNER#6, DEMO#6, ROBUST#12)
+  /** Text on a card body: font sizes, clipped / truncated text, and whether the body overflows. */
+  const frontAudit = (page, kind) =>
+    S(page, kind => {
+      const top = document.querySelector(`[data-shell=phone] [data-testid=card-top][data-kind=${kind}]`)
+      const body = top.querySelector('.cs__body > *')
+      const faces = [...top.querySelectorAll('.cs__face')].map(f => f.scrollTop)
+      const small = []
+      const cut = []
+      for (const el of body.querySelectorAll('*')) {
+        if (!(el instanceof HTMLElement) || el.closest('.sr-only') || el.classList.contains('sr-only')) continue
+        const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())
+        if (!own || !el.getClientRects().length) continue
+        const cs = getComputedStyle(el)
+        if (parseFloat(cs.fontSize) < 12) small.push(`${el.className}: ${parseFloat(cs.fontSize)}px "${el.textContent.trim().slice(0, 20)}"`)
+        const clipsX = cs.overflowX !== 'visible' && el.scrollWidth > el.clientWidth + 1
+        const clipsY = cs.overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 2
+        if (clipsX || clipsY) cut.push(`${el.className}: "${el.textContent.trim().slice(0, 24)}"`)
+      }
+      return { text: body.innerText, faces, small, cut, overflow: body.scrollHeight - body.clientHeight }
+    }, kind)
+
+  await stepC('card fronts (OWNER#6): import and coaster carry no fine print, fit their card, ≥12px, nothing cut at 360 in en/ko', async () => {
+    for (const [kind, locale] of [
+      ['phone', 'ja'],
+      ['small', 'en'],
+      ['small', 'ko'],
+    ]) {
+      const { page, errors } = await open(kind, `${Q}&intro=0&locale=${locale}`)
+      await page.waitForSelector('[data-testid=deck]')
+      await page.waitForTimeout(400)
+      const ids = await S(page, () => window.__navi.get().col.imports.map(i => i.songId))
+      await dealTop(page, { kind: 'import', songId: ids[0], options: ids, reason: { source: 'ren', text: { key: 'reason.import' } } })
+      const card = page.locator('[data-shell=phone] [data-testid=card-top][data-kind=import]')
+      await card.waitFor({ state: 'visible' })
+      await page.waitForTimeout(700)
+      let a = await frontAudit(page, 'import')
+      const where = `${kind}/${locale} import`
+      assert.doesNotMatch(a.text, /Apple Music|このスマホだけ|自動では保存|Only on your phone|saved automatically|내 폰에만|자동 저장/, `${where}: privacy / source fine print is on the back`)
+      assert.equal(await card.locator('.imp__demo').count(), 1, `${where}: a small demo badge instead`)
+      assert.deepEqual(a.small, [], `${where}: text ≥ 12px`)
+      assert.deepEqual(a.cut, [], `${where}: nothing truncated`)
+      assert.ok(a.overflow <= 1, `${where}: the body fits the card (${a.overflow}px over)`)
+      // DEMO#6: picking a version (focus lands on a chip) never scrolls the face
+      await card.locator(`[data-testid=import-candidate][data-song-id="${ids[1]}"]`).click()
+      const vs = card.locator('[data-testid=import-version]')
+      await vs.nth((await vs.count()) - 1).click()
+      await page.waitForTimeout(300)
+      a = await frontAudit(page, 'import')
+      assert.deepEqual(a.faces, a.faces.map(() => 0), `${where}: the face is not scrolled after a version pick`)
+      assert.ok(a.overflow <= 1, `${where}: still fits with the version row (${a.overflow}px over)`)
+      assert.deepEqual(a.cut, [], `${where}: nothing truncated with the version row`)
+      // the "show just this one" button reads in full
+      const show = await S(page, () => {
+        const t = document.querySelector('[data-shell=phone] [data-testid=card-top] [data-testid=import-show] .imp-show__text')
+        return { sw: t.scrollWidth, cw: t.clientWidth, sh: t.scrollHeight, ch: t.clientHeight }
+      })
+      assert.ok(show.sw <= show.cw + 1 && show.sh <= show.ch + 1, `${where}: show button label not cut ${JSON.stringify(show)}`)
+
+      await dealTop(page, { kind: 'coaster', reason: { source: 'yomu', text: { key: 'reason.coaster' }, cause: { key: 'cause.peak3' } } })
+      const co = page.locator('[data-shell=phone] [data-testid=card-top][data-kind=coaster]')
+      await co.waitFor({ state: 'visible' })
+      await page.waitForTimeout(700)
+      const cw = `${kind}/${locale} coaster`
+      a = await frontAudit(page, 'coaster')
+      assert.deepEqual(a.small, [], `${cw}: text ≥ 12px`)
+      assert.deepEqual(a.cut, [], `${cw}: nothing truncated`)
+      assert.ok(a.overflow <= 1, `${cw}: fits (${a.overflow}px over)`)
+      const row = await S(page, () => {
+        const r = [...document.querySelectorAll('[data-shell=phone] [data-testid=card-top] .co__row > *')].map(e => Math.round(e.getBoundingClientRect().top))
+        return new Set(r).size
+      })
+      assert.equal(row, 1, `${cw}: water/rest and the menu sit on one line`)
+      await co.locator('[data-testid=coaster-drink]').first().click()
+      await page.waitForFunction(() => window.__navi.get().orders.list[0]?.status === 'accepted', null, { timeout: 2000 })
+      await page.waitForTimeout(400)
+      a = await frontAudit(page, 'coaster')
+      assert.ok(a.overflow <= 1, `${cw}: fits after ordering (${a.overflow}px over)`)
+      assert.deepEqual(a.cut, [], `${cw}: nothing truncated after ordering`)
+      noErrors(errors, `fronts ${kind}/${locale}`)
+    }
+  })
+
+  await stepC('ROBUST#13 order tiles: two-line names (Take a breather) are never hidden behind their tag (360 / 390, en)', async () => {
+    for (const kind of ['small', 'phone']) {
+      const { page, errors } = await open(kind, `${Q}&intro=0&locale=en`)
+      await page.waitForSelector('[data-testid=dock-order]')
+      await page.click('[data-testid=dock-order]')
+      await page.locator('[data-testid=order-item]').first().waitFor({ state: 'visible' })
+      await page.waitForTimeout(400)
+      const tiles = await page.$$eval('[data-testid=order-item]', els =>
+        els.map(el => {
+          const n = el.querySelector('.ord-tile__name')
+          const tag = el.querySelector('.ord-tile__tag')
+          const nb = n.getBoundingClientRect()
+          const tb = tag?.getBoundingClientRect()
+          const eb = el.getBoundingClientRect()
+          return { id: el.getAttribute('data-menu'), clipped: n.scrollHeight > n.clientHeight + 1, overTag: tb ? nb.bottom > tb.top + 0.5 : false, outside: (tb ?? nb).bottom > eb.bottom - 2 }
+        }),
+      )
+      for (const t of tiles) {
+        assert.ok(!t.clipped && !t.overTag && !t.outside, `${kind} ${t.id}: ${JSON.stringify(t)}`)
+      }
+      noErrors(errors, `tiles ${kind}`)
+    }
   })
 
   await stepC('import sheet: shelf of discs, version chips, explicit save; room screen shows none of it', async () => {

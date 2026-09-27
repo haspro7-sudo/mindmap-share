@@ -3,7 +3,7 @@
 // decided by measuring this container. Nothing personal is shown here.
 import type { CSSProperties } from 'react'
 import { useNavi } from '../core/store'
-import { selTonight } from '../core/selectors'
+import { selRoomUnlinked, selTonight } from '../core/selectors'
 import { LayoutProvider, roomColumns, useBox } from '../core/layout'
 import { BackgroundCanvas, SpeckCanvas } from '../features/fx'
 import { MirrorBall } from '../features/ball'
@@ -20,6 +20,8 @@ function RoomInner({ inDual }: { inDual: boolean }) {
   const box = useBox()
   const [a, b, c] = roomColumns(box.w, inDual)
   const tonight = useNavi(selTonight)
+  // E-12 退室: the room screen is unlinked from this phone (stage renders the またね state)
+  const unlinked = useNavi(selRoomUnlinked)
   const centreW = (box.w * b) / 100
   const bodyH = box.h - STATUS_H
   const ballMax = box.w <= 1100 || inDual ? 360 : 420
@@ -27,7 +29,7 @@ function RoomInner({ inDual }: { inDual: boolean }) {
   const sideW = Math.max(160, Math.round((box.w * c) / 100 - 40))
   const vars = { '--lane-bottom': `${STATUS_H}px`, '--sheet-left': `${a}%`, '--room-ball': `${ball}px` } as CSSProperties
   return (
-    <div className={`room-shell${inDual ? ' is-dual' : ''}`} data-shell="room" style={vars}>
+    <div className={`room-shell${inDual ? ' is-dual' : ''}${unlinked ? ' is-unlinked' : ''}`} data-shell="room" data-unlinked={unlinked ? '1' : '0'} style={vars}>
       <div className="rs-bg">
         <BackgroundCanvas variant="room" />
       </div>

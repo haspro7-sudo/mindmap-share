@@ -3,11 +3,15 @@
 // change the flow. Navi's pick is preselected; choosing one draws Navi's read of the next peak
 // as a dotted line (a hypothesis). Primary: "slot in next" -> act('insert'), which proposes slotting
 // it in right after NOW; the room answers with lights of agreement.
+// Card-front contract (QA round 1): one cause line, the wave and the two options — no fine print.
+// The body never swaps to its own "back": CardShell draws the back face (why this card), and the
+// planner-only rule id appears there only with the lens on.
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { CardBodyComponent, CardBodyProps, SongId } from '../../core/types'
 import { useNavi } from '../../core/store'
 import { Tr } from '../../core/ui/Tr'
+import { TagIcon } from './parts'
 import { SongTitle } from '../../core/ui/SongTitle'
 import { SONG_BY_ID } from '../../data/songs'
 import { S } from './strings'
@@ -18,7 +22,7 @@ import './stage.css'
 const W = 320
 const H = 64
 
-function ShiftBody({ card, active, flipped, setPrimary }: CardBodyProps) {
+function ShiftBody({ card, active, setPrimary }: CardBodyProps) {
   const t = S.useT()
   const uid = useId().replace(/:/g, '')
   const sung = useNavi(s => s.room.sung)
@@ -56,24 +60,6 @@ function ShiftBody({ card, active, flipped, setPrimary }: CardBodyProps) {
     setPick(id)
   }
 
-  if (flipped) {
-    return (
-      <div className="sg-shift is-back">
-        <div className="sg-shift__kind">
-          <span className="sg-lbl">SHIFT</span>
-          <span>{t('why')}</span>
-        </div>
-        <div className="sg-shift__whycause">{card.reason.cause ? <Tr text={card.reason.cause} /> : <Tr text={card.reason.text} />}</div>
-        <div className="sg-shift__rule">{t('whyRule', { rule: card.rule })}</div>
-        <div className="sg-shift__hyp">
-          <i className="sg-shift__hypline" />
-          {t('hypothesis')}
-        </div>
-        <div className="sg-shift__agree">{t('agreeNote')}</div>
-      </div>
-    )
-  }
-
   return (
     <div className="sg-shift" aria-label={t('shiftKind')}>
       <div className="sg-shift__cause" data-testid="card-reason">
@@ -103,7 +89,9 @@ function ShiftBody({ card, active, flipped, setPrimary }: CardBodyProps) {
           {pts.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 3 : 1.8} className={i === pts.length - 1 ? 'sg-shift__nowpt' : 'sg-shift__pt'} />
           ))}
-          <rect x={slotX} y={5} width={W - slotX - 4} height={H - 10} rx={9} className="sg-shift__slot" />
+          <rect x={slotX} y={5} width={W - slotX - 4} height={H - 10} rx={9} className="sg-shift__slot">
+            <title>{t('next')}</title>
+          </rect>
           <AnimatePresence>
             {forecast ? (
               <motion.g key={pick} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
@@ -113,11 +101,6 @@ function ShiftBody({ card, active, flipped, setPrimary }: CardBodyProps) {
             ) : null}
           </AnimatePresence>
         </svg>
-        <span className="sg-shift__slotlbl" style={{ left: `${(slotX / W) * 100}%`, width: `${((W - slotX - 4) / W) * 100}%` }}>
-          {t('next')}
-        </span>
-        {series.length <= 1 ? <span className="sg-shift__empty">{t('noHistory')}</span> : null}
-        <span className="sg-shift__fclbl">{t('flowForecast')}</span>
       </div>
       <div className="sg-shift__opts">
         {(['ride', 'change'] as const).map(role => {
@@ -153,7 +136,11 @@ function ShiftBody({ card, active, flipped, setPrimary }: CardBodyProps) {
                 )}
                 {t(role)}
               </span>
-              {navi ? <span className="sg-shift__navi">{t('naviPick')}</span> : null}
+              {navi ? (
+                <span className="sg-shift__navi" title={t('naviPick')} aria-label={t('naviPick')}>
+                  <TagIcon tag="navi" />
+                </span>
+              ) : null}
               <SongTitle songId={id} variant="lane" className="sg-shift__title" />
               <span className="sg-shift__artist">{SONG_BY_ID[id]?.artist}</span>
               {on ? (

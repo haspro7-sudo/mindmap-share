@@ -4,7 +4,7 @@
 // module-local UI state that the invite / finale bodies and the presenter panel read.
 import { create } from 'zustand'
 import type { NaviApi, NaviState } from '../../core/store/types'
-import type { Member, MemberId, OtherId, QueueItem, SongId } from '../../core/types'
+import type { Locale, Member, MemberId, OtherId, QueueItem, SongId } from '../../core/types'
 import { isMine, presentMembers } from '../../core/store'
 import { roomMinutesLeft } from '../../core/rules'
 import { SONGS, SONG_BY_ID, type Song } from '../../data/songs'
@@ -24,6 +24,10 @@ export type SimUi = {
   /** script steps done (step 1 `enter` is the night start itself) */
   scriptPos: number
   lastStep: { id: string; at: number } | null
+  /** → presses tonight */
+  presses: number
+  /** the language the demo is told in (at `enter` and the first → press); the exit step restores it */
+  homeLocale: Locale | null
   /** by card id */
   twin: Record<string, TwinState>
   duet: Record<string, DuetState>
@@ -33,7 +37,17 @@ export type SimUi = {
   decided: Record<string, SongId>
 }
 
-export const freshSim = (nightId: string): SimUi => ({ nightId, scriptPos: 1, lastStep: null, twin: {}, duet: {}, votes: {}, decided: {} })
+export const freshSim = (nightId: string, homeLocale: Locale | null = null): SimUi => ({
+  nightId,
+  scriptPos: 1,
+  lastStep: null,
+  presses: 0,
+  homeLocale,
+  twin: {},
+  duet: {},
+  votes: {},
+  decided: {},
+})
 export const useSim = create<SimUi>(() => freshSim(''))
 
 // ---------------------------------------------------------------- small helpers

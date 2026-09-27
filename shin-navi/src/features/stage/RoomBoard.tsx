@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { NowPlaying, QueueItem, RoomPrompt, SongId } from '../../core/types'
 import { naviApi, useNavi, presentIds } from '../../core/store'
 import { useNaviStable } from '../../core/useStable'
-import { selKnowView } from '../../core/selectors'
+import { selKnowView, selRoomUnlinked } from '../../core/selectors'
 import { bus } from '../../core/events'
 import { introDelay, introPending } from '../../core/intro'
 import { SPRING } from '../../core/ui/motion'
@@ -22,23 +22,73 @@ import './stage.css'
 
 export function RoomBoard(): JSX.Element {
   const t = S.useT()
+  // E-12 exit: once the phone has left, this screen is unlinked — a calm "see you", nothing personal
+  const unlinked = useNavi(selRoomUnlinked)
+  const playing = useNavi(s => !!s.room.now)
   return (
-    <div className="sg-board" data-testid="room-board" data-anchor="room-view">
-      <BoardNow />
-      <div className="sg-board__table">
-        <Table />
-      </div>
-      <div className="sg-board__foot">
-        <button type="button" className="sg-board__search" onClick={() => naviApi.getState().openSheet('search')}>
-          <Icon name="search" size={16} strokeWidth={2} />
-          {t('roomSearch')}
-        </button>
-        <span className="sg-board__lock">
-          <Icon name="lock" size={14} strokeWidth={2} />
-          {t('roomLock')}
-        </span>
-      </div>
+    <div className={`sg-board${unlinked ? ' is-unlinked' : ''}`} data-testid="room-board" data-anchor="room-view">
+      <AnimatePresence>{playing && !unlinked ? <RoomSpot key="spot" /> : null}</AnimatePresence>
+      {unlinked ? <BoardBye /> : <BoardNow />}
+      {unlinked ? null : (
+        <div className="sg-board__table">
+          <Table />
+        </div>
+      )}
+      {unlinked ? null : (
+        <div className="sg-board__foot">
+          <button type="button" className="sg-board__search" onClick={() => naviApi.getState().openSheet('search')}>
+            <Icon name="search" size={16} strokeWidth={2} />
+            {t('roomSearch')}
+          </button>
+          <span className="sg-board__lock">
+            <Icon name="lock" size={14} strokeWidth={2} />
+            {t('roomLock')}
+          </span>
+        </div>
+      )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------- spotlight on whoever sings
+
+/**
+ * The room screen's stage light (QA OWNER#3): while a song plays, a warm beam falls from the top
+ * of the centre column through the NOW title onto the room ball. Every singer gets the same light.
+ * Static gradients; it only fades/scales in and sways slowly.
+ */
+function RoomSpot() {
+  const reduced = useNavi(s => s.ui.reduced)
+  return (
+    <motion.div
+      className="sg-rspot"
+      data-testid="room-spotlight"
+      aria-hidden="true"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.5 } }}
+      transition={{ duration: 0.5 }}
+    >
+      <motion.span className="sg-rspot__beam" initial={reduced ? false : { scaleY: 0.3 }} animate={{ scaleY: 1 }} transition={{ type: 'spring', stiffness: 90, damping: 16 }} />
+      <span className={`sg-rspot__sway${reduced ? ' is-still' : ''}`}>
+        <span className="sg-rspot__beam sg-rspot__beam--soft" />
+      </span>
+      <span className="sg-rspot__source" />
+    </motion.div>
+  )
+}
+
+// ---------------------------------------------------------------- see you (unlinked)
+
+function BoardBye() {
+  const t = S.useT()
+  return (
+    <motion.div className="sg-bnow sg-bbye" data-testid="room-unlinked" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={SPRING.soft}>
+      <span className="sg-lbl">ROOM 12</span>
+      <div className="sg-bbye__bye">{t('unlinkedBye')}</div>
+      <div className="sg-bbye__txt">{t('unlinked')}</div>
+      <div className="sg-bbye__sub">{t('unlinkedSub')}</div>
+    </motion.div>
   )
 }
 
@@ -91,10 +141,13 @@ function NowBlock({ item, now, color, name }: { item: QueueItem; now: NowPlaying
         <span className="sg-lbl sg-lbl--now">{playing ? 'NOW' : 'NEXT'}</span>
         {!playing ? <span className="sg-bnow__soon">{t('upNext')}</span> : null}
         <TagPills tags={item.tags} max={3} />
+        <AnimatePresence>{playing ? <OnStageFlash key="on" /> : null}</AnimatePresence>
       </div>
-      <FitLine max={56} min={28} className="sg-bnow__title">
-        {tt.main}
-      </FitLine>
+      <motion.div key={playing ? 'p' : 'w'} initial={playing ? { scale: 1.07, opacity: 0.6 } : false} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 220, damping: 18 }} style={{ transformOrigin: '0 60%' }}>
+        <FitLine max={56} min={28} className="sg-bnow__title">
+          {tt.main}
+        </FitLine>
+      </motion.div>
       <div className="sg-bnow__meta">
         {tt.sub ? (
           <span className="sg-bnow__orig" lang="ja">
@@ -109,6 +162,28 @@ function NowBlock({ item, now, color, name }: { item: QueueItem; now: NowPlaying
         <MiniDots songId={item.songId} size={7} />
       </div>
     </motion.div>
+  )
+}
+
+/** "ON STAGE" beside NOW for the first moments of a song, then it settles out of the way. */
+function OnStageFlash() {
+  const t = S.useT()
+  const [on, setOn] = useState(true)
+  useEffect(() => {
+    const id = setTimeout(() => setOn(false), 2600)
+    return () => clearTimeout(id)
+  }, [])
+  return (
+    <motion.span
+      className="sg-bnow__onstage"
+      data-testid="room-onstage"
+      initial={{ opacity: 0, x: -10, scale: 0.9 }}
+      animate={on ? { opacity: 1, x: 0, scale: 1 } : { opacity: 0, x: 6, scale: 0.96 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: on ? 0.45 : 0.6, ease: 'easeOut' }}
+    >
+      {t('onStage')}
+    </motion.span>
   )
 }
 

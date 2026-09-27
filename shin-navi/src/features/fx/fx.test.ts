@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGovernor, TIERS } from './governor'
 import { ticker, setFrameTimeProvider } from '../../core/ticker'
 import * as audio from '../../lib/audio'
-import { blendPalette, PaletteTracker, PALETTE_RGB, GOLD_RGB, auroraIntro, introProgress } from './aurora'
+import { blendPalette, PaletteTracker, PALETTE_RGB, GOLD_RGB, auroraIntro, introProgress, leanPalette, PREVIEW_MIX, PREVIEW_IN_MS, AFTERGLOW_MIX } from './aurora'
 import { syncCount, project, placement, makeSpeck, ARC, LAP_MS, OMEGA, type Speck } from './specks'
 import { BurstSystem, PRESET_PARTICLES } from './bursts'
 import { cssToRgb } from './sprites'
-import { flowSpeed, installFx, syncFxState } from './installFx'
+import { flowSpeed, installFx, previewTarget, stepPreview, syncFxState, trimmedFrameMs } from './installFx'
 import { installSound, shouldDuck } from './installSound'
-import { fxSignals } from './signals'
+import { fxPreview, fxSignals } from './signals'
 import { fxState, resetFxState } from '../../core/fxState'
 import { naviApi } from '../../core/store'
 import { bus } from '../../core/events'
@@ -132,6 +132,24 @@ const PITCHED: SfxName[] = ALL.filter(n => n !== 'throw' && n !== 'pass' && n !=
 const optsFor = (n: SfxName) => (n === 'faceChime' ? { note: 79 } : n === 'knowTick' || n === 'pillar' || n === 'penlight' ? { index: 2 } : {})
 
 // ---------------------------------------------------------------- governor
+
+describe('what the governor judges (trimmed frame mean)', () => {
+  const frames = (fast: number, slow: number, slowMs: number) => [...Array(fast).fill(16.7), ...Array(slow).fill(slowMs)]
+  it('ignores a few hitches from outside the effects', () => {
+    const xs = frames(27, 3, 120) // three 120 ms hitches in 30 frames: the plain mean says 27 ms
+    expect(xs.reduce((a, b) => a + b, 0) / xs.length).toBeGreaterThan(19)
+    expect(trimmedFrameMs(xs, xs.length)).toBeCloseTo(16.7, 5)
+  })
+  it('still reads effects that make every 4th frame late as slow', () => {
+    const xs = frames(22, 8, 33.4)
+    expect(trimmedFrameMs(xs, xs.length)).toBeGreaterThan(19)
+  })
+  it('30 fps is slow, 60 fps is steady; empty windows read as 60 Hz', () => {
+    expect(trimmedFrameMs(Array(30).fill(33.4), 30)).toBeCloseTo(33.4, 5)
+    expect(trimmedFrameMs(Array(30).fill(16.7), 30)).toBeLessThan(17.6)
+    expect(trimmedFrameMs([], 0)).toBeCloseTo(16.67, 1)
+  })
+})
 
 describe('governor (K-11 tiers)', () => {
   afterEach(() => setFrameTimeProvider(null))
@@ -465,6 +483,89 @@ describe('fxState sync, palette crossfade and flow speed', () => {
     naviApi.setState(s => ({ col: { ...s.col, faces } }))
     expect(fxState.specksTarget).toBe(60)
     offSig()
+    off()
+  })
+})
+
+// ---------------------------------------------------------------- the forecast lean (QA OWNER#7 / DEMO#13)
+
+describe('the wall previews where the air is heading after a reservation', () => {
+  beforeEach(() => {
+    resetFxState()
+    naviApi.getState().resetAll()
+    Object.assign(fxPreview, { key: null, k: 0, target: 0, p: 0, afterglow: 0 })
+  })
+  const hype = () => [...SONGS].sort((a, b) => b.energy - a.energy).slice(0, 3).map(x => x.id)
+
+  it('previewTarget: only while armed, live, and when the forecast is another colour', () => {
+    const s0 = naviApi.getState()
+    syncFxState(s0)
+    expect(previewTarget(s0, true)).toBeNull() // nothing queued: no forecast
+    const [a, b] = hype()
+    naviApi.getState().reserve(a, { by: 'me' })
+    naviApi.getState().reserve(b, { by: 'minato' })
+    const s1 = naviApi.getState()
+    expect(fxState.aurora).toBe('quiet')
+    const key = previewTarget(s1, true)
+    expect(key).not.toBeNull()
+    expect(key).not.toBe('quiet')
+    expect(previewTarget(s1, false)).toBeNull()
+    fxState.aurora = key!
+    expect(previewTarget(s1, true)).toBeNull() // already that colour
+  })
+
+  it('stepPreview: leans PREVIEW_MIX within ~1.2 s, melts back when disarmed, slides between forecasts', () => {
+    Object.assign(fxPreview, { key: 'warm', target: PREVIEW_MIX })
+    stepPreview(PREVIEW_IN_MS / 2, false)
+    expect(fxPreview.k).toBeGreaterThan(0.1)
+    expect(fxPreview.k).toBeLessThan(PREVIEW_MIX)
+    stepPreview(PREVIEW_IN_MS, false)
+    expect(fxPreview.k).toBeCloseTo(PREVIEW_MIX, 5)
+    expect(PREVIEW_MIX).toBeGreaterThanOrEqual(0.3)
+    expect(PREVIEW_MIX).toBeLessThanOrEqual(0.5)
+    fxPreview.rgb.forEach((c, i) => c.forEach((v, k) => expect(v).toBeCloseTo(PALETTE_RGB.warm[i][k], 0)))
+    // the forecast moves on: the colours slide, never jump
+    fxPreview.key = 'hot'
+    stepPreview(16, false)
+    const d = Math.abs(fxPreview.rgb[1][1] - PALETTE_RGB.warm[1][1])
+    expect(d).toBeGreaterThan(0)
+    expect(d).toBeLessThan(Math.abs(PALETTE_RGB.hot[1][1] - PALETTE_RGB.warm[1][1]) * 0.2)
+    fxPreview.target = 0
+    stepPreview(5000, false)
+    expect(fxPreview.k).toBe(0)
+    expect(fxPreview.key).toBeNull()
+  })
+
+  it('PaletteTracker leans the shown palette, and keeps a little gold after an all-know', () => {
+    const tr = new PaletteTracker('quiet')
+    const lean = tr.update({ aurora: 'quiet', auroraT: 1, gold: 0 }, { k: 0.45, rgb: PALETTE_RGB.hot })
+    lean.forEach((c, i) => c.forEach((v, k) => expect(v).toBeCloseTo(leanPalette(PALETTE_RGB.quiet, PALETTE_RGB.hot, 0.45)[i][k], 5)))
+    const glow = tr.update({ aurora: 'quiet', auroraT: 1, gold: 0 }, { k: 0, rgb: PALETTE_RGB.hot, afterglow: 1 })
+    glow.forEach((c, i) => c.forEach((v, k) => expect(v).toBeCloseTo(leanPalette(PALETTE_RGB.quiet, GOLD_RGB, AFTERGLOW_MIX)[i][k], 5)))
+  })
+
+  it('installFx: a reservation arms the lean within the same tick, a song end disarms it; all-know and my own song start the gold', () => {
+    const off = installFx(naviApi)
+    const [a, b] = hype()
+    naviApi.getState().reserve(a, { by: 'me' })
+    naviApi.getState().reserve(b, { by: 'minato' })
+    expect(fxPreview.target).toBe(PREVIEW_MIX)
+    expect(fxPreview.key).not.toBeNull()
+    expect(fxState.flash).toBeGreaterThan(0.1) // the wall takes a small breath as it leans
+    const q = naviApi.getState().room.queue[0]
+    bus.emit({ type: 'song/ended', entry: { item: q, endedAt: 0, heatBefore: 0.2, heatAfter: 0.6, knowShare: 1, claps: 0 } })
+    expect(fxPreview.target).toBe(0)
+    bus.emit({ type: 'know/complete', songId: SONGS[0].id, view: { dots: ['know', 'know'], knows: 2, size: 2, all: true } })
+    expect(fxState.gold).toBe(1)
+    expect(fxPreview.afterglow).toBe(1)
+    // a friend's song starting is not my moment; mine flushes the wall gold (handshake 7)
+    fxState.gold = 0
+    fxPreview.afterglow = 0
+    bus.emit({ type: 'song/started', item: { ...q, by: 'minato' } })
+    expect(fxState.gold).toBe(0)
+    bus.emit({ type: 'song/started', item: { ...q, by: 'me' } })
+    expect(fxState.gold).toBe(1)
+    expect(fxPreview.afterglow).toBe(1)
     off()
   })
 })

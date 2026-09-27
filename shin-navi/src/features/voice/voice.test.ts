@@ -7,6 +7,7 @@ import { SONG_BY_ID } from '../../data/songs'
 import { LOCALE_IDS, namespaceStrings, trIn } from '../../i18n'
 import type { CaptureResult, PitchFrame } from '../../lib/pitch'
 import {
+  DEMO_ANSWERS,
   QUIZ,
   QUIZ_ORDER,
   VOICE_TYPES,
@@ -136,6 +137,18 @@ describe('buildReading from the quiz', () => {
     expect(lowered.some(k => k < 0)).toBe(true)
     // the e2e answer set lands on a lowered key
     expect(buildReading({ capture: null, quiz: { high: 'hard', chorus: 'between', style: 'talk' } }, ctx).suggest!.keyShift).toBeLessThan(0)
+  })
+
+  it('the script-mode demo answers give the scripted reading (N beat 7: エモーショナル → −n reserve, DEMO#14)', () => {
+    const r = buildReading({ capture: null, quiz: DEMO_ANSWERS }, ctx)
+    expect(r.type).toBe('emotional')
+    expect(r.suggest!.keyShift).toBeLessThan(0)
+    for (const k of QUIZ_ORDER) expect(QUIZ[k] as string[]).toContain(DEMO_ANSWERS[k])
+  })
+
+  it('the evidence line is a short reason on the card front (card-front contract: ≈16 characters in ja)', () => {
+    const ns = namespaceStrings('voice') as unknown as Record<string, Record<string, string>>
+    for (const k of Object.keys(ns.ja).filter(k => k.startsWith('ev.'))) expect(ns.ja[k].length, `${k}: ${ns.ja[k]}`).toBeLessThanOrEqual(16)
   })
 })
 

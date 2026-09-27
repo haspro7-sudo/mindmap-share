@@ -3,6 +3,9 @@
 // version (original preselected), and "save to My Songs" — that moment the disc turns into the
 // song's colour and flies to its face on the ball. "Show just this song to the room" puts the
 // title on the shared screen for ten seconds. Nothing is ever saved automatically.
+// Card-front contract: one short lead, the discs, the picked song and its controls. The source
+// ("e.g. Apple Music · demo data") shrinks to a DEMO badge; the privacy / no-auto-save lines live
+// on the back (cards' fine.import) — the frame's lock tab stays as the visual signal.
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CardBodyComponent, CardBodyProps, SongId, VersionId } from '../../core/types'
@@ -98,13 +101,15 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
   }
   const openAll = () => naviApi.getState().openSheet('import', { cardId: card.id })
 
-  const discSize = small ? 40 : 46
+  const discSize = small ? 38 : 46
   const song = sel ? SONG_BY_ID[sel] : undefined
   return (
     <div className={`imp${small ? ' is-small' : ''}`} ref={root} data-private="1" data-active={active ? '1' : '0'}>
       <div className="imp__lead" data-testid="card-reason">
-        <span className="imp__leadtext">{t('import.lead', { n: ids.length })}</span>
-        <span className="imp__src">{t('import.src')}</span>
+        <span className="imp__leadtext">{t('import.cardLead', { n: ids.length })}</span>
+        <span className="imp__demo" title={t('import.src')}>
+          {t('demo')}
+        </span>
       </div>
       <div className="imp__shelf" role="group" aria-label={tr(card.reason.text)}>
         {ids.map(id => (
@@ -158,14 +163,6 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
           ))}
         </div>
       )}
-      {!small ? (
-        <p className="imp__priv">
-          <Icon name="lock" size={11} strokeWidth={2.2} />
-          {t('import.private')}
-          <i aria-hidden="true" />
-          {t('import.noAutoShort')}
-        </p>
-      ) : null}
       <div className="imp__foot">
         <ShowRoomButton songId={sel} cardId={card.id} />
         <button type="button" className="imp-all" data-testid="import-all" onClick={openAll} aria-label={t('import.all')} title={t('import.all')}>

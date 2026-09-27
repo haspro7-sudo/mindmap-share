@@ -27,6 +27,12 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
+/* Korean wraps at eojeol (word) boundaries, never mid-word (QA ROBUST#11). html[lang] follows
+   the viewing locale (i18n applyHtmlLang). */
+:root:lang(ko) body {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
 button {
   font: inherit;
   color: inherit;

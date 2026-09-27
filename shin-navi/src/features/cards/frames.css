@@ -4,8 +4,9 @@
 
 /* ============================================================ deck */
 .deck {
+  /* no stacking context of its own: the peeks sit behind the hero's floor lights (z 2) while the
+     top card (z 5) stays in front of everything in the hero */
   position: relative;
-  z-index: 4;
   width: 100%;
   height: 100%;
   align-self: stretch;
@@ -23,9 +24,14 @@
 }
 .deck__peeks {
   position: absolute;
+  z-index: 1;
   inset: 0;
   pointer-events: none;
   transition: opacity 0.18s;
+}
+.peek-lift.no-teaser .cs__peektag,
+.peek-lift.no-teaser .cs__key {
+  display: none;
 }
 .deck__peeks.is-hidden {
   opacity: 0;
@@ -42,12 +48,26 @@
 }
 /* only the top edge peeks out: the rest of the silhouette melts into the dark */
 .peek-edge {
-  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 22px, rgba(0, 0, 0, 0.28) 46px, transparent 80px);
-  mask-image: linear-gradient(180deg, #000 0, #000 22px, rgba(0, 0, 0, 0.28) 46px, transparent 80px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 34px, rgba(0, 0, 0, 0.3) 62px, transparent 96px);
+  mask-image: linear-gradient(180deg, #000 0, #000 34px, rgba(0, 0, 0, 0.3) 62px, transparent 96px);
 }
-/* the peeking silhouettes are mostly light and outline, so the floor labels read through them */
 .peek-edge .cs__face {
-  opacity: 0.62;
+  opacity: 0.94;
+}
+/* anticipation: while the top card is dragged past 40 px the next card lifts 12 px and brightens */
+.peek-lift {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.deck.is-drag-far .deck__peek--0 .peek-lift {
+  transform: translate3d(0, calc(-1 * var(--pk-lift, 12px)), 0);
+}
+.deck__peek .cs__glow {
+  transition: opacity 0.15s ease-out;
+}
+.deck.is-drag-far .deck__peek--0 .cs__glow {
+  opacity: 0.85 !important;
 }
 /* while the top card is dragged away, the next card wakes up underneath */
 .peek-full {
@@ -57,6 +77,9 @@
   position: absolute;
   z-index: 5;
   transform-origin: 50% 60%;
+}
+.deck__top.is-held {
+  pointer-events: none;
 }
 .deck__top.is-hidden {
   opacity: 0 !important;
@@ -193,7 +216,9 @@
 .cs__face {
   position: absolute;
   inset: 0;
+  /* clip, not hidden: never a scroll container, so focusing a chip cannot scroll the face (DEMO#6) */
   overflow: hidden;
+  overflow: clip;
   background: var(--night-2);
 }
 .cs__bg {
@@ -288,7 +313,7 @@
   top: 14px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   height: 20px;
   pointer-events: none;
   white-space: nowrap;
@@ -302,24 +327,23 @@
   right: 0;
   justify-content: center;
 }
-.cs__code {
-  font-size: 10.5px;
-  font-weight: 900;
-  letter-spacing: 0.16em;
+.cs__label .kglyph {
+  flex: none;
   color: var(--accent);
-  font-family: var(--font-en);
 }
 .cs__kname {
-  font-size: 11px;
-  font-weight: 700;
-  color: rgba(245, 241, 255, 0.86);
-  letter-spacing: 0.02em;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--accent) 55%, #f5f1ff);
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 8px rgba(8, 4, 24, 0.6);
 }
 .cs__ember {
   position: relative;
+  flex: none;
   width: 16px;
   height: 16px;
-  margin-right: -2px;
+  margin-right: -1px;
   border-radius: 50%;
   background: radial-gradient(#fff6dc, #ffe9a8 22%, #ffb547 48%, rgba(255, 181, 71, 0) 72%);
   box-shadow: 0 0 10px rgba(255, 181, 71, 0.8);
@@ -557,41 +581,66 @@
   pointer-events: none;
 }
 
-/* peeks: a silhouette with a lit rim; the content stays hidden (honest preview, no gacha) */
+/* peeks: the real silhouette tinted with its accent and a lit rim, plus a teaser of what KIND
+   of card is next; the content itself stays hidden (honest preview, no gacha) */
+.cs__tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 38%, transparent) 0, color-mix(in srgb, var(--accent) 16%, transparent) 44px, transparent 90px);
+}
 .cs--peek .cs__face::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(11, 6, 32, 0) 0, rgba(11, 6, 32, 0.25) 18px, rgba(11, 6, 32, 0.78) 60px);
+  background: linear-gradient(180deg, rgba(11, 6, 32, 0) 0, rgba(11, 6, 32, 0.2) 28px, rgba(11, 6, 32, 0.8) 72px);
 }
 .cs--peek .cs__rim path {
   stroke-width: 2px;
   stroke-opacity: 1;
 }
 .cs__peektag {
+  --pk: 1;
   position: absolute;
   z-index: 6;
   left: 0;
   right: 0;
-  top: 3px;
-  text-align: center;
-  font-family: var(--font-en);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.22em;
+  top: calc(6px * var(--pk));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(5px * var(--pk));
+  font-size: calc(12.5px * var(--pk));
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(8, 4, 24, 0.85);
+  pointer-events: none;
+}
+.cs__peektag .kglyph {
+  flex: none;
+  width: calc(13px * var(--pk));
+  height: calc(13px * var(--pk));
   color: var(--accent);
-  opacity: 0.95;
+}
+.cs__peektag .cs__ember {
+  width: calc(13px * var(--pk)) !important;
+  height: calc(13px * var(--pk)) !important;
 }
 .cs--medallion .cs__peektag,
 .cs--arch .cs__peektag,
-.cs--triptych .cs__peektag {
-  top: 5px;
+.cs--triptych .cs__peektag,
+.cs--facet .cs__peektag,
+.cs--coaster .cs__peektag {
+  top: calc(8px * var(--pk));
 }
 .cs--stitch .cs__peektag {
-  top: 4px;
+  /* the folder tab (x: w-126 … w-22) is the only part of the stitch edge above y = 18 */
+  top: calc(3px * var(--pk));
   left: auto;
-  right: 34px;
-  width: 80px;
+  right: 22px;
+  width: 104px;
 }
 
 /* ============================================================ drag hints */
@@ -823,7 +872,7 @@
 }
 .cback__rule {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--ink-faint);
   word-break: break-all;
 }
@@ -880,6 +929,22 @@
 }
 .cback__facts dd.is-no {
   color: var(--neon-amber);
+}
+.cback__fine {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.cback__fineline {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+.navi-toggle--back {
+  flex: none;
 }
 .cback__foot {
   margin-top: auto;
@@ -953,10 +1018,10 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
+  height: 26px;
   padding: 0 10px 0 8px;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: rgba(245, 241, 255, 0.82);
   background: rgba(8, 4, 24, 0.5);
@@ -966,22 +1031,55 @@
 .sbody--visa .sbody__topright {
   top: 12px;
 }
-/* 360-wide phones: the long-press hint drops under the kind label so they never collide */
-.phone-shell.is-small .sbody__topright:has(.sbody__askhint) {
-  top: 38px;
+/* a long kind label and the hint never touch: the hint drops under the label strip */
+.sbody__topright.is-drop {
+  top: 42px;
 }
-.phone-shell.is-small .sbody--visa .sbody__visa {
-  top: 66px;
-  right: 14px;
-  scale: 0.8;
+/* visa: the stamp has its own column next to the stacked titles, so it never covers them */
+.vtitle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  min-width: 0;
+}
+.vtitle__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vtitle__lines {
+  display: flex;
+  flex-direction: column;
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+}
+.vtitle__lines.is-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.vtitle__line {
+  display: block;
+}
+.vtitle__line--local {
+  color: #ffd9de;
+}
+.vtitle__romaji {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
 }
 .sbody__visa {
-  position: absolute;
-  z-index: 3;
-  right: 18px;
-  top: 44px;
-  width: 58px;
-  height: 58px;
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -989,7 +1087,14 @@
   color: #ff8a9a;
   border: 2px solid rgba(255, 122, 138, 0.8);
   box-shadow: inset 0 0 0 3px rgba(255, 122, 138, 0.18);
-  background: rgba(20, 6, 20, 0.35);
+  background: rgba(20, 6, 20, 0.45);
+}
+.phone-shell.is-small .sbody__visa {
+  width: 48px;
+  height: 48px;
+}
+.phone-shell.is-small .sbody__visa-in b {
+  font-size: 11px;
 }
 .sbody__visa-in {
   display: flex;
@@ -1020,6 +1125,21 @@
   gap: 6px;
   min-width: 0;
 }
+/* passport art can run stripes behind the text: a night scrim keeps the text block calm (DEMO#12) */
+.sbody--visa .sbody__main::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -30px -14px -12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(10, 5, 28, 0) 0, rgba(10, 5, 28, 0.72) 30px, rgba(10, 5, 28, 0.86) 60%, rgba(10, 5, 28, 0.9));
+  pointer-events: none;
+}
+/* the fair-share line: warm and calm, never alarming */
+.reason--budget {
+  --accent: #ffb547;
+  color: #ffe6b8;
+}
 .sbody__title .st__fit {
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
 }
@@ -1035,17 +1155,6 @@
 .sbody__reason {
   margin-top: 2px;
 }
-.sbody__chips {
-  display: flex;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  margin-top: 2px;
-}
-.sbody__chips .chip {
-  flex: none;
-  background: rgba(255, 255, 255, 0.1);
-}
 .navi-toggle {
   align-self: flex-start;
   display: inline-flex;
@@ -1055,7 +1164,7 @@
   margin-top: 2px;
   padding: 0 12px 0 4px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
@@ -1160,7 +1269,7 @@
   text-align: center;
 }
 .ask__q {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--neon-cyan);
@@ -1177,13 +1286,13 @@
   font-size: 11px;
 }
 .ask__artist {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ink-dim);
   margin-top: -2px;
 }
 .ask__reason {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.35;
   max-width: 100%;
   justify-content: center;
@@ -1211,7 +1320,7 @@
   margin-top: 2px;
 }
 .ask__mine.is-done {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--ink-dim);
   gap: 6px;
@@ -1248,9 +1357,9 @@
   background: linear-gradient(90deg, #fff6d8 50%, transparent 50%);
 }
 .ask__note {
-  font-size: 10px;
-  color: var(--ink-faint);
-  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-weight: 700;
 }
 .ask__allmsg {
   font-size: 12px;
@@ -1265,27 +1374,6 @@
 .link {
   position: absolute;
   inset: 0;
-}
-.link__head {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  text-align: center;
-}
-.link__h {
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-}
-.link__note {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--ink-faint);
 }
 .link__lines {
   position: absolute;
@@ -1338,25 +1426,30 @@
 }
 .link__from {
   position: absolute;
-  left: 20%;
-  right: 20%;
+  z-index: 2;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 84%;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 1px;
-  text-align: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(12, 7, 34, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(196, 180, 255, 0.28);
   pointer-events: none;
 }
 .link__fromk {
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: var(--ink-faint);
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-dim);
 }
 .link__fromt {
-  font-size: 12px;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 800;
-  max-width: 100%;
 }
 .lmini {
   position: absolute;
@@ -1411,7 +1504,7 @@
   overflow: hidden;
 }
 .lmini__artist {
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ink-dim);
   white-space: nowrap;
@@ -1440,7 +1533,7 @@
 }
 .link__reason .reason__text {
   -webkit-line-clamp: 2;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.35;
   text-align: left;
 }
@@ -1454,44 +1547,28 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 40px 34px 16px;
-}
-.breather__title {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--ink-dim);
-  text-align: center;
-  line-height: 1.3;
+  padding: 40px 34px 18px;
 }
 .breather__stats {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  padding: 2px 4px 4px;
-}
-.bstat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-width: 56px;
-}
-.bstat__k {
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 800;
-  color: var(--ink-faint);
+  color: var(--ink-dim);
   white-space: nowrap;
-}
-.bstat__v {
-  font-size: 20px;
-  font-weight: 900;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--ink);
 }
-.bstat__sep {
-  width: 1px;
-  background: rgba(255, 255, 255, 0.14);
+.breather__stats b {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--ink);
+  margin: 0 2px;
+}
+.breather__line {
+  margin-top: -2px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink-dim);
+  text-align: center;
 }
 .breather__down {
   display: inline-flex;
@@ -1532,9 +1609,6 @@
 .abar.is-empty {
   display: block;
 }
-.abar--turn {
-  display: flex;
-}
 .abar__btn {
   position: relative;
   display: inline-flex;
@@ -1542,16 +1616,36 @@
   justify-content: center;
   gap: 6px;
   min-width: 0;
+  padding: 0 4px;
   border-radius: var(--r-btn);
   font-weight: 800;
   line-height: 1.1;
-  white-space: nowrap;
 }
+/* labels never truncate (ROBUST#12): they may take two lines, and long ones shrink a step */
 .abar__label {
+  min-width: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+.abar__btn--side.is-long {
+  font-size: 12px;
+  gap: 3px;
+}
+.abar__btn--side.is-long svg {
+  width: 14px;
+  height: 14px;
+}
+.abar__btn--primary.is-long {
+  font-size: 15px;
+  line-height: 1.05;
 }
 .abar__btn--side {
+  gap: 5px;
   font-size: 13px;
   color: var(--ink);
   background: rgba(255, 255, 255, 0.06);
@@ -1630,118 +1724,139 @@
   color: #062418;
   background: linear-gradient(100deg, #9dffd4, #5cffb0 55%, #7df9ff);
 }
-.abar__btn--wide {
-  flex: 1;
-}
 .phone-shell.is-small .abar__btn--primary {
   font-size: 16px;
+}
+.phone-shell.is-small .abar__btn--primary.is-long {
+  font-size: 14px;
 }
 .phone-shell.is-small .abar__btn--side {
   font-size: 12px;
   gap: 4px;
+  padding: 0 4px;
+}
+.phone-shell.is-small .abar__btn--side svg {
+  width: 14px;
+  height: 14px;
 }
 
-/* ============================================================ undo toast */
-.utoast-host {
+/* ============================================================ undo pill */
+/* docked in the search-bar row right under the lane: never over the next card (OWNER#1) */
+.utoast-host,
+.ps-toasts > .utoast-host {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: calc(var(--dock-h) + var(--action-h) + var(--sab) + 12px);
+  top: calc(var(--lane-bottom, 108px) + (var(--search-h, 40px) - 36px) / 2);
   display: flex;
   justify-content: center;
   pointer-events: none;
+  transition: transform 0.2s var(--ease-out);
+}
+.utoast-host.is-below-info {
+  transform: translate3d(0, 48px, 0);
 }
 .utoast {
-  pointer-events: auto;
-  width: 100%;
-  max-width: 420px;
-  padding: 8px 8px 8px 14px;
-  border-radius: 20px;
-  background: rgba(23, 13, 50, 0.96);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 18px;
+  background: rgba(23, 13, 50, 0.97);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 .utoast__row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  min-width: 0;
 }
 .utoast__dot {
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--hot-gradient);
-  box-shadow: 0 0 10px rgba(255, 106, 61, 0.8);
+  box-shadow: 0 0 8px rgba(255, 106, 61, 0.8);
 }
 .utoast--keep .utoast__dot {
   background: #e9e2ff;
-  box-shadow: 0 0 10px rgba(200, 190, 255, 0.9);
+  box-shadow: 0 0 8px rgba(200, 190, 255, 0.9);
 }
 .utoast--pass .utoast__dot {
   background: #a79bc9;
   box-shadow: none;
 }
-.utoast__msg {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
 .utoast__what {
+  flex: none;
   font-size: 13px;
   font-weight: 800;
+  white-space: nowrap;
 }
 .utoast__song {
-  font-size: 11.5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12px;
   color: var(--ink-dim);
   font-weight: 700;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.utoast__song .st--chip {
+  font-size: 12px;
+}
 .utoast__undo {
+  pointer-events: auto;
   flex: none;
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 14px;
-  font-size: 15px;
+  gap: 4px;
+  height: 28px;
+  margin-left: 2px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
   font-weight: 900;
   color: #140a26;
   background: #f5f1ff;
-  box-shadow: 0 4px 14px rgba(245, 241, 255, 0.2);
+  box-shadow: 0 3px 10px rgba(245, 241, 255, 0.18);
+}
+/* a comfortable 44 px touch target around the 28 px pill */
+.utoast__undo::before {
+  content: '';
+  position: absolute;
+  inset: -8px -6px;
 }
 .utoast__why {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 8px 8px 12px;
 }
 .utoast__q {
-  flex: 1 0 100%;
-  font-size: 10.5px;
-  color: var(--ink-faint);
+  font-size: 12px;
+  color: var(--ink-dim);
   font-weight: 700;
+  margin-right: 1px;
 }
 .utoast__chip {
+  pointer-events: auto;
   height: 28px;
   padding: 0 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
   font-weight: 800;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 .utoast__thanks {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ok);
 }

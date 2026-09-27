@@ -1,6 +1,9 @@
 // M6 stage: pure helpers, strings and the "no Japanese literals in JSX" rule for this module.
 import { describe, expect, it } from 'vitest'
 import { isPentatonic } from '../../core/rules'
+import { naviApi } from '../../core/store'
+import { selForecast } from '../../core/selectors'
+import { presentOf } from './parts'
 import { SONG_BY_ID } from '../../data/songs'
 import type { Member } from '../../core/types'
 import { LOCALE_IDS, namespaceStrings } from '../../i18n'
@@ -11,6 +14,8 @@ import {
   demoScore,
   expectedKnow,
   forecastHeat,
+  forecastKey,
+  forecastMood,
   forecastQueue,
   glassSlots,
   heatRange,
@@ -21,6 +26,7 @@ import {
   scoreVerdict,
   shiftRoles,
   smoothPath,
+  soonestEta,
   splitAround,
   threadEnd,
   trendOf,
@@ -167,7 +173,79 @@ describe('penlight & QR', () => {
   })
 })
 
+describe('QA round 1 helpers', () => {
+  it('the empty lane shows one glass with the soonest real ETA (ROBUST#15)', () => {
+    expect(soonestEta([])).toBe(1)
+    expect(soonestEta([{ status: 'accepted', etaAfterSongs: 1 }])).toBe(1)
+    expect(soonestEta([{ status: 'accepted', etaAfterSongs: 3 }, { status: 'preparing', etaAfterSongs: 2 }, { status: 'delivered', etaAfterSongs: 0 }])).toBe(2)
+    expect(soonestEta([{ status: 'sending', etaAfterSongs: 0 }])).toBe(1)
+  })
+
+  it('forecast words follow the word ahead and the direction (OWNER#7)', () => {
+    expect(forecastKey('peak', true)).toBe('fc.hot')
+    expect(forecastKey('rising', true)).toBe('fc.hot')
+    expect(forecastKey('warming', true)).toBe('fc.warmUp')
+    expect(forecastKey('warming', false)).toBe('fc.warmDown')
+    expect(forecastKey('mellow', true)).toBe('fc.mellowDown')
+    expect(forecastKey('loosening', true)).toBe('fc.mellowUp')
+    expect(forecastKey('loosening', false)).toBe('fc.quiet')
+  })
+
+  it('forecastMood reads the air ahead with the store’s own word rules', () => {
+    const present = [member('me'), member('minato'), member('saki')]
+    const hot = Object.values(SONG_BY_ID).filter(s => s.energy >= 0.85).map(s => s.id)
+    const slow = Object.values(SONG_BY_ID).filter(s => s.energy <= 0.3).map(s => s.id)
+    expect(forecastMood(0.2, [], [], present)).toBeNull()
+    const up = forecastMood(0.2, [], hot.slice(0, 3), present)!
+    expect(up.rising).toBe(true)
+    expect(['warm', 'hot']).toContain(up.bucket)
+    const down = forecastMood(0.8, [0.9, 0.9], slow.slice(0, 2), present)!
+    expect(down.word).toBe('mellow')
+    expect(down.bucket).toBe('mellow')
+    expect(down.rising).toBe(false)
+  })
+
+  it('the hero word and the wall (core selForecast, read by fx) forecast the same colour', () => {
+    const api = naviApi
+    const ids = Object.values(SONG_BY_ID).filter(s => s.reservable).map(s => s.id)
+    let checked = 0
+    for (let k = 0; k < 40; k++) {
+      api.getState().resetAll()
+      const heat = (k % 10) / 10
+      const st = api.getState()
+      api.setState({ room: { ...st.room, heat } })
+      const pick = (i: number) => ids[(k * 7 + i * 13) % ids.length]
+      api.getState().reserve(pick(0), { by: 'me' })
+      if (k % 2) api.getState().reserve(pick(1), { by: 'saki' })
+      if (k % 3) api.getState().reserve(pick(2), { by: 'minato' })
+      const s = api.getState()
+      const r = s.room
+      const upcoming = [...(r.now ? [r.now.item.songId] : []), ...r.queue.slice(0, 2).map(q => q.songId)]
+      const word = forecastMood(r.heat, r.sung.map(e => SONG_BY_ID[e.item.songId]?.energy ?? 0.5), upcoming, presentOf(r.members))
+      const wall = selForecast(s)
+      expect(wall?.bucket, `heat ${heat} ${upcoming.join(',')}`).toBe(word?.bucket)
+      expect(wall?.rising).toBe(word?.rising)
+      checked++
+    }
+    expect(checked).toBe(40)
+  })
+})
+
 describe('stage strings', () => {
+  it('every "{n}" string has a singular sibling in all five locales, with the same vars', () => {
+    const d = namespaceStrings('stage')! as unknown as Record<string, Record<string, string>>
+    const vars = (x: string) => [...x.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort().join(',')
+    const counted = Object.keys(d.ja).filter(k => !k.endsWith('.one') && /\{n\}/.test(d.ja[k]))
+    expect(counted.length).toBeGreaterThan(5)
+    for (const k of counted)
+      for (const l of LOCALE_IDS) {
+        expect(typeof d[l][`${k}.one`], `${l}.${k}.one`).toBe('string')
+        expect(vars(d[l][`${k}.one`]), `${l}.${k}.one vars`).toBe(vars(d.ja[k]))
+      }
+    expect(d.en['myTurnIn.one']).toBe('{n} song until your turn')
+    expect(d.en['glassIn.one']).toBe('Arrives in about {n} song')
+  })
+
   const ns = namespaceStrings('stage')!
   it('exist in all five locales with the same keys', () => {
     const keys = Object.keys(ns.ja)

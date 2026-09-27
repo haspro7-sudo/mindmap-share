@@ -9,6 +9,12 @@
 //   glow, mirror = dazzling silver, prism = hue cycling rainbow;
 // * rim darkening, coloured back-light and halo are pre-rendered sprites (no per-frame gradients,
 //   no shadowBlur, no ctx.filter).
+//
+// Raster cost (QA ROBUST#2): the big balls live in a canvas 1.5× their diameter, so every
+// full-square sprite blit is expensive in software raster. The sphere sprites (base, rim + sheen
+// merged into one "shade") are blitted only over the ball's own square, the glass band on lit
+// faces is a pattern fill (no per-tile clip mask), and the static halo can be painted once into
+// a separate canvas behind the ball (Frame.halo = false, see paintHalo).
 import { BANDS, BAND_DLAT, LAT_MAX, TILE_COUNT } from './layout'
 import type { BallView } from './hit'
 
@@ -45,6 +51,8 @@ export type Scene = {
   beams: { tile: number; p: number; len: number }[]
   /** 0..1 all-tile white flash (short intro) */
   flashAll: number
+  /** 0..1 how much the record chips' highlight dims everything else (links, groups, pins) */
+  dim: number
 }
 
 export function createScene(): Scene {
@@ -65,6 +73,7 @@ export function createScene(): Scene {
     rings: [],
     beams: [],
     flashAll: 0,
+    dim: 0,
   }
 }
 
@@ -89,8 +98,10 @@ export type Frame = {
   gold: number
   /** overall light level (1 = normal) */
   exposure?: number
-  /** quality tier 0: no bloom, no glass bands, fewer glints */
+  /** lower quality tiers: no bloom, no glass bands, fewer glints ("no specular") */
   lite?: boolean
+  /** false: the halo is painted once into its own canvas behind the ball (paintHalo) */
+  halo?: boolean
 }
 
 // ---------------------------------------------------------------- geometry
@@ -181,8 +192,8 @@ function mkCanvas(w: number, h: number): HTMLCanvasElement {
 let SPR: {
   halo: HTMLCanvasElement
   base: HTMLCanvasElement
-  rim: HTMLCanvasElement
-  sheen: HTMLCanvasElement
+  /** rim darkening + back-light crescents + edge, with the window sheen on top (one blit) */
+  shade: HTMLCanvasElement
   star: HTMLCanvasElement
   beam: HTMLCanvasElement
   band: HTMLCanvasElement
@@ -344,9 +355,43 @@ function sprites() {
     x.fillStyle = gr
     x.fillRect(0, 0, 96, 48)
   }
-  SPR = { halo, base, rim, sheen, star, beam, band }
+  // rim and sheen are always drawn together (rim, then sheen at 0.85): pre-composite them
+  const shade = mkCanvas(S_SPR, S_SPR)
+  {
+    const x = shade.getContext('2d')!
+    x.drawImage(rim, 0, 0)
+    x.globalAlpha = 0.85
+    x.drawImage(sheen, 0, 0)
+  }
+  SPR = { halo, base, shade, star, beam, band }
   return SPR
 }
+
+/** Sprite square that holds the sphere (base / shade): the ball plus its 16 px back-light. */
+const SPR_BALL0 = S_SPR / 2 - R_SPR - 10
+const SPR_BALLW = (R_SPR + 10) * 2
+
+/**
+ * The halo behind a ball, painted once (it only changes with the canvas size and the collection's
+ * glow). Used by the controller for a static canvas under the animated one.
+ */
+export function paintHalo(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, r: number, alpha: number): void {
+  const S = sprites()
+  const k = r / R_SPR
+  const ss = S_SPR * k
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha))
+  ctx.drawImage(S.halo, w / 2 - ss / 2, h / 2 - ss / 2, ss, ss)
+  ctx.globalAlpha = 1
+}
+
+/** Glow of the halo for a collection level (0..1): what draw() uses when it paints the halo itself. */
+export const haloAlpha = (glowLevel: number, mini: boolean): number => Math.min(1, (mini ? 0.35 : 0.5) + glowLevel * 0.5)
+
+const bandPatterns = new WeakMap<CanvasRenderingContext2D, CanvasPattern | null>()
+let bandMatrix: DOMMatrix | null = null
 
 const glowCache = new Map<string, HTMLCanvasElement>()
 /** Radial glow in one colour, 64px, pre-rendered once per colour. */
@@ -489,6 +534,8 @@ export class BallPainter {
   private pinOrder: { p: Scene['pins'][number]; x: number; y: number; z: number }[] = []
   private sBloomC: number[] = []
   private lum = new Float32Array(NT)
+  /** per-tile light factor of the last frame (1 - mute): glows, glints and marks follow it */
+  private vis = new Float32Array(NT)
   /** ms spent in the last draw */
   lastMs = 0
 
@@ -553,12 +600,27 @@ export class BallPainter {
     const sy = cy - (S_SPR / 2) * k
     const ss = S_SPR * k
 
-    if (!mini || f.glowLevel > 0) {
-      ctx.globalAlpha = Math.min(1, (mini ? 0.35 : 0.5) + f.glowLevel * 0.5)
+    if (f.halo !== false && (!mini || f.glowLevel > 0)) {
+      ctx.globalAlpha = haloAlpha(f.glowLevel, mini)
       ctx.drawImage(S.halo, sx, sy, ss, ss)
       ctx.globalAlpha = 1
     }
-    ctx.drawImage(S.base, sx, sy, ss, ss)
+    // the sphere sprites only cover the ball: blit just that square of them
+    const bk = ss / S_SPR
+    const bx0 = sx + SPR_BALL0 * bk
+    const by0 = sy + SPR_BALL0 * bk
+    const bw = SPR_BALLW * bk
+    const sphere = this.sphereSprites(bw, dpr)
+    this.blitSphere(ctx, sphere?.base ?? null, S.base, bx0, by0, bw, dpr)
+    let band: CanvasPattern | null | undefined = null
+    if (!mini && !f.lite) {
+      band = bandPatterns.get(ctx)
+      if (band === undefined) {
+        band = typeof DOMMatrix !== 'undefined' ? ctx.createPattern(S.band, 'no-repeat') : null
+        bandPatterns.set(ctx, band)
+      }
+      if (band && !bandMatrix) bandMatrix = new DOMMatrix()
+    }
 
     const cR = Math.cos(rot)
     const sR = Math.sin(rot)
@@ -606,6 +668,9 @@ export class BallPainter {
     this.bright.length = 0
     const tmp = this.tmp
     const flashAll = s.flashAll
+    const cull = mini ? 0.03 : 0.14
+    const shoulder = f.detail === 1 ? 50 : 85
+    const bevelOn = !mini && !f.lite
 
     for (let i = 0; i < NT; i++) {
       const c3 = i * 3
@@ -622,7 +687,10 @@ export class BallPainter {
       this.py[i] = Y
       this.pz[i] = z2
       this.lum[i] = 0
-      if (z2 < 0.03) continue
+      this.vis[i] = i < N ? 1 - s.mute[i] : 1
+      // tiles in the outer ~1.5 % of the radius are slivers under the rim darkening: ~13 % of the
+      // visible tiles for ~3 % of the disc, so they are not worth a path fill each
+      if (z2 < cull) continue
       if (X < -margin || X > W + margin || Y < -margin || Y > H + margin) continue
       this.ps[i] = size[i] * Math.sqrt(z2)
 
@@ -660,6 +728,9 @@ export class BallPainter {
         const s8 = s4 * s4
         spec = s8 * s8 * s4 * s2 // ^22
       }
+      // a zoomed card shows a few big tiles: the key light's sweep would turn one into a flat
+      // white square there, so it only tints them
+      if (f.detail === 1) spec *= 0.4
       const j = jit[i]
       const face = i < N ? s.kind[i] : K_SMOKE
       let R: number
@@ -711,9 +782,10 @@ export class BallPainter {
       }
       if (face <= K_SKETCH) {
         // soft shoulder: bright reflections keep their colour instead of clipping to paper white
-        if (R > 170) R = 170 + 85 * (1 - Math.exp(-(R - 170) / 85))
-        if (G > 170) G = 170 + 85 * (1 - Math.exp(-(G - 170) / 85))
-        if (B > 170) B = 170 + 85 * (1 - Math.exp(-(B - 170) / 85))
+        // (on the big tiles of a zoomed card the shoulder tops out at silver)
+        if (R > 170) R = 170 + shoulder * (1 - Math.exp(-(R - 170) / shoulder))
+        if (G > 170) G = 170 + shoulder * (1 - Math.exp(-(G - 170) / shoulder))
+        if (B > 170) B = 170 + shoulder * (1 - Math.exp(-(B - 170) / shoulder))
       }
       if (i < N && s.mute[i] > 0) {
         const m = 1 - s.mute[i]
@@ -729,12 +801,13 @@ export class BallPainter {
       }
       const lum = (R * 0.3 + G * 0.55 + B * 0.15) / 255
       this.lum[i] = lum
+      const vis = this.vis[i]
       // glints: the brightest mirrors at the moment
-      if (!mini && (spec > 0.5 || (face >= K_MIRROR && spec > 0.18) || (face === K_CHROME && lum > 0.82)) && glints.length < (f.lite ? 6 : 14)) {
+      if (!mini && vis > 0.5 && (spec > 0.5 || (face >= K_MIRROR && spec > 0.18) || (face === K_CHROME && lum > 0.82)) && glints.length < (f.lite ? 6 : 14)) {
         glints.push(i)
         glintA.push(Math.min(1, spec * (face >= K_MIRROR ? 1.4 : 1) + (face === K_CHROME ? lum - 0.6 : 0)))
       }
-      if (i < N && (face === K_MIRROR || face === K_PRISM || lum > 0.7)) this.bright.push(i)
+      if (i < N && vis > 0.5 && (face === K_MIRROR || face === K_PRISM || lum > 0.7)) this.bright.push(i)
       // bright reflections bloom a little (what a camera sees on a real mirror ball)
       if (!mini && !f.lite && face <= K_SKETCH && lum > 0.6 && bloom.length < 16) {
         bloom.push(i)
@@ -760,7 +833,7 @@ export class BallPainter {
         const by = ay * ct - bz * st
         const qx = cx + bx * r
         const qy = cy - by * r
-        if (c < 2 && !mini && z2 > 0.3) bevel.push(qx, qy)
+        if (c < 2 && bevelOn && z2 > 0.3) bevel.push(qx, qy)
         if (qx < x0b) x0b = qx
         if (qx > x1b) x1b = qx
         if (qy < y0b) y0b = qy
@@ -770,18 +843,28 @@ export class BallPainter {
       }
       ctx.closePath()
       ctx.fill()
-      // lit faces are glass: a light band slides across them as the ball turns
-      if (face >= K_NEON && !mini && !f.lite && z2 > 0.12) {
+      // lit faces are glass: a light band slides across them as the ball turns. The band is a
+      // no-repeat pattern placed per tile and filled into the tile's own path (no clip mask).
+      if (band && bandMatrix && face >= K_NEON && z2 > 0.12 && vis > 0.05) {
         const w = x1b - x0b
         const h = y1b - y0b
         const ph = (X - cx) / r + j * 0.35
-        ctx.save()
-        ctx.clip()
-        ctx.globalAlpha = fade * (face === K_NEON ? 0.5 : 0.7)
-        ctx.drawImage(S.band, x0b - w * (1.1 + ph * 0.9), y0b - h * 0.1, w * 2.4, h * 1.2)
-        ctx.restore()
+        // pattern space → the tile's box (in the same css px user space as the path)
+        const m = bandMatrix
+        m.a = (w * 2.4) / 96
+        m.b = 0
+        m.c = 0
+        m.d = (h * 1.2) / 48
+        m.e = x0b - w * (1.1 + ph * 0.9)
+        m.f = y0b - h * 0.1
+        band.setTransform(m)
+        ctx.globalAlpha = fade * (face === K_NEON ? 0.5 : 0.7) * vis
+        ctx.fillStyle = band
+        ctx.fill()
+        ctx.globalAlpha = fade
       }
-      if (stroke && !mini) {
+      if (stroke && !mini && vis > 0.02) {
+        ctx.globalAlpha = fade * vis
         ctx.strokeStyle = stroke
         ctx.lineWidth = f.detail === 1 ? 1.6 : 1
         ctx.stroke()
@@ -828,21 +911,18 @@ export class BallPainter {
       ctx.globalAlpha = 1
     }
 
-    // ---- rim darkening + back-light + sheen
-    ctx.drawImage(S.rim, sx, sy, ss, ss)
-    ctx.globalAlpha = 0.85
-    ctx.drawImage(S.sheen, sx, sy, ss, ss)
-    ctx.globalAlpha = 1
+    // ---- rim darkening + back-light + sheen (one pre-composited sprite, ball square only)
+    this.blitSphere(ctx, sphere?.shade ?? null, S.shade, bx0, by0, bw, dpr)
 
     // ---- additive light
     ctx.globalCompositeOperation = 'lighter'
     // record: connected link groups painted as one faint shape (D-5)
-    if (s.groups && full) this.drawGroups(ctx, s.groups)
+    if (s.groups && full && s.dim < 0.999) this.drawGroups(ctx, s.groups, 1 - s.dim)
     for (let n = 0; n < bloom.length; n++) {
       const i = bloom[n]
       const c = bloomC[n]
       const sz = this.ps[i] * 1.9
-      ctx.globalAlpha = Math.min(0.55, (this.lum[i] - 0.6) * 1.8) * Math.min(1, this.pz[i] * 2)
+      ctx.globalAlpha = Math.min(0.55, (this.lum[i] - 0.6) * 1.8) * Math.min(1, this.pz[i] * 2) * this.vis[i]
       ctx.drawImage(glowSprite(((c >> 16) & 3) * 85, ((c >> 8) & 3) * 85, (c & 3) * 85), this.px[i] - sz / 2, this.py[i] - sz / 2, sz, sz)
     }
     for (const i of glows) {
@@ -850,7 +930,7 @@ export class BallPainter {
       const face = s.kind[i]
       const c3 = i * 3
       let a = face === K_NEON ? 0.95 : face === K_PRISM ? 0.65 : face === K_MIRROR ? 0.42 : 0
-      a = Math.max(a, s.glow[i] * 0.9)
+      a = Math.max(a * this.vis[i], s.glow[i] * 0.9)
       a *= Math.min(1, z * 1.6)
       if (a <= 0.01) continue
       let spr: HTMLCanvasElement
@@ -909,6 +989,7 @@ export class BallPainter {
       }
     }
     // links (D-5): light lines that turn with the ball and vanish on the back
+    // (under a record chip's highlight they stay as a faint 20 % trace)
     if (s.links.length && !mini) this.drawLinks(ctx, s, f, cR, sR, ct, st)
     // prism rings (D-14)
     if (s.rings.length) {
@@ -936,6 +1017,44 @@ export class BallPainter {
 
     this.bright.sort((a, b) => this.lum[b] * this.pz[b] - this.lum[a] * this.pz[a])
     this.lastMs = performance.now() - t0
+  }
+
+  /**
+   * The base and shade sprites pre-scaled to this ball's exact device-pixel size (made once per
+   * size): a 1:1 blit is a plain blend, a scaled one resamples every pixel — in software raster
+   * that was ~40 % of a hero frame.
+   */
+  private sphereSprites(bw: number, dpr: number): { base: HTMLCanvasElement; shade: HTMLCanvasElement; px: number } | null {
+    const px = Math.round(bw * dpr)
+    if (px < 8 || px > 1024) return null
+    const c = this.sphere
+    if (c && c.px === px) return c
+    const S = sprites()
+    const mk = (src: HTMLCanvasElement) => {
+      const cv = mkCanvas(px, px)
+      const x = cv.getContext('2d')
+      if (!x) return cv
+      x.imageSmoothingQuality = 'high'
+      x.drawImage(src, SPR_BALL0, SPR_BALL0, SPR_BALLW, SPR_BALLW, 0, 0, px, px)
+      return cv
+    }
+    this.sphere = { base: mk(S.base), shade: mk(S.shade), px }
+    return this.sphere
+  }
+  private sphere: { base: HTMLCanvasElement; shade: HTMLCanvasElement; px: number } | null = null
+
+  /** 1:1 on the device pixel grid when the pre-scaled sprite exists, else a scaled blit. */
+  private blitSphere(ctx: CanvasRenderingContext2D, pre: HTMLCanvasElement | null, src: HTMLCanvasElement, x: number, y: number, w: number, dpr: number) {
+    if (!pre) {
+      ctx.drawImage(src, SPR_BALL0, SPR_BALL0, SPR_BALLW, SPR_BALLW, x, y, w, w)
+      return
+    }
+    // centre the pre-scaled square on the ball, snapped to whole device pixels
+    const cx = (x + w / 2) * dpr
+    const cy = (y + w / 2) * dpr
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(pre, Math.round(cx - pre.width / 2), Math.round(cy - pre.height / 2))
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
   tilePath(ctx: CanvasRenderingContext2D, i: number, cR: number, sR: number, ct: number, st: number, cx: number, cy: number, r: number): void {
@@ -1072,8 +1191,8 @@ export class BallPainter {
       const m = s.marks[i]
       const z = this.pz[i]
       const size = this.ps[i]
-      if (size < 7) continue
-      ctx.globalAlpha = Math.min(1, (z - 0.25) * 3)
+      if (size < 7 || this.vis[i] < 0.05) continue
+      ctx.globalAlpha = Math.min(1, (z - 0.25) * 3) * this.vis[i]
       this.corner(i, 0, cR, sR, ct, st, cx, cy, r, a) // top-left
       this.corner(i, 1, cR, sR, ct, st, cx, cy, r, b) // top-right
       this.corner(i, 2, cR, sR, ct, st, cx, cy, r, c) // bottom-right
@@ -1174,6 +1293,7 @@ export class BallPainter {
 
   private drawLinks(ctx: CanvasRenderingContext2D, s: Scene, f: Frame, cR: number, sR: number, ct: number, st: number) {
     const { cx, cy } = f.view
+    const la = 1 - s.dim * 0.8
     const r = this.geo.r * 1.004
     const C = this.geo.centers
     const SEG = 14
@@ -1209,7 +1329,7 @@ export class BallPainter {
         if (k > 0) {
           const zz = Math.min(pz, z2)
           if (zz > 0.08) {
-            const al = Math.min(1, (zz - 0.08) * 3)
+            const al = Math.min(1, (zz - 0.08) * 3) * la
             ctx.globalAlpha = al * 0.3
             ctx.strokeStyle = 'rgb(125,249,255)'
             ctx.lineWidth = f.detail === 1 ? 5 : 2.8
@@ -1233,7 +1353,7 @@ export class BallPainter {
         for (const i of L.p >= 1 ? [L.a, L.b] : [L.a]) {
           const z = this.pz[i]
           if (z < 0.1) continue
-          ctx.globalAlpha = Math.min(1, z * 2) * 0.9
+          ctx.globalAlpha = Math.min(1, z * 2) * 0.9 * la
           ctx.drawImage(glowSprite(160, 250, 255), this.px[i] - node / 2, this.py[i] - node / 2, node, node)
         }
       }
@@ -1241,7 +1361,7 @@ export class BallPainter {
     ctx.globalAlpha = 1
   }
 
-  private drawGroups(ctx: CanvasRenderingContext2D, groups: number[][]) {
+  private drawGroups(ctx: CanvasRenderingContext2D, groups: number[][], alpha: number) {
     for (const gr of groups) {
       const pts: [number, number][] = []
       let ok = true
@@ -1254,7 +1374,7 @@ export class BallPainter {
       }
       if (!ok || pts.length < 3) continue
       const hull = convexHull(pts)
-      ctx.globalAlpha = 0.07
+      ctx.globalAlpha = 0.07 * alpha
       ctx.fillStyle = 'rgb(160,235,255)'
       ctx.beginPath()
       hull.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))

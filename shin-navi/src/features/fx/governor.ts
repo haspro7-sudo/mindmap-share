@@ -1,4 +1,5 @@
-// Quality governor (SPEC K-11). Reads the ticker's 30-frame average and moves the effect tier:
+// Quality governor (SPEC K-11). Reads a 30-frame frame time (installFx feeds the mean without
+// the slowest 10 %, see trimmedFrameMs) and moves the effect tier (fxState.quality):
 // above 19 ms → one tier down, below 13 ms for 3 s → one tier up; prefers-reduced-motion pins
 // tier 0. Guards keep one slow moment (or a slow page that is not our fault) from costing the
 // whole night's sparkle:
@@ -14,6 +15,10 @@
 //   again after `probeMs` (8 s × the same back-off).
 export type Tier = 0 | 1 | 2
 
+// What each tier costs on the wall. The mirror ball follows the same fxState.quality with its own
+// table (ball/pace.ts BALL_TIERS — QA ROBUST#2): tier 2 idles at 30 fps with every extra, tier 1
+// at 30 fps without the specular extras and at DPR 1.25, tier 0 at 15 fps and DPR 1. So a step
+// down always buys frames, and is not judged "blameless" and taken back.
 export type TierSpec = { auroraRes: number; blobs: number; curtains: number; specks: number; dust: number; streaks: number }
 export const TIERS: Record<Tier, TierSpec> = {
   2: { auroraRes: 0.5, blobs: 3, curtains: 7, specks: 60, dust: 120, streaks: 6 },
@@ -66,7 +71,9 @@ export function createGovernor(opts: GovernorOpts = {}): Governor {
   const holdBase = opts.holdMs ?? 15000
   const worseMs = opts.worseMs ?? 4
   const probeBase = opts.probeMs ?? 8000
-  const steadyMs = opts.steadyMs ?? 17.6
+  // 60 Hz with the odd missed frame (≈16.7–18 ms) is steady enough to try the tier again: a probe
+  // that fails is taken back within a second and doubles the next wait
+  const steadyMs = opts.steadyMs ?? 18.5
 
   let tier: Tier = 2
   let started: number | null = null

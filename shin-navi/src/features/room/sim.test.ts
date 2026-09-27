@@ -1,6 +1,6 @@
 // M5 room-sim acceptance (SPEC L/M5 1–7): the E-2 formula, seeded answers/delays/silence on a
 // fake clock, ~15% silence, positive bubbles only, E-3…E-10 behaviour with their probabilities,
-// the eleven script steps, "next time" never reaching the sender, and no JSX literals.
+// the script's → presses, "next time" never reaching the sender, and no JSX literals.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 class MemStorage {
@@ -28,7 +28,8 @@ import { pKnow, roomMinutesLeft, SIM_MS_PER_ROOM_MIN } from '../../core/rules'
 import type { DeckCard, Member, MemberId, OtherId, PresenterCmd, SongId } from '../../core/types'
 import { SONGS, SONG_BY_ID } from '../../data/songs'
 import { MEMBER_PROFILES } from '../../data/members'
-import { LOCALE_IDS, namespaceStrings, trIn } from '../../i18n'
+import { IMPORT_DEMO, OPENER_FALLBACK } from '../../data/tables'
+import { LOCALE_IDS, getLocale, namespaceStrings, setLocale, trIn } from '../../i18n'
 import '../../i18n/vocab'
 import '../../i18n/reason'
 import '../../i18n/core'
@@ -36,7 +37,7 @@ import '../../i18n/common'
 import { ANSWER_BUBBLE_KEYS, drawAnswer, knowProbability } from './knowModel'
 import { allPairs, pairName } from './pairNames'
 import { installRoomSim } from './installRoomSim'
-import { SCRIPT, runNext } from './script'
+import { PRESS_IDS, SCRIPT, pickMyTurnSong, runNext, runStep } from './script'
 import { findTwin, junWants, memberKnows, pickMemberSong, scoreFor, useSim } from './sim'
 import './strings'
 
@@ -283,17 +284,21 @@ describe('reservations (E-3)', () => {
     expect(S().room.members.jun.present).toBe(false)
   })
 
-  it('script mode: after my first song only the scripted set-up follows (Minato, then Saki’s slow pair)', async () => {
+  it('script mode: after my first song only the scripted set-up follows (Saki’s slow pair, then Minato)', async () => {
     await freshNight('quiet2', { script: true, speed: 8 })
     reserveAsMe(api, 'marigold')
-    await run(400, 50) // 3.2 s of sim time: Minato has not reacted yet
+    await run(3000, 50) // 3 s: the room waits until my first song is on stage
     expect(S().room.queue.filter(q => q.by !== 'me').length).toBe(0)
     await run(16_000, 250)
     const q = S().room.queue
-    expect(q.filter(x => x.by === 'minato').length).toBe(1)
     expect(q.filter(x => x.by === 'saki').map(x => x.songId)).toEqual(['lemon', 'dry-flower'])
+    expect(q.filter(x => x.by === 'minato').length).toBe(1)
+    // Saki's pair is queued before Minato's song, so beat 6 plays on in queue order (QA DEMO#8)
+    expect(q.findIndex(x => x.by === 'saki')).toBeLessThan(q.findIndex(x => x.by === 'minato'))
     expect(q.filter(x => x.by === 'jun').length).toBe(0)
-    expect(S().room.now).toBeNull() // songs never start by themselves in script mode
+    // the core starts the night's first song (the opener is actually sung); nothing else moves
+    expect(S().room.now?.item.songId).toBe('marigold')
+    expect(S().room.sung.length).toBe(0)
     expect(S().room.members.jun.present).toBe(false)
     expect(useSim.getState().scriptPos).toBe(3)
     expect(runNext(api)).toBe('jun-join') // the presenter's first → (T03)
@@ -544,37 +549,46 @@ describe('join, leave and my voice (E-9)', () => {
 
 // ================================================================ the script (E-13, M5 #4)
 
-describe('script mode: eleven steps, each builds its state', () => {
-  it('runs the demo from the opener to the wrap', async () => {
+describe('script mode: the → presses of SPEC N, each builds its state', () => {
+  it('six → presses: jun-join · advance-2 · my-turn · my-song-end · coaster · exit (QA DEMO#1)', () => {
+    expect(SCRIPT.map(s => s.id)).toEqual(['enter', 'saki-mellow', 'minato-reserve', 'jun-join', 'advance-2', 'my-turn', 'my-song-end', 'coaster', 'exit'])
+    expect(SCRIPT.filter(s => s.auto).map(s => s.id)).toEqual(['saki-mellow', 'minato-reserve'])
+    expect(PRESS_IDS).toEqual(['jun-join', 'advance-2', 'my-turn', 'my-song-end', 'coaster', 'exit'])
+    // Saki's request and "15 minutes left" stay presenter-panel buttons, never a → press
+    expect(SCRIPT.some(s => s.id === 'request-saki' || s.id === 'minutes-15')).toBe(false)
+  })
+
+  it('runs the demo from the opener to the wrap, never jumping the queue', async () => {
     await freshNight('demo', { script: true })
-    expect(SCRIPT.map(s => s.id)).toEqual(['enter', 'minato-reserve', 'saki-mellow', 'jun-join', 'advance-2', 'my-turn', 'my-song-end', 'request-saki', 'coaster', 'minutes-15', 'exit'])
     expect(useSim.getState().scriptPos).toBe(1)
     reserveAsMe(api, 'marigold', { tags: ['navi'] })
     const events: string[] = []
     const offAny = bus.onAny(e => {
       if (e.type === 'presenter/cmd' && e.cmd.t === 'coaster') events.push('coaster')
-      if (e.type === 'minutes/left') events.push(`min${e.m}`)
-      if (e.type === 'song/ended') events.push(`end:${e.entry.item.songId}`)
+      if (e.type === 'song/started') events.push(`start:${e.item.songId}`)
     })
 
-    expect(runNext(api)).toBe('minato-reserve')
-    expect(S().room.queue.some(q => q.by === 'minato')).toBe(true)
-
-    expect(runNext(api)).toBe('saki-mellow')
-    const saki = S().room.queue.filter(q => q.by === 'saki').map(q => q.songId)
-    expect(saki).toEqual(['lemon', 'dry-flower'])
-
+    // the first → finds the quiet set-up still pending: it runs silently, then Jun walks in
     expect(runNext(api)).toBe('jun-join')
     expect(S().room.members.jun.present).toBe(true)
+    expect(S().room.queue.filter(q => q.by === 'saki').map(q => q.songId)).toEqual(['lemon', 'dry-flower'])
+    expect(S().room.queue.filter(q => q.by === 'minato').length).toBe(1)
+    const minatoSong = S().room.queue.find(q => q.by === 'minato')!.songId
 
+    // beat 6: the opener is sung first, then Saki's slow pair back to back (mellow2)
     expect(runNext(api)).toBe('advance-2')
-    await run(2600)
-    const last2 = S().room.sung.slice(-2)
-    expect(last2.map(e => e.item.songId)).toEqual(['lemon', 'dry-flower'])
-    expect(last2.every(e => SONG_BY_ID[e.item.songId].energy < 0.5 && !isMine(e.item))).toBe(true) // mellow2
+    await run(3000)
+    const sung = S().room.sung
+    expect(sung.map(e => e.item.songId)).toEqual(['marigold', 'lemon', 'dry-flower'])
+    expect(isMine(sung[0].item)).toBe(true)
+    expect(sung[0].score).toBeGreaterThanOrEqual(78)
+    expect(S().col.faces.marigold?.state).toBe('mirror')
+    expect(sung.slice(-2).every(e => SONG_BY_ID[e.item.songId].energy < 0.5 && !isMine(e.item))).toBe(true)
     expect(S().room.now).toBeNull()
 
+    // beat 7: the songs ahead of mine are played through in order, then mine is on stage
     expect(runNext(api)).toBe('my-turn')
+    await run(800)
     expect(S().room.now && isMine(S().room.now!.item)).toBe(true)
 
     expect(runNext(api)).toBe('my-song-end')
@@ -583,50 +597,124 @@ describe('script mode: eleven steps, each builds its state', () => {
     expect(mine.score).toBeGreaterThanOrEqual(78)
     expect(mine.score).toBeLessThanOrEqual(96)
 
-    expect(runNext(api)).toBe('request-saki')
-    expect(S().room.invites.some(i => i.variant === 'request' && i.from === 'saki' && i.status === 'open')).toBe(true)
-
     expect(runNext(api)).toBe('coaster')
     expect(events).toContain('coaster')
-
-    expect(runNext(api)).toBe('minutes-15')
-    expect(roomMinutesLeft(S().session.simMs)).toBeLessThanOrEqual(15)
-    expect(events).toContain('min15')
 
     expect(runNext(api)).toBe('exit')
     expect(S().session.phase).toBe('wrap')
     expect(runNext(api)).toBeNull()
     offAny()
-    // nobody moved on their own in between
-    expect(S().room.sung.length).toBe(3)
+    // every song started in the order it was queued: nobody was moved ahead of anyone
+    const started = events.filter(e => e.startsWith('start:')).map(e => e.slice(6))
+    expect(started.slice(0, 4)).toEqual(['marigold', 'lemon', 'dry-flower', minatoSong])
+    expect(S().room.sung.length).toBe(5)
   })
 
-  it('a → press beats the automatic set-up step to it (no double booking)', async () => {
+  it('advance-2 holds back the voice card of my song it plays through; my-song-end keeps it (beat 6 → 7)', async () => {
+    await freshNight('hold', { script: true })
+    // a stand-in for the director: 「今夜の声」 on top after each of my songs, dealt in a microtask
+    const offE = bus.on('song/ended', e => {
+      if (!isMine(e.entry.item)) return
+      queueMicrotask(() =>
+        S().dealCards([card({ id: `v-${e.entry.item.id}`, kind: 'voice', rule: 'insert.voice.myTurn' })], 'top'),
+      )
+    })
+    reserveAsMe(api, 'marigold')
+    runNext(api) // jun-join (+ the quiet set-up)
+    // the card I am looking at keeps its button through the held-back voice card
+    S().dealCards([card({ id: 'look', kind: 'song', songId: 'idol' })], 'top')
+    const primary = { action: 'reserve' as const, label: { key: 'cards.reserve' }, enabled: true, arg: { songId: 'idol' } }
+    S().setPrimary(primary)
+    runNext(api) // advance-2
+    await run(3000)
+    expect(S().room.sung.map(e => e.item.songId)).toEqual(['marigold', 'lemon', 'dry-flower'])
+    expect(S().deck.cards.some(c => c.kind === 'voice')).toBe(false)
+    expect(S().deck.cards[0]?.id).toBe('look')
+    expect(S().deck.primary).toEqual(primary)
+    runNext(api) // my-turn
+    await run(800)
+    runNext(api) // my-song-end
+    await flush()
+    await new Promise(r => setTimeout(r, 5))
+    expect(S().deck.cards[0]?.kind).toBe('voice')
+    offE()
+  })
+
+  it('a → press beats the automatic set-up steps to it (no double booking)', async () => {
     await freshNight('beat', { script: true, speed: 8 })
     reserveAsMe(api, 'marigold')
-    expect(runNext(api)).toBe('minato-reserve')
-    await run(4000, 250)
+    expect(runNext(api)).toBe('jun-join')
+    await run(12_000, 250)
     expect(S().room.queue.filter(q => q.by === 'minato').length).toBe(1)
     expect(S().room.queue.filter(q => q.by === 'saki').length).toBe(2)
-    expect(runNext(api)).toBe('jun-join')
+    expect(runNext(api)).toBe('advance-2')
   })
 
   it('a step the presenter already caused by hand is skipped (no wasted → press)', async () => {
     await freshNight('skip', { script: true })
-    useSim.setState({ scriptPos: 2 })
+    useSim.setState({ scriptPos: 3 })
     fire({ t: 'join', id: 'jun' })
-    expect(runNext(api)).toBe('saki-mellow')
     expect(runNext(api)).toBe('advance-2') // jun-join is already on screen
   })
 
-  it('my-song-end gives me the stage first when my song is not playing', async () => {
+  it('my-song-end gives me the stage first when my song is not playing (songs ahead play through)', async () => {
     await freshNight('late-mine', { script: true })
     S().reserve('lemon', { by: 'saki' })
     reserveAsMe(api, 'idol')
     fire({ t: 'step', id: 'my-song-end' })
+    expect(S().room.now?.item.songId).toBe('lemon') // Saki's song is not skipped
+    await run(500)
     expect(S().room.now?.item.songId).toBe('idol')
-    await run(1000)
-    expect(S().room.sung.at(-1)?.item.songId).toBe('idol')
+    await run(1100)
+    expect(S().room.sung.map(e => e.item.songId)).toEqual(['lemon', 'idol'])
+  })
+
+  it('the exit step closes the demo in the language it was told in (QA DEMO#5)', async () => {
+    setLocale('ja')
+    await freshNight('lang', { script: true })
+    expect(runNext(api)).toBe('jun-join')
+    setLocale('ko') // beat 9: the globe
+    runStep(api, 'exit')
+    expect(S().session.phase).toBe('wrap')
+    expect(getLocale()).toBe('ja')
+    // the panel's exit button does the same while the script runs
+    await freshNight('lang2', { script: true })
+    setLocale('en')
+    fire({ t: 'exit' })
+    expect(getLocale()).toBe('ja')
+    setLocale('ja')
+  })
+})
+
+describe('あなたの番 never shows a private song on the room screen (QA POLICY#1)', () => {
+  const put = (cards: DeckCard[]) => api.setState(s => ({ deck: { ...s.deck, cards, primary: null } }))
+  it('takes the first public song card, never the import / invite / voice / link card above it', async () => {
+    await freshNight('pol1', { script: true })
+    put([
+      card({ id: 'imp', kind: 'import', songId: IMPORT_DEMO[0] }),
+      card({ id: 'inv', kind: 'invite', variant: 'request', songId: 'hakujitsu' }),
+      card({ id: 'vc', kind: 'voice', songId: 'kanade' }),
+      card({ id: 'ln', kind: 'link', songId: 'subtitle', options: ['subtitle', 'pretender'] }),
+      card({ id: 'sg', kind: 'song', songId: 'bbbb' }),
+    ])
+    fire({ t: 'myTurn' })
+    expect(S().room.now?.item.songId).toBe('bbbb')
+    expect(isMine(S().room.now!.item)).toBe(true)
+  })
+
+  it('with no public song card: the opener fallback, never an import candidate or a saved song', async () => {
+    await freshNight('pol2', { script: true })
+    const imports = S().col.imports.map(i => i.songId)
+    expect(imports.length).toBeGreaterThan(0)
+    S().saveSong('marigold', 'original', 'import')
+    put([card({ id: 'imp', kind: 'import', songId: imports[0] }), card({ id: 'sg', kind: 'song', songId: imports[1] })])
+    fire({ t: 'myTurn' })
+    const id = S().room.now?.item.songId
+    expect(id).toBeTruthy()
+    expect(imports).not.toContain(id)
+    expect(id).not.toBe('marigold')
+    expect((OPENER_FALLBACK as readonly string[]).includes(id!)).toBe(true)
+    expect(pickMyTurnSong(S())).not.toBe(imports[0])
   })
 })
 

@@ -3,6 +3,9 @@
 // song), and "see the menu". One tap orders: the glass fills and turns into a ticket stamped
 // with the venue's time. A second tap on the same drink never orders twice — the card shakes,
 // says it was already received, and only an explicit "one more" adds another. No rewards.
+// Card-front contract: the question, the cause and the controls. The "arrives in about 2 songs
+// (demo)" fine print is a small DEMO badge until something is ordered; then the line under the
+// drinks answers with the venue's receipt time and the order's own ETA.
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { CardBodyComponent, CardBodyProps } from '../../core/types'
@@ -118,10 +121,16 @@ function CoasterBody({ card, active, act, setPrimary }: CardBodyProps) {
               whileTap={open ? { scale: 0.9 } : undefined}
               transition={SPRING.snappy}
               onClick={() => orderDrink(id)}
-              aria-label={t('coaster.order', { item: tr(item.name) })}
+              aria-label={i === 0 ? `${t('coaster.order', { item: tr(item.name) })} · ${t('coaster.pick')}` : t('coaster.order', { item: tr(item.name) })}
             >
               <span className="co-drink__coaster" aria-hidden="true" />
-              {i === 0 && !o ? <span className="co-drink__pick">{t('coaster.pick')}</span> : null}
+              {i === 0 && !o ? (
+                <span className="co-drink__pick" title={t('coaster.pick')} aria-hidden="true">
+                  <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M6 .9l1.5 3.2 3.5.4-2.6 2.4.7 3.5L6 8.7 2.9 10.4l.7-3.5L1 4.5l3.5-.4z" fill="currentColor" />
+                  </svg>
+                </span>
+              ) : null}
               <span className="co-drink__glass">
                 <Glyph item={item} size={glyph} level={o ? 1 : 0.5} live={active && (!!o || on)} slosh={pops[id] ?? 0} />
               </span>
@@ -178,12 +187,17 @@ function CoasterBody({ card, active, act, setPrimary }: CardBodyProps) {
 
       <div className="co__eta">
         {anyOrder?.acceptedAt ? (
-          <span className="co__etaok">
-            <i className="co__etadot" aria-hidden="true" />
-            {t('status.acceptedVenue', { time: hhmm(anyOrder.acceptedAt) })}
-          </span>
+          <>
+            <span className="co__etaok">
+              <i className="co__etadot" aria-hidden="true" />
+              {t('status.acceptedVenue', { time: hhmm(anyOrder.acceptedAt) })}
+            </span>
+            <span className="co__etan">{anyOrder.etaAfterSongs > 0 ? t('order.eta', { n: anyOrder.etaAfterSongs }) : t('order.etaSoon')}</span>
+          </>
         ) : (
-          t('order.etaCard', { n: 2 })
+          <span className="co__demo" data-testid="coaster-demo" title={t('order.etaCard', { n: 2 })}>
+            {t('demo')}
+          </span>
         )}
       </div>
     </div>

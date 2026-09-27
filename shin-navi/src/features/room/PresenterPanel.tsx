@@ -2,23 +2,40 @@
 // monospace. Script toggle + NEXT with the upcoming step, speed, every room event, the view
 // and demo tools, and the live metrics HUD. Everything goes through presenter/cmd so the
 // → key, this panel and window.__navi.fire behave the same.
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+//
+// Folded, the panel is a small pill (≤ 340×52: the next step and a → button, QA DEMO#0/#10):
+// always while the comparison split (S) or the planning lens (L) is on, so it never covers
+// them; bottom-right with a 16 px inset on wide screens; on a phone it rests on the tab bar,
+// clear of the status bar, the queue and the card's own buttons, and can be dragged anywhere
+// below the queue. Hold it (or tap ⋯) for split / lens / Jun / open / close.
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { AnimatePresence, motion, useDragControls, useMotionValue } from 'motion/react'
+import { create } from 'zustand'
 import type { CardKind, PresenterCmd, ViewMode } from '../../core/types'
 import { naviApi, presentMembers, useNavi } from '../../core/store'
 import { useNaviStable } from '../../core/useStable'
 import { useBox } from '../../core/layout'
 import { bus } from '../../core/events'
 import { knowView, roomMinutesLeft } from '../../core/rules'
-import { songTitle, useLocale, useTr } from '../../i18n'
+import { LOCALES, songTitle, useLocale, useTr } from '../../i18n'
 import { P, type PresenterKey } from './strings'
-import { SCRIPT, nextStepIndex } from './script'
+import { PRESS_IDS, SCRIPT, nextPressIndex } from './script'
 import { useSim } from './sim'
 import './room.css'
 
 const fire = (cmd: PresenterCmd) => bus.emit({ type: 'presenter/cmd', cmd })
 
 const KINDS: CardKind[] = ['song', 'ask', 'link', 'gap', 'import', 'invite', 'shift', 'voice', 'coaster', 'finale']
+
+/** Narrower than this, the panel is a phone sheet and its folded form rests on the tab bar. */
+const NARROW = 620
+const PILL_W = 340
+const PILL_H = 48
+const INSET = 16
+
+/** Panel UI state that outlives a close/open (the presenter's choice and where the pill sits). */
+type PP = { mini: boolean; menu: boolean; offset: Record<'narrow' | 'wide', { x: number; y: number }> }
+const usePP = create<PP>(() => ({ mini: false, menu: false, offset: { narrow: { x: 0, y: 0 }, wide: { x: 0, y: 0 } } }))
 
 function Btn({ id, label, onClick, on, tone, disabled, wide }: { id: string; label: string; onClick: () => void; on?: boolean; tone?: 'amber' | 'rose' | 'cyan'; disabled?: boolean; wide?: boolean }) {
   return (
@@ -48,6 +65,27 @@ function Section({ title, children, right }: { title: string; children: ReactNod
   )
 }
 
+// ---------------------------------------------------------------- the next → press
+
+type NextStep = { over: boolean; id: string; n: number; total: number; label: string }
+
+/** What the next → press will do, numbered among the → presses only (auto steps pass silently). */
+function useNextStep(): NextStep {
+  const t = P.useT()
+  const locale = useLocale()
+  const pos = useSim(u => u.scriptPos)
+  const home = useSim(u => u.homeLocale)
+  const next = useNavi(s => nextPressIndex(s, pos))
+  const over = next >= SCRIPT.length
+  const id = over ? '' : SCRIPT[next].id
+  const total = PRESS_IDS.length
+  if (over) return { over, id, n: total, total, label: t('scriptDone') }
+  // beat 10: say so when the exit also brings the demo's language back (QA DEMO#5)
+  const back = id === 'exit' && home && home !== locale ? LOCALES.find(l => l.id === home)?.label : null
+  const label = back ? t('step.exit.restore', { lang: back }) : t(`step.${id}` as PresenterKey)
+  return { over, id, n: PRESS_IDS.indexOf(id) + 1, total, label }
+}
+
 // ---------------------------------------------------------------- script
 
 function ScriptBlock() {
@@ -56,9 +94,8 @@ function ScriptBlock() {
   const last = useSim(u => u.lastStep)
   const script = useNavi(s => s.session.script)
   const speed = useNavi(s => s.session.speed)
-  const next = useNavi(s => nextStepIndex(s, pos))
-  const over = next >= SCRIPT.length
-  const label = over ? t('scriptDone') : t(`step.${SCRIPT[next].id}` as PresenterKey)
+  const nx = useNextStep()
+  const next = nx.over ? SCRIPT.length : SCRIPT.findIndex(s => s.id === nx.id)
   return (
     <div className="pp__script">
       <div className="pp__row">
@@ -74,16 +111,16 @@ function ScriptBlock() {
           ))}
         </div>
       </div>
-      <motion.button type="button" className={`pp__next${over ? ' is-over' : ''}`} data-testid="pp-next" data-step={over ? '' : SCRIPT[next].id} disabled={over} whileTap={{ scale: 0.97 }} onClick={() => fire({ t: 'next' })}>
+      <motion.button type="button" className={`pp__next${nx.over ? ' is-over' : ''}`} data-testid="pp-next" data-step={nx.id} disabled={nx.over} whileTap={{ scale: 0.97 }} onClick={() => fire({ t: 'next' })}>
         <span className="pp__nextidx">
-          {over ? '--' : String(next + 1).padStart(2, '0')}
-          <small>/{SCRIPT.length}</small>
+          {nx.over ? '--' : String(nx.n).padStart(2, '0')}
+          <small>/{String(nx.total).padStart(2, '0')}</small>
         </span>
         <span className="pp__nexttxt">
           <small>{t('upcoming')}</small>
           <AnimatePresence mode="wait">
-            <motion.b key={label} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.16 }}>
-              {label}
+            <motion.b key={nx.label} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.16 }}>
+              {nx.label}
             </motion.b>
           </AnimatePresence>
         </span>
@@ -93,13 +130,17 @@ function ScriptBlock() {
         {last ? <span key={last.at} className="pp__nextflash" aria-hidden="true" /> : null}
       </motion.button>
       <ol className="pp__rail" aria-label={t('script')}>
-        {SCRIPT.map((s, i) => (
-          <li key={s.id} className={i < next && i < pos ? 'is-done' : i === next ? 'is-next' : i < next ? 'is-skip' : ''}>
-            <button type="button" data-testid={`pp-step-${s.id}`} title={`${i + 1}. ${t(`step.${s.id}` as PresenterKey)}`} onClick={() => fire({ t: 'step', id: s.id })}>
-              <span />
-            </button>
-          </li>
-        ))}
+        {SCRIPT.map((s, i) => {
+          const state = i < next && i < pos ? 'is-done' : i === next ? 'is-next' : i < next ? 'is-skip' : ''
+          const title = `${t(`step.${s.id}` as PresenterKey)}${s.auto ? ` ${t('auto')}` : ''}`
+          return (
+            <li key={s.id} className={`${state}${s.auto ? ' is-auto' : ''}`}>
+              <button type="button" data-testid={`pp-step-${s.id}`} title={title} aria-label={title} onClick={() => fire({ t: 'step', id: s.id })}>
+                <span />
+              </button>
+            </li>
+          )
+        })}
       </ol>
       <LiveLine />
     </div>
@@ -289,22 +330,19 @@ function Hud() {
   )
 }
 
-// ---------------------------------------------------------------- the panel
+// ---------------------------------------------------------------- the full panel
 
-function Panel() {
+function FullPanel({ sheet }: { sheet: boolean }) {
   const t = P.useT()
-  const box = useBox()
-  const [mini, setMini] = useState(false)
   const minutes = useNavi(s => roomMinutesLeft(s.session.simMs))
   const n = useNavi(s => presentMembers(s).length)
   const seed = useNavi(s => s.session.seed)
   const phase = useNavi(s => s.session.phase)
-  const sheet = box.w < 620
   return (
     <motion.aside
-      className={`pp${sheet ? ' is-sheet' : ''}${mini ? ' is-mini' : ''}`}
+      className={`pp${sheet ? ' is-sheet' : ''}`}
       data-testid="presenter-panel"
-      data-mini={mini ? '1' : '0'}
+      data-mini="0"
       initial={{ opacity: 0, y: sheet ? -40 : -10, scale: sheet ? 1 : 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: sheet ? -40 : -10 }}
@@ -317,8 +355,8 @@ function Panel() {
         <span className="pp__meta">
           {phase === 'live' ? t('meta.left', { m: minutes }) : phase.toUpperCase()} · {t('meta.members', { n })} · {seed}
         </span>
-        <button type="button" className="pp__icon" data-testid="pp-collapse" aria-label={mini ? t('expand') : t('collapse')} onClick={() => setMini(v => !v)}>
-          {mini ? '+' : '–'}
+        <button type="button" className="pp__icon" data-testid="pp-collapse" aria-label={t('collapse')} title={t('collapse')} onClick={() => usePP.setState({ mini: true, menu: false })}>
+          –
         </button>
         <button type="button" className="pp__icon" data-testid="pp-close" aria-label={t('close')} onClick={() => naviApi.getState().togglePresenter()}>
           ×
@@ -326,19 +364,242 @@ function Panel() {
       </header>
       <div className="pp__scroll">
         <ScriptBlock />
-        {mini ? null : (
-          <>
-            <RoomBlock />
-            <ViewBlock />
-            <Hud />
-          </>
-        )}
+        <RoomBlock />
+        <ViewBlock />
+        <Hud />
       </div>
     </motion.aside>
   )
 }
 
+// ---------------------------------------------------------------- the pill
+
+type Rect = { l: number; t: number; w: number; h: number }
+type Place = { base: Rect; bounds: { top: number; bottom: number; left: number; right: number } }
+
+const rectOf = (sel: string): DOMRect | null => {
+  const el = typeof document !== 'undefined' ? document.querySelector(sel) : null
+  const r = el?.getBoundingClientRect()
+  return r && r.width > 2 && r.height > 2 ? r : null
+}
+
+/**
+ * Where the pill rests and how far it may be dragged. Phone: on the tab bar (the card and its
+ * buttons stay free: beat 8's order button, beat 7's quiz), never above the queue and the
+ * search bar. Wide: bottom-right, 16 px in, never over the status bar.
+ */
+function place(narrow: boolean, box: { w: number; h: number }): Place {
+  if (narrow) {
+    const shell = rectOf('[data-shell=phone]')
+    const left0 = shell ? shell.left : 0
+    const width0 = shell ? shell.width : box.w
+    const w = Math.min(PILL_W, width0 - 2 * 12)
+    const dock = rectOf('[data-shell=phone] .dock')
+    const top = dock ? dock.top + Math.max(4, (dock.height - PILL_H) / 2 - 4) : box.h - PILL_H - 14
+    const lane = rectOf('[data-shell=phone] [data-testid=stage-lane]')
+    const search = rectOf('[data-shell=phone] [data-testid=search-bar]')
+    const minTop = Math.max(lane?.bottom ?? 110, search?.bottom ?? 0) + 8
+    return {
+      base: { l: left0 + (width0 - w) / 2, t: Math.min(top, box.h - PILL_H - 4), w, h: PILL_H },
+      bounds: { top: minTop, bottom: box.h - 4, left: 4, right: box.w - 4 },
+    }
+  }
+  const status = [...document.querySelectorAll('header.status')].reduce((b, e) => Math.max(b, e.getBoundingClientRect().bottom), 0)
+  const w = Math.min(PILL_W, box.w - 2 * INSET)
+  return {
+    base: { l: box.w - INSET - w, t: box.h - INSET - PILL_H, w, h: PILL_H },
+    bounds: { top: (status || 48) + 6, bottom: box.h - 4, left: 4, right: box.w - 4 },
+  }
+}
+
+function PillMenu({ below, forced }: { below: boolean; forced: boolean }) {
+  const t = P.useT()
+  const lens = useNavi(s => s.ui.lens)
+  const split = useNavi(s => s.ui.split)
+  const jun = useNavi(s => s.room.members.jun.present)
+  const live = useNavi(s => s.session.phase === 'live')
+  const close = () => usePP.setState({ menu: false })
+  const item = (id: string, label: string, run: () => void, o: { on?: boolean; disabled?: boolean; key?: string } = {}) => (
+    <button
+      type="button"
+      className={`pp-menu__item${o.on ? ' is-on' : ''}`}
+      data-testid={`pp-${id}`}
+      aria-pressed={o.on}
+      disabled={o.disabled}
+      onClick={() => {
+        close()
+        run()
+      }}
+    >
+      <span>{label}</span>
+      {o.key ? <kbd>{o.key}</kbd> : null}
+    </button>
+  )
+  return (
+    <motion.div
+      className={`pp-menu${below ? ' is-below' : ''}`}
+      data-testid="pp-menu"
+      role="group"
+      aria-label={t('more')}
+      initial={{ opacity: 0, y: below ? -6 : 6, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: below ? -6 : 6, scale: 0.96 }}
+      transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+    >
+      {item('split', t('cmd.split'), () => naviApi.getState().toggleSplit(), { on: split, key: 'S' })}
+      {item('lens', t('cmd.lens'), () => naviApi.getState().toggleLens(), { on: lens, key: 'L' })}
+      {item('join', t('cmd.join'), () => fire({ t: 'join', id: 'jun' }), { on: jun, disabled: !live || jun })}
+      {forced ? null : item('open', t('open'), () => usePP.setState({ mini: false }))}
+      {item('close', t('close'), () => naviApi.getState().togglePresenter())}
+    </motion.div>
+  )
+}
+
+function Pill({ narrow, forced }: { narrow: boolean; forced: { split: boolean; lens: boolean } | null }) {
+  const t = P.useT()
+  const box = useBox()
+  const nx = useNextStep()
+  const last = useSim(u => u.lastStep)
+  const menu = usePP(u => u.menu)
+  const mode = narrow ? 'narrow' : 'wide'
+  const stored = usePP.getState().offset[mode]
+  const x = useMotionValue(stored.x)
+  const y = useMotionValue(stored.y)
+  const drag = useDragControls()
+  const [pl, setPl] = useState<Place>(() => place(narrow, box))
+  const hold = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ref = useRef<HTMLElement>(null)
+
+  // measure once the phone shell has laid out, and again when the box changes
+  useLayoutEffect(() => {
+    const p = place(narrow, box)
+    setPl(p)
+    // keep a dragged pill inside the new bounds
+    const cx = Math.min(p.bounds.right - (p.base.l + p.base.w), Math.max(p.bounds.left - p.base.l, x.get()))
+    const cy = Math.min(p.bounds.bottom - (p.base.t + p.base.h), Math.max(p.bounds.top - p.base.t, y.get()))
+    x.set(cx)
+    y.set(cy)
+  }, [narrow, box.w, box.h])
+
+  // tap outside or Escape closes the menu
+  useEffect(() => {
+    if (!menu) return
+    const down = (e: PointerEvent) => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return
+      usePP.setState({ menu: false })
+    }
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') usePP.setState({ menu: false })
+    }
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('keydown', key)
+    return () => {
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('keydown', key)
+    }
+  }, [menu])
+
+  const stopHold = () => {
+    if (hold.current) clearTimeout(hold.current)
+    hold.current = null
+  }
+  useEffect(() => stopHold, [])
+  const onGrip = (e: ReactPointerEvent) => {
+    drag.start(e)
+    stopHold()
+    // the drag may capture the pointer: listen for the release on the window as well
+    window.addEventListener('pointerup', stopHold, { once: true })
+    window.addEventListener('pointercancel', stopHold, { once: true })
+    hold.current = setTimeout(() => {
+      hold.current = null
+      usePP.setState({ menu: true })
+    }, 520)
+  }
+
+  const { base, bounds } = pl
+  const constraints = { top: bounds.top - base.t, bottom: bounds.bottom - (base.t + base.h), left: bounds.left - base.l, right: bounds.right - (base.l + base.w) }
+  const below = base.t + y.get() < 260
+  return (
+    <motion.aside
+      ref={ref}
+      className={`pp-pill${narrow ? ' is-narrow' : ''}${forced ? ' is-forced' : ''}${menu ? ' has-menu' : ''}`}
+      data-testid="presenter-panel"
+      data-mini="1"
+      data-pill={forced ? 'forced' : '1'}
+      style={{ left: base.l, top: base.t, width: base.w, x, y }}
+      drag
+      dragListener={false}
+      dragControls={drag}
+      dragMomentum={false}
+      dragElastic={0.05}
+      dragConstraints={constraints}
+      onDragStart={stopHold}
+      onDragEnd={() => usePP.setState(u => ({ offset: { ...u.offset, [mode]: { x: x.get(), y: y.get() } } }))}
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+      onPointerDown={e => e.stopPropagation()}
+    >
+      {/* each → press sweeps a light across the pill, so the presenter sees it landed */}
+      <span className="pp-pill__clip" aria-hidden="true">
+        {last ? <span key={last.at} className="pp__nextflash" /> : null}
+      </span>
+      <div className="pp-pill__grip" title={t('grip')} onPointerDown={onGrip} onPointerUp={stopHold} onPointerCancel={stopHold} onContextMenu={e => e.preventDefault()}>
+        <span className="pp__rec" aria-hidden="true" />
+        <span className="pp-pill__idx">
+          {nx.over ? '--' : String(nx.n).padStart(2, '0')}
+          <small>/{String(nx.total).padStart(2, '0')}</small>
+        </span>
+        <span className="pp-pill__txt">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.b key={nx.label} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.14 }}>
+              {nx.label}
+            </motion.b>
+          </AnimatePresence>
+        </span>
+        {forced ? (
+          <span className="pp-pill__why" title={t('forced')}>
+            {forced.split ? <i>S</i> : null}
+            {forced.lens ? <i>L</i> : null}
+          </span>
+        ) : null}
+      </div>
+      <motion.button type="button" className="pp-pill__go" data-testid="pp-next" data-step={nx.id} disabled={nx.over} aria-label={`${t('upcoming')}: ${nx.label}`} whileTap={{ scale: 0.9 }} onClick={() => fire({ t: 'next' })}>
+        →
+      </motion.button>
+      <button type="button" className="pp-pill__icon" data-testid="pp-more" aria-label={t('more')} aria-expanded={menu} onClick={() => usePP.setState(u => ({ menu: !u.menu }))}>
+        ⋯
+      </button>
+      {forced ? null : (
+        <button type="button" className="pp-pill__icon" data-testid="pp-collapse" aria-label={t('expand')} title={t('expand')} onClick={() => usePP.setState({ mini: false, menu: false })}>
+          +
+        </button>
+      )}
+      <AnimatePresence>{menu ? <PillMenu key="menu" below={below} forced={!!forced} /> : null}</AnimatePresence>
+    </motion.aside>
+  )
+}
+
+// ---------------------------------------------------------------- the panel
+
+function Panel() {
+  const box = useBox()
+  const narrow = box.w < NARROW
+  const mini = usePP(u => u.mini)
+  const split = useNavi(s => s.ui.split)
+  const lens = useNavi(s => s.ui.lens)
+  // the split and the lens are what the audience looks at: the panel steps aside for them
+  const forced = split || lens ? { split, lens } : null
+  if (mini || forced) return <Pill narrow={narrow} forced={forced} />
+  return <FullPanel sheet={narrow} />
+}
+
 export function PresenterPanel(): JSX.Element {
   const open = useNavi(s => s.ui.presenter)
+  // a fresh open never starts with a stale menu
+  useEffect(() => {
+    if (!open) usePP.setState({ menu: false })
+  }, [open])
   return <AnimatePresence>{open ? <Panel key="pp" /> : null}</AnimatePresence>
 }

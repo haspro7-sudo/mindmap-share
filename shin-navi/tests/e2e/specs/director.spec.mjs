@@ -1,7 +1,33 @@
-// M4 director-planner acceptance (SPEC M-1 T07, T16 and the dealer's part of T01 / T03 / T10).
+// M4 director-planner acceptance (SPEC M-1 T07, T16 and the dealer's part of T01 / T03 / T10),
+// plus QA fix round 1: lens labels readable and apart (ROBUST#5), the record screen framed without
+// scrolling (POLICY#2), the split clear of the presenter panel (DEMO#0), fair share (OWNER#2) and
+// presenter-fired invites on top (DEMO#15).
 export const name = 'director'
 
 const Q = '?test=1&seed=test&reset=1'
+
+/** Lens labels: none cut off, none over another, none over a status bar, all on screen. */
+async function lensLayout(page) {
+  return page.evaluate(() => {
+    const vw = innerWidth
+    const vh = innerHeight
+    const tags = [...document.querySelectorAll('[data-testid=lens-tag]')].map(el => ({ el, r: el.getBoundingClientRect(), a: el.getAttribute('data-anchor') }))
+    const status = [...document.querySelectorAll('header.status')].map(e => e.getBoundingClientRect()).filter(r => r.width > 4)
+    const hit = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5
+    const problems = []
+    for (const t of tags) {
+      if (t.r.left < 0 || t.r.right > vw + 0.5 || t.r.top < 0 || t.r.bottom > vh + 0.5) problems.push(`${t.a}: off screen`)
+      for (const part of t.el.querySelectorAll('.lens-tag__head, .lens-tag__m')) if (part.scrollWidth > part.clientWidth + 1 || part.scrollHeight > part.clientHeight + 1) problems.push(`${t.a}: cut off (${part.textContent})`)
+      if (t.el.scrollHeight > t.el.clientHeight + 1) problems.push(`${t.a}: taller than its box`)
+      if (/…$/.test(t.el.textContent.trim())) problems.push(`${t.a}: ellipsis`)
+      for (const s of status) if (hit(t.r, s)) problems.push(`${t.a}: over the status bar`)
+    }
+    for (let i = 0; i < tags.length; i++) for (let j = i + 1; j < tags.length; j++) if (hit(tags[i].r, tags[j].r)) problems.push(`${tags[i].a} × ${tags[j].a}`)
+    // raw anchor ids never print on a frame that is not chosen
+    const rawIds = [...document.querySelectorAll('.lens-frame:not(.is-active) .lens-frame__n')].filter(e => /[a-z]/.test(e.textContent)).map(e => e.textContent)
+    return { count: tags.length, problems, rawIds }
+  })
+}
 
 export async function run({ openApp, assert, step }) {
   const noErrors = (errors, where) => assert.deepEqual(errors, [], `${where}: console/page errors\n${errors.join('\n')}`)
@@ -88,11 +114,23 @@ export async function run({ openApp, assert, step }) {
     assert.match(detail, /5-2/)
     assert.match(detail, /秒/, 'current value of time-to-first-reserve')
     await page.keyboard.press('Escape')
+    const phoneLayout = await lensLayout(page)
+    assert.deepEqual(phoneLayout.problems, [], `phone lens labels: ${phoneLayout.problems.join(' / ')}`)
+    assert.deepEqual(phoneLayout.rawIds, [], 'no raw anchor ids on the frames')
     for (const tab of ['order', 'record']) {
-      await page.evaluate(t => window.__navi.api.getState().setTab(t), tab)
+      await page.click(`[data-testid=dock-${tab}]`)
       await page.waitForTimeout(1100)
       ;(await texts()).forEach(t => seen.add(t))
     }
+    // QA POLICY#2: the record screen (taller than the viewport) is framed without scrolling
+    const scrolled = await page.evaluate(() => {
+      let n = 0
+      for (let el = document.querySelector('[data-testid=record-screen]'); el; el = el.parentElement) n += el.scrollTop
+      return n
+    })
+    assert.equal(scrolled, 0, 'the record screen was not scrolled')
+    assert.ok(await page.locator('[data-testid=lens-tag][data-anchor=record]').count(), 'lens-tag[data-anchor=record] on the record screen without scrolling')
+    assert.equal(await page.getAttribute('[data-testid=lens-legend] [data-policy="5-3"]', 'data-lit'), '1', '5-3 lights on the record screen')
     const all = [...seen].join('\n')
     for (const p of ['5-1', '5-2', '5-3', '5-4']) assert.ok(all.includes(p), `${p} appears across the three screens`)
     assert.ok(!/\d+\s*%/.test(await page.textContent('[data-testid=lens-overlay]')), 'no percentages in the lens')
@@ -206,6 +244,105 @@ export async function run({ openApp, assert, step }) {
     assert.equal(top.reason.cause.key, 'cause.minutes15')
     assert.equal(await page.evaluate(() => window.__navi.get().room.prompt?.kind), 'finale', 'the room can vote')
     noErrors(errors, 'T03')
+    await context.close()
+  })
+
+  await step('dual 1366×768: the split stays clear of the presenter panel; lens labels readable and apart (QA DEMO#0, ROBUST#5)', async () => {
+    for (const locale of ['ja', 'en']) {
+      const { page, errors, context } = await openApp('dual', `?test=1&seed=demo&reset=1&intro=0&view=dual&script=1&locale=${locale}`)
+      await page.waitForSelector('[data-testid=app-root]')
+      await page.waitForTimeout(900)
+      await page.keyboard.press('?')
+      await page.waitForSelector('[data-testid=presenter-panel]')
+      await page.keyboard.press('s')
+      await page.waitForSelector('[data-testid=split-dynamic]')
+      await page.waitForTimeout(500)
+      await page.evaluate(() => window.__navi.fire({ t: 'join', id: 'jun' }))
+      await page.waitForTimeout(1300)
+      const geo = await page.evaluate(() => {
+        const r = sel => document.querySelector(sel)?.getBoundingClientRect()
+        const box = x => x && { l: x.left, t: x.top, r: x.right, b: x.bottom }
+        return { pp: box(r('[data-testid=presenter-panel]')), dyn: box(r('[data-testid=split-dynamic]')), flash: box(r('[data-testid=split-flash]')), panel: box(r('[data-testid=split-view] .sv-panel')), centre: box(r('[data-shell=room] .rs-centre')), vw: innerWidth, vh: innerHeight }
+      })
+      const inter = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b
+      for (const k of ['dyn', 'flash', 'panel']) {
+        assert.ok(geo[k], `${locale}: ${k} rendered`)
+        assert.ok(geo[k].l >= 0 && geo[k].r <= geo.vw && geo[k].t >= 0 && geo[k].b <= geo.vh, `${locale}: ${k} inside the viewport`)
+        assert.ok(!inter(geo[k], geo.pp), `${locale}: ${k} ${JSON.stringify(geo[k])} clear of the presenter panel ${JSON.stringify(geo.pp)}`)
+      }
+      // hit-test: the flash is really on top where it is drawn
+      const flashOnTop = await page.evaluate(() => {
+        const f = document.querySelector('[data-testid=split-flash]')
+        const r = f.getBoundingClientRect()
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+        return !!hit && f.contains(hit)
+      })
+      assert.ok(flashOnTop, `${locale}: the 更新 flash is visible (not covered)`)
+      assert.match(await page.textContent('[data-testid=split-flash]'), locale === 'ja' ? /ジュン/ : /Jun/)
+      // the split sits in the room's centre column (the ball area)
+      if (geo.centre && geo.pp.l > geo.centre.r) assert.ok(geo.panel.l >= geo.centre.l - 1 && geo.panel.r <= geo.centre.r + 1, `${locale}: split inside the centre column`)
+      // the lens at the demo's closing beat
+      await page.keyboard.press('s')
+      await page.keyboard.press('l')
+      await page.waitForSelector('[data-testid=lens-tag]')
+      await page.waitForTimeout(1600)
+      const lay = await lensLayout(page)
+      assert.ok(lay.count >= 9, `${locale}: ${lay.count} lens tags`)
+      assert.deepEqual(lay.problems, [], `${locale}: ${lay.problems.join(' / ')}`)
+      assert.deepEqual(lay.rawIds, [], `${locale}: raw frame ids`)
+      await page.screenshot({ path: `${process.env.SHOT_DIR || '/tmp'}/director-dual-lens-${locale}.png` }).catch(() => {})
+      noErrors(errors, `dual ${locale}`)
+      await context.close()
+    }
+  })
+
+  await step('fair share: once my share of the queue is full, a reservation brings no つながる card (QA OWNER#2)', async () => {
+    const { page, errors, context } = await openApp('phone', `${Q}&intro=0`)
+    await page.waitForSelector('[data-testid=app-root]')
+    await page.waitForTimeout(800)
+    // first reservation of the round: the link follows
+    await page.evaluate(() => { const s = window.__navi.get(); s.act(s.deck.cards[0].id, 'reserve', { navi: true }) })
+    await page.waitForTimeout(250)
+    assert.equal((await hand(page))[0].rule, 'insert.link.afterReserve')
+    await page.evaluate(() => { const s = window.__navi.get(); s.act(s.deck.cards[0].id, 'pass') })
+    await page.evaluate(() => window.__navi.api.getState().reserve('marigold', { by: 'me' }))
+    await page.waitForTimeout(250)
+    assert.equal(await page.evaluate(() => { const s = window.__navi.get(); const mine = s.room.queue.filter(q => q.by === 'me').length + (s.room.now?.item.by === 'me' ? 1 : 0); return mine >= 2 }), true, 'two of mine pending')
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => { const s = window.__navi.get(); const top = s.deck.cards[0]; s.act(top.id, top.kind === 'song' ? 'reserve' : top.kind === 'breather' ? 'oneMore' : 'pass') })
+      await page.waitForTimeout(200)
+      const h = await hand(page)
+      assert.ok(!h.some(c => c.rule === 'insert.link.afterReserve'), `no link after a reservation while over (${h.map(c => c.rule).join(', ')})`)
+    }
+    noErrors(errors, 'fair share')
+    await context.close()
+  })
+
+  await step('presenter-fired invites land on top; Saki\'s request once per round (QA DEMO#15)', async () => {
+    const { page, errors, context } = await openApp('phone', `${Q}&intro=0`)
+    await page.waitForSelector('[data-testid=app-root]')
+    await page.waitForTimeout(800)
+    await page.evaluate(() => { const s = window.__navi.get(); s.act(s.deck.cards[0].id, 'keep'); const t = window.__navi.get(); t.act(t.deck.cards[0].id, 'keep') })
+    await page.waitForTimeout(250)
+    await page.evaluate(() => window.__navi.fire({ t: 'twin' }))
+    await page.waitForTimeout(400)
+    let h = await hand(page)
+    assert.equal(h[0].kind, 'invite', `twin on top: ${h.map(c => c.kind).join(', ')}`)
+    assert.equal(h[0].variant, 'twin')
+    await page.evaluate(() => window.__navi.fire({ t: 'request' }))
+    await page.waitForTimeout(400)
+    h = await hand(page)
+    assert.deepEqual([h[0].kind, h[0].variant], ['invite', 'request'], 'the request the presenter fired is on top')
+    assert.equal(h[0].reason.cause?.key, 'cause.request')
+    if (await page.locator('[data-testid=card-top]').count()) assert.equal(await page.getAttribute('[data-testid=card-top]', 'data-kind'), 'invite')
+    // dismissed; a request the room sends in the same round is not offered again
+    await page.evaluate(() => { const s = window.__navi.get(); s.act(s.deck.cards[0].id, 'decline') })
+    await page.waitForTimeout(200)
+    await page.evaluate(() => window.__navi.api.getState().openInvite({ variant: 'request', from: 'saki', songId: 'pretender' }))
+    await page.waitForTimeout(300)
+    h = await hand(page)
+    assert.ok(!h.some(c => c.kind === 'invite' && c.variant === 'request'), 'no second request this round')
+    noErrors(errors, 'invites')
     await context.close()
   })
 

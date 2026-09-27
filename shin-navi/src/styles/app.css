@@ -202,11 +202,19 @@
   font-weight: 800;
   letter-spacing: 0;
   color: var(--ink);
-  white-space: nowrap;
+  text-align: left;
 }
+/* The brand is spelled out in full in every language (brief §6): it may take a second line
+   ('新ナビ · concept' / 'prototype') rather than ever being cut (QA ROBUST#6). */
 .status__brandtext {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.12;
+  text-wrap: balance;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .status__mark {
   width: 10px;
@@ -349,6 +357,23 @@
 }
 .phone-shell.is-small .status__brand {
   font-size: 11px;
+}
+/* after 退室: the live dot rests and the room line reads as closed */
+.status.is-unlinked .status__live {
+  animation: none;
+  background: var(--ink-faint);
+  box-shadow: none;
+}
+.status.is-unlinked .status__min {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.status--room.is-unlinked .status__min {
+  font-size: 13px;
+}
+.status--room.is-unlinked .status__joined {
+  color: var(--ink-dim);
 }
 
 /* ============================================================ dock (the only backdrop-filter) */
@@ -558,6 +583,34 @@
 }
 
 /* ============================================================ dual */
+/* Letterbox wrapper (QA ROBUST#7): below 1366×768 the stage is laid out at the design size and
+   scaled as one picture; at or above it the wrapper is transparent (100% × 100%). */
+.dual-fit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #07031a;
+}
+.dual-fit__frame,
+.dual-fit__stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.dual-fit.is-scaled {
+  display: grid;
+  place-items: center;
+}
+.dual-fit.is-scaled .dual-fit__frame {
+  overflow: hidden;
+}
+.dual-fit.is-scaled .dual-fit__stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
 .dual {
   position: relative;
   width: 100%;
@@ -635,4 +688,101 @@
   gap: 10px;
   width: 100%;
   max-width: 320px;
+}
+
+/* ============================================================ root error panel (no store) */
+.app-error {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(80% 60% at 50% 30%, rgba(138, 107, 255, 0.22), transparent 70%),
+    #0b0620;
+  color: #fff;
+}
+.app-error__card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+/* a resting mirror ball: facets from two line grids over the night palette, one highlight */
+.app-error__ball {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.95) 0 5%, rgba(255, 255, 255, 0) 12%),
+    repeating-linear-gradient(0deg, rgba(11, 6, 32, 0.55) 0 1.5px, transparent 1.5px 11px),
+    repeating-linear-gradient(90deg, rgba(11, 6, 32, 0.55) 0 1.5px, transparent 1.5px 11px),
+    radial-gradient(circle at 40% 35%, #b9b2ff 0%, #6a5bd6 38%, #2a1f6b 72%, #120b33 100%);
+  box-shadow:
+    inset -8px -10px 18px rgba(0, 0, 0, 0.45),
+    0 0 36px rgba(138, 107, 255, 0.35);
+}
+.app-error__title {
+  font-size: 20px;
+  font-weight: 900;
+}
+.app-error__body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+}
+.app-error__reset {
+  margin-top: 6px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 900;
+  color: #1a0b2e;
+  background: linear-gradient(90deg, #ffb547, #ff3da8);
+}
+
+/* ============================================================ landscape phone hint */
+.rotate-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(7, 3, 26, 0.94);
+}
+.rotate-hint__phone {
+  width: 30px;
+  height: 50px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 2px var(--neon-cyan, #2ef2ff), 0 0 18px rgba(46, 242, 255, 0.35);
+  animation: rotate-hint 2.4s var(--ease-out, ease-out) infinite;
+}
+@keyframes rotate-hint {
+  0%,
+  25% {
+    transform: rotate(90deg);
+  }
+  55%,
+  100% {
+    transform: rotate(0deg);
+  }
+}
+.rotate-hint__title {
+  font-size: 17px;
+  font-weight: 900;
+}
+.rotate-hint__body {
+  font-size: 13px;
+  color: var(--ink-dim);
 }

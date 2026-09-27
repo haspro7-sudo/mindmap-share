@@ -68,6 +68,7 @@ export function MirrorBall(p: MirrorBallProps): JSX.Element {
   const t = S.useT()
   const wrap = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const haloRef = useRef<HTMLCanvasElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const ctl = useRef<BallController | null>(null)
   const hangs = variant === 'hero' || variant === 'room'
@@ -98,7 +99,7 @@ export function MirrorBall(p: MirrorBallProps): JSX.Element {
   useLayoutEffect(() => {
     const c = new BallController({ variant, size, reduced: naviApi.getState().ui.reduced })
     ctl.current = c
-    if (canvasRef.current) c.attach(canvasRef.current)
+    if (canvasRef.current) c.attach(canvasRef.current, haloRef.current)
     return () => {
       c.destroy()
       ctl.current = null
@@ -329,6 +330,7 @@ export function MirrorBall(p: MirrorBallProps): JSX.Element {
         />
       ) : null}
       <div ref={bodyRef} className="mb__body">
+        {variant !== 'mini' ? <canvas ref={haloRef} className="mb__canvas mb__halo" style={{ width: cw, height: cw, left: off, top: off } as CSSProperties} aria-hidden /> : null}
         <canvas
           ref={canvasRef}
           className="mb__canvas"

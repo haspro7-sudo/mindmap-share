@@ -88,6 +88,9 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     const card = page.locator('[data-shell=phone] [data-testid=card-top][data-kind=voice]')
     assert.match(await card.textContent(), /今夜の声を見てみる？/)
     assert.match(await card.textContent(), /録音は保存しません/)
+    // card-front contract: "nothing is recorded" is a lock tag on the hum path (words for screen readers / on hover)
+    assert.equal(await card.locator('[data-testid=voice-card-norec]').getAttribute('title'), '録音は保存しません')
+    assert.equal(await card.locator('.vc__norec').count(), 0, 'no fine-print line on the front')
     assert.equal(await card.locator('[data-testid=voice-card-mic]').count(), 1, 'the hum path on the card')
     assert.equal(await card.locator('[data-testid=voice-card-quiz]').count(), 1, 'the quiz path on the card')
     await openFromPrimary(page)
@@ -191,6 +194,8 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     await page.click('[data-shell=phone] [data-testid=voice-card-quiz]')
     await page.waitForSelector('[data-testid=voice-q][data-q=high]', { timeout: 4000 })
     assert.equal(await page.locator('[data-testid=voice-fallback]').count(), 0, 'no fallback note when the quiz was chosen')
+    // DEMO#14: in script mode one quiet ring marks the answer that leads to the scripted reading
+    assert.deepEqual(await page.$$eval('[data-testid=voice-q] [data-demo="1"]', els => els.map(e => e.getAttribute('data-a'))), ['hard'], 'demo ring on 低めが落ち着く')
     const n0 = await S(page, () => window.__navi.soundLog.length)
     await answer(page, [
       ['high', 'easy'],
@@ -221,6 +226,9 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     await res.waitFor({ state: 'visible', timeout: 3000 })
     assert.equal(await res.getAttribute('data-type'), 'clear')
     assert.match(await res.textContent(), /今回の声は/)
+    // card-front contract: the long key sentence is the key badge's label, not a line on the front
+    assert.doesNotMatch(await res.innerText(), /可能性があります/)
+    assert.match((await res.locator('.vc__key').getAttribute('aria-label')) || '', /キー|原曲/)
     const primary = page.locator('[data-shell=phone] [data-testid=btn-primary]')
     assert.ok(await waitFor(page, () => /で予約/.test(document.querySelector('[data-shell=phone] [data-testid=btn-primary]')?.textContent || '')), 'the primary becomes a key-attached reserve')
     const label = await primary.textContent()
@@ -298,6 +306,88 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
       noErrors(errors, `locale ${locale}`)
       await page.context().close()
     }
+  })
+
+  // ---------------------------------------------------------------- card-front contract (OWNER#6) and DEMO#14
+  await stepC('card front (OWNER#6): the voice card fits its arch before and after a reading (390 ja, 360 en/ko), ≥12px, nothing cut', async () => {
+    for (const [kind, locale] of [
+      ['phone', 'ja'],
+      ['small', 'en'],
+      ['small', 'ko'],
+    ]) {
+      const { page, errors } = await open(kind, `?test=1&seed=test&reset=1&intro=0&locale=${locale}`)
+      await page.waitForSelector('[data-shell=phone] [data-testid=card-top]', { timeout: 8000 })
+      await page.waitForTimeout(300)
+      await S(page, () =>
+        window.__navi.api.getState().dealCards([{ id: 'e2e-voice', kind: 'voice', reason: { source: 'voice', text: { key: 'reason.voice' }, cause: { key: 'cause.myTurn' } }, trigger: { type: 'refill', at: 0 }, rule: 'e2e', dealtAt: 0 }], 'top'),
+      )
+      await page.waitForSelector('[data-shell=phone] [data-testid=card-top][data-kind=voice]')
+      await page.waitForTimeout(700)
+      const audit = () =>
+        S(page, () => {
+          const body = document.querySelector('[data-shell=phone] [data-testid=card-top][data-kind=voice] .vc')
+          const small = []
+          const cut = []
+          for (const el of body.querySelectorAll('*')) {
+            if (!(el instanceof HTMLElement) || el.closest('.sr-only')) continue
+            const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())
+            if (!own || !el.getClientRects().length) continue
+            const cs = getComputedStyle(el)
+            if (parseFloat(cs.fontSize) < 12) small.push(`${el.className}: ${cs.fontSize}`)
+            if ((cs.overflowX !== 'visible' && el.scrollWidth > el.clientWidth + 1) || (cs.overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 2)) cut.push(`${el.className}: ${el.textContent.trim().slice(0, 24)}`)
+          }
+          const b = body.getBoundingClientRect()
+          const last = [...body.children].filter(e => e.getClientRects().length).at(-1).getBoundingClientRect()
+          return { small, cut, overflow: body.scrollHeight - body.clientHeight, below: Math.round(last.bottom - b.bottom) }
+        })
+      let a = await audit()
+      const where = `${kind}/${locale}`
+      assert.deepEqual(a.small, [], `${where} before: ≥12px`)
+      assert.deepEqual(a.cut, [], `${where} before: nothing cut`)
+      assert.ok(a.overflow <= 1 && a.below <= 1, `${where} before: fits ${JSON.stringify(a)}`)
+      // the longest evidence in the quiz family, a lowered key
+      await S(page, () => {
+        const s = window.__navi.api.getState()
+        s.recordVoice({ nightId: s.session.nightId, at: Date.now(), type: 'emotional', power: 0.5, care: 0.3, brightness: 0.21, groove: 0.44, range: [49, 70], method: 'quiz', evidence: { key: 'voice.ev.q.between' }, suggest: { songId: 'lemon', keyShift: -2 } })
+      })
+      await page.waitForSelector('[data-shell=phone] [data-testid=voice-card-result]')
+      await page.waitForTimeout(2600)
+      a = await audit()
+      assert.deepEqual(a.small, [], `${where} after: ≥12px`)
+      assert.deepEqual(a.cut, [], `${where} after: nothing cut`)
+      assert.ok(a.overflow <= 1 && a.below <= 1, `${where} after: fits ${JSON.stringify(a)}`)
+      noErrors(errors, `voice front ${where}`)
+      await page.context().close()
+    }
+  })
+
+  await stepC('DEMO#14: the demo-answer rings follow the scripted reading in script mode only', async () => {
+    const { page, errors } = await open('phone', Q)
+    await page.waitForSelector('[data-shell=phone] [data-testid=card-top]', { timeout: 8000 })
+    await S(page, () => window.__navi.api.getState().openSheet('voice'))
+    await page.click('[data-testid=voice-quiz-start], [data-testid=voice-path-quiz]').catch(() => {})
+    const ringed = []
+    for (const q of ['high', 'chorus', 'style']) {
+      await page.waitForSelector(`[data-testid=voice-q][data-q=${q}]`, { timeout: 4000 })
+      await page.waitForTimeout(350)
+      const on = await page.$$eval(`[data-testid=voice-q][data-q=${q}] [data-demo="1"]`, els => els.map(e => e.getAttribute('data-a')))
+      assert.equal(on.length, 1, `one ring on ${q}`)
+      ringed.push([q, on[0]])
+      await page.click(`[data-testid=voice-q][data-q=${q}] [data-a=${on[0]}]`)
+    }
+    await page.waitForSelector('[data-testid=voice-result]', { timeout: 4000 })
+    assert.equal(await resultType(page), 'emotional', `the ringed answers ${JSON.stringify(ringed)} read as エモーショナル`)
+    await page.locator('[data-testid=voice-reserve-key]').waitFor({ state: 'visible', timeout: 6000 })
+    assert.ok(Number(await page.locator('[data-testid=voice-reserve-key]').getAttribute('data-key')) < 0, 'with a lowered key (−n で予約)')
+    noErrors(errors, 'demo ring')
+
+    const b = await open('phone', '?test=1&seed=test&reset=1&intro=0')
+    await b.page.waitForSelector('[data-shell=phone] [data-testid=card-top]', { timeout: 8000 })
+    await S(b.page, () => window.__navi.api.getState().openSheet('voice'))
+    await b.page.click('[data-testid=voice-quiz-start], [data-testid=voice-path-quiz]').catch(() => {})
+    await b.page.waitForSelector('[data-testid=voice-q][data-q=high]', { timeout: 4000 })
+    assert.equal(await b.page.locator('[data-testid=voice-q] [data-demo]').count(), 0, 'no rings outside script mode')
+    noErrors(b.errors, 'no demo ring')
   })
 
   await stepC('the shared room screen never shows the voice sheet or card', async () => {

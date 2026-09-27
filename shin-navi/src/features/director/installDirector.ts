@@ -3,7 +3,7 @@
 // priority first so the most important card ends on top (finale > voice > redeal > shift >
 // navMiss > link > invite > coaster). After every batch the hand is topped up to 3+ cards.
 import type { NaviApi, NaviState } from '../../core/store/types'
-import type { DeckCard, DirectorTrigger, DirectorTriggerType, MemberId, QueueItem, SongId, TextRef } from '../../core/types'
+import type { DeckCard, DirectorTrigger, DirectorTriggerType, InviteState, MemberId, QueueItem, SongId, TextRef } from '../../core/types'
 import { bus } from '../../core/events'
 import { presentMembers } from '../../core/store'
 import { roomMinutesLeft } from '../../core/rules'
@@ -11,8 +11,8 @@ import { SONGS } from '../../data/songs'
 import { getLocale } from '../../i18n'
 import { deal, MIN_HAND, type DirectorInput, type DirectorOutput } from './deal'
 
-/** Snapshot the store into the dealer's pure input. */
-export function inputFrom(s: NaviState, trigger: DirectorTrigger, now = Date.now()): DirectorInput {
+/** Snapshot the store into the dealer's pure input. `cue`: the presenter fired this event right now. */
+export function inputFrom(s: NaviState, trigger: DirectorTrigger, now = Date.now(), opts: { cue?: boolean } = {}): DirectorInput {
   const voice = [...s.col.voices].reverse().find(v => v.nightId === s.session.nightId) ?? null
   return {
     seed: s.session.seed,
@@ -34,8 +34,12 @@ export function inputFrom(s: NaviState, trigger: DirectorTrigger, now = Date.now
     me: { faces: s.col.faces, links: s.col.links, voice, saved: s.col.saved, imports: s.col.imports },
     deck: { cards: s.deck.cards, history: s.deck.history, round: s.deck.round, consumedInRound: s.deck.consumedInRound, offers: s.deck.offers },
     songs: SONGS,
+    ...(opts.cue ? { cue: true } : {}),
   }
 }
+
+/** How long after a presenter command its invite still counts as "fired by the presenter". */
+const CUE_MS = 1500
 
 /** Order of application inside one batch: lower first, so higher-priority cards end on top. */
 const APPLY_ORDER: Record<DirectorTriggerType, number> = {
@@ -61,12 +65,15 @@ const myReserveCount = (s: NaviState) =>
   s.room.queue.filter(isMineItem).length + (s.room.now && isMineItem(s.room.now.item) ? 1 : 0) + s.room.sung.filter(e => isMineItem(e.item)).length
 
 export function installDirector(api: NaviApi): () => void {
-  type Job = { type: DirectorTriggerType; songId?: SongId; member?: MemberId }
+  type Variant = InviteState['variant']
+  type Job = { type: DirectorTriggerType; songId?: SongId; member?: MemberId; variant?: Variant }
   let jobs: Job[] = []
   let scheduled = false
   let flushing = false
   let uniq = 0
   const dealtInvites = new Set<string>()
+  /** when the presenter last asked for Saki's request / a twin star / a duet (panel button or script step) */
+  const cuedAt: Partial<Record<Variant, number>> = {}
   const offs: (() => void)[] = []
 
   const live = () => api.getState().session.phase === 'live'
@@ -112,7 +119,12 @@ export function installDirector(api: NaviApi): () => void {
     const s = api.getState()
     if (s.session.phase !== 'live') return
     const trigger: DirectorTrigger = { type: j.type, at: s.session.simMs, ...(j.songId ? { songId: j.songId } : {}), ...(j.member ? { member: j.member } : {}) }
-    const out = deal(inputFrom(s, trigger))
+    // an invite the presenter fired (or any invite while the script runs: the sim sends none by
+    // itself then) goes on top. Checked here, after the whole emit: listener order does not matter.
+    const variant = j.variant ?? null
+    const cue = !!variant && (s.session.script || Date.now() - (cuedAt[variant] ?? -Infinity) < CUE_MS)
+    if (variant && cue) delete cuedAt[variant]
+    const out = deal(inputFrom(s, trigger, Date.now(), { cue }))
     apply(out)
     if (j.type === 'enter' || j.type === 'nextVisit') askAboutOpener()
   }
@@ -196,6 +208,11 @@ export function installDirector(api: NaviApi): () => void {
     bus.on('navi/miss', e => schedule({ type: 'navMiss', songId: e.songId })),
     bus.on('presenter/cmd', e => {
       if (e.cmd.t === 'coaster') schedule({ type: 'coaster' })
+      else {
+        // 'duet' is not a presenter command yet; accepted here so a future panel button just works
+        const t = e.cmd.t as string
+        if (t === 'request' || t === 'twin' || t === 'duet') cuedAt[t] = Date.now()
+      }
     }),
   )
 
@@ -206,7 +223,7 @@ export function installDirector(api: NaviApi): () => void {
         for (const i of s.room.invites) {
           if (i.status !== 'open' || dealtInvites.has(i.id)) continue
           dealtInvites.add(i.id)
-          schedule({ type: i.variant === 'twin' ? 'twin' : 'request', songId: i.songId, member: i.from })
+          schedule({ type: i.variant === 'twin' ? 'twin' : 'request', songId: i.songId, member: i.from, variant: i.variant })
         }
       }
       const handChanged = s.deck.cards !== p.deck.cards

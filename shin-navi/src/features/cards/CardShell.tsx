@@ -1,7 +1,7 @@
 // One shell, twelve silhouettes (SPEC C-7). The shell draws the frame (clip + rim + static
 // glow + frame ornaments), the kind label and the evidence side ("the back"); a card body
 // fills the front. Glow is a pre-drawn stroke layer whose opacity is the only thing that moves.
-import { memo, type CSSProperties, type ReactNode } from 'react'
+import { memo, type CSSProperties, type ReactNode, type UIEvent } from 'react'
 import { motion, type MotionValue } from 'motion/react'
 import type { CardFrame, DeckCard, Reason, Source, SongId } from '../../core/types'
 import { useNavi } from '../../core/store'
@@ -11,8 +11,10 @@ import { SONG_BY_ID, decadeOf } from '../../data/songs'
 import { palette } from '../../lib/art'
 import { rangeFit } from '../../engine/reading'
 import { useTr } from '../../i18n'
-import { FRAMES, framePath, kindAccent, kindCode, kindKey } from './frames'
-import { S } from './strings'
+import { FRAMES, framePath, glyphOf, kindAccent, kindCode, kindKey, teaserKey } from './frames'
+import { KindGlyph } from './KindGlyph'
+import { getNaviPick, setNaviPick, useNaviPick } from './naviPick'
+import { S, type CardsKey } from './strings'
 
 // ---------------------------------------------------------------- source glyphs
 
@@ -86,13 +88,23 @@ export function ReasonLine({ reason, testid = 'card-reason', className }: { reas
 
 export function KindLabel({ card, align }: { card: DeckCard; align: 'left' | 'center' }) {
   const t = S.useT()
-  const opener = card.kind === 'song' && card.variant === 'opener'
   return (
-    <div className={`cs__label cs__label--${align}`}>
-      {opener ? <span className="cs__ember" aria-hidden="true" /> : null}
-      <span className="cs__code">{kindCode(card)}</span>
+    <div className={`cs__label cs__label--${align}`} data-code={kindCode(card)}>
+      <KindGlyph id={glyphOf(card)} size={14} />
       <span className="cs__kname">{t(kindKey(card))}</span>
     </div>
+  )
+}
+
+/** The teaser on a peeking edge: glyph + what kind of card is next (never its content). */
+function PeekTag({ card, scale }: { card: DeckCard; scale: number }) {
+  const t = S.useT()
+  const text = t(teaserKey(card), card.from ? { name: { member: card.from } } : undefined)
+  return (
+    <span className="cs__peektag" style={{ ['--pk' as string]: (1 / (scale || 1)).toFixed(3) } as CSSProperties} data-testid="peek-teaser">
+      <KindGlyph id={glyphOf(card)} size={13} />
+      <span className="cs__peektext">{text}</span>
+    </span>
   )
 }
 
@@ -223,13 +235,57 @@ function keyLabel(shift: number): string {
   return shift < 0 ? `${String.fromCharCode(0x266d)}${-shift}` : `${String.fromCharCode(0x266f)}${shift}`
 }
 
+/** Mechanism / privacy fine print that stays off the card front (card-front contract). */
+function fineKeys(card: DeckCard): CardsKey[] {
+  switch (card.kind) {
+    case 'song':
+      return ['fine.navi']
+    case 'ask':
+      return ['fine.ask']
+    case 'link':
+      return ['fine.link']
+    case 'import':
+      return ['fine.import']
+    case 'voice':
+      return ['fine.voice']
+    case 'invite':
+      return card.variant === 'twin' ? ['fine.twin'] : card.variant === 'duet' ? ['fine.duet'] : ['fine.request']
+    default:
+      return []
+  }
+}
+
+function BackNaviToggle({ card }: { card: DeckCard }) {
+  const t = S.useT()
+  const on = useNaviPick(card.id, card.variant === 'opener')
+  return (
+    <motion.button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      className={`navi-toggle navi-toggle--back${on ? ' is-on' : ''}`}
+      data-testid="navi-toggle"
+      data-anchor="navi-tag"
+      onClick={() => setNaviPick(card.id, !getNaviPick(card.id, card.variant === 'opener'))}
+      whileTap={{ scale: 0.95 }}
+    >
+      <span className="navi-toggle__knob" aria-hidden="true" />
+      <span className="navi-toggle__text">{t('naviToggle')}</span>
+    </motion.button>
+  )
+}
+
 export function CardBack({ card, songId }: { card: DeckCard; songId?: SongId }) {
   const t = S.useT()
   const trr = useTr()
   const voice = useNavi(s => s.col.voices[s.col.voices.length - 1] ?? null)
+  // the dealer's rule id is planner vocabulary: only with the planning lens on (SPEC 裁定7)
+  const lens = useNavi(s => s.ui.lens)
   const song = songId ? SONG_BY_ID[songId] : undefined
   const fit = song && voice?.range ? rangeFit(song, voice.range) : null
   const vocab = (k: string) => trr({ key: `vocab.${k}` })
+  const fine = fineKeys(card)
+  const naviHere = card.kind === 'song' && card.variant !== 'opener' && !!song?.reservable
   return (
     <div className="cback">
       <div className="cback__why">
@@ -242,8 +298,23 @@ export function CardBack({ card, songId }: { card: DeckCard; songId?: SongId }) 
           {trr(card.reason.text)}
           {card.reason.cause ? <span className="cback__cause">{trr(card.reason.cause)}</span> : null}
         </div>
-        <div className="cback__rule">{t('back.rule', { rule: card.rule })}</div>
+        {lens ? (
+          <div className="cback__rule" data-testid="card-rule">
+            {t('back.rule', { rule: card.rule })}
+          </div>
+        ) : null}
       </div>
+      {naviHere ? <BackNaviToggle card={card} /> : null}
+      {fine.length ? (
+        <div className="cback__sec cback__fine" data-testid="card-fine">
+          <div className="cback__k">{t('back.how')}</div>
+          {fine.map(k => (
+            <p key={k} className="cback__fineline">
+              {t(k)}
+            </p>
+          ))}
+        </div>
+      ) : null}
       {song ? (
         <>
           <div className="cback__song">
@@ -310,9 +381,20 @@ export type CardShellProps = {
   /** song for the back side (selection or card song) */
   backSong?: SongId
   className?: string
+  /** peeks: the pose scale, so the teaser can counter-scale and stay >= 12 px */
+  peekScale?: number
 }
 
-function ShellImpl({ card, frame, w, h, small, role, flipped = false, children, overlay, glow, backSong, className }: CardShellProps) {
+/** Focus inside a body (a chip, a button) must never scroll the clipped face (DEMO#6). */
+function unscroll(e: UIEvent<HTMLDivElement>) {
+  const el = e.currentTarget
+  if (el.scrollTop || el.scrollLeft) {
+    el.scrollTop = 0
+    el.scrollLeft = 0
+  }
+}
+
+function ShellImpl({ card, frame, w, h, small, role, flipped = false, children, overlay, glow, backSong, className, peekScale = 1 }: CardShellProps) {
   const spec = FRAMES[frame]
   const d = framePath(frame, w, h)
   const accent = kindAccent(card)
@@ -344,14 +426,15 @@ function ShellImpl({ card, frame, w, h, small, role, flipped = false, children, 
       </motion.svg>
       <div className="cs__flip">
         <div className="cs__side cs__side--front">
-          <div className="cs__face" style={clip}>
+          <div className="cs__face" style={clip} onScroll={unscroll}>
             <div className="cs__bg" style={bgStyle} />
+            {peek ? <div className="cs__tint" aria-hidden="true" /> : null}
             {role === 'top' ? <div className="cs__sheen" aria-hidden="true" /> : null}
             {role !== 'token' ? (
               <>
                 {!peek ? <div className="cs__body">{children}</div> : null}
                 <Ornaments frame={frame} w={w} h={h} card={card} />
-                {peek ? <span className="cs__peektag">{kindCode(card)}</span> : <KindLabel card={card} align={spec.labelAlign} />}
+                {peek ? <PeekTag card={card} scale={peekScale} /> : <KindLabel card={card} align={spec.labelAlign} />}
                 {overlay}
               </>
             ) : (

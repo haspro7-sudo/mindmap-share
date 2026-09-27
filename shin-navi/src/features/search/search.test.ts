@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { normalize, kanaToRomaji, looseLatin, editDistance } from './normalize'
 import { searchSongs, matchRange, fieldText, passesFilters, popularity } from './search'
 import { SONG_BY_ID, SONGS, decadeOf } from '../../data/songs'
-import { auroraAt, cellOf, noteForCell, zoneOf, CELLS, songStars, nearestStars } from './mixerMath'
+import { auroraAt, cellOf, noteForCell, zoneOf, CELLS, songStars, nearestStars, placeCallout, type Rect } from './mixerMath'
 
 const top = (q: string, o?: Parameters<typeof searchSongs>[1]) => searchSongs(q, o)[0]?.song.id
 
@@ -214,5 +214,74 @@ describe('mixer constellation', () => {
     for (const s of near) expect(s.hype > 0.6 && s.fresh < 0.4).toBe(true)
     const far = nearestStars(stars, 0.05, 0.95, 3)
     for (const s of far) expect(s.hype < 0.4 && s.fresh > 0.6).toBe(true)
+  })
+})
+
+describe('mixer callout placement (ROBUST#14)', () => {
+  // the 360×740 pad as measured in EN: 320×224, three rows of titles (3 × 20 + 2 × 2), the four
+  // axis labels with the 3 px margin MoodMixer adds
+  const W = 320
+  const H = 224
+  const bw = 156
+  const bh = 64
+  const axes: Rect[] = [
+    { x: 5, y: 99, w: 79, h: 26 },
+    { x: 249, y: 99, w: 66, h: 26 },
+    { x: 109, y: 5, w: 101, h: 26 },
+    { x: 120, y: 193, w: 80, h: 26 },
+  ]
+  const ov = (a: Rect, b: Rect) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+  const box = (h: number, f: number, prev = -1) => {
+    const p = placeCallout(h * W, (1 - f) * H, W, H, bw, bh, axes, prev, 26)
+    return { ...p, r: { x: p.x, y: p.y, w: bw, h: bh } }
+  }
+
+  it('at the default centre it covers no axis label and stays inside the pad', () => {
+    const { r } = box(0.5, 0.5)
+    expect(axes.map(a => ov(r, a))).toEqual([0, 0, 0, 0])
+    expect(r.x).toBeGreaterThanOrEqual(8)
+    expect(r.x + r.w).toBeLessThanOrEqual(W - 8)
+  })
+
+  it('never leaves the pad and never covers the puck, anywhere on it', () => {
+    for (let h = 0; h <= 1.0001; h += 0.1)
+      for (let f = 0; f <= 1.0001; f += 0.1) {
+        const { r } = box(h, f)
+        expect(r.x >= 8 && r.y >= 8 && r.x + r.w <= W - 8 && r.y + r.h <= H - 8, `${h},${f}`).toBe(true)
+        const puck = { x: h * W - 21, y: (1 - f) * H - 21, w: 42, h: 42 }
+        // only the cramped corners may touch the ball's rim a little
+        expect(ov(r, puck), `${h.toFixed(1)},${f.toFixed(1)}`).toBeLessThan(42 * 10)
+      }
+  })
+
+  it('stays clear of the labels away from the corners', () => {
+    let clear = 0
+    let total = 0
+    for (let h = 0.2; h <= 0.8001; h += 0.1)
+      for (let f = 0.2; f <= 0.8001; f += 0.1) {
+        total++
+        const { r } = box(h, f)
+        if (axes.every(a => ov(r, a) === 0)) clear++
+      }
+    expect(clear / total).toBeGreaterThan(0.9)
+  })
+
+  it('goes to the left of the puck near the right edge', () => {
+    const p = box(0.92, 0.5)
+    expect(p.side).toBe('l')
+    expect(p.r.x + p.r.w).toBeLessThanOrEqual(0.92 * W)
+  })
+
+  it('does not flicker from spot to spot during a slow drag', () => {
+    for (const f of [0.3, 0.5, 0.7]) {
+      let prev = -1
+      let changes = 0
+      for (let h = 0.15; h <= 0.85; h += 0.01) {
+        const p = box(h, f, prev)
+        if (prev >= 0 && p.slot !== prev) changes++
+        prev = p.slot
+      }
+      expect(changes, `f=${f}`).toBeLessThanOrEqual(4)
+    }
   })
 })

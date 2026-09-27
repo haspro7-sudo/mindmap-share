@@ -250,6 +250,54 @@ export async function run({ openApp, assert, step }) {
     noErrors(errors, 'mixer')
   })
 
+  // ---------------------------------------------------------------- ROBUST#14 the callout beside the puck
+  await stepC('ROBUST#14 mixer: the nearest-song titles stay inside the pad and never cover an axis label (390 ja, 360 en)', async () => {
+    for (const [kind, locale] of [
+      ['phone', 'ja'],
+      ['small', 'en'],
+    ]) {
+      const { page, errors } = await open(kind, `${Q}&locale=${locale}`)
+      await page.evaluate(() => window.__navi.api.getState().openSheet('mixer'))
+      await page.locator('[data-testid=mixer-pad]').waitFor({ state: 'visible' })
+      await page.waitForTimeout(900) // let the sheet's spring settle
+      const check = async where => {
+        const r = await page.evaluate(() => {
+          const pad = document.querySelector('[data-testid=mixer-pad]').getBoundingClientRect()
+          const rows = [...document.querySelectorAll('[data-testid=mixer-near] .mx-callout__row[data-star]')].map(e => e.getBoundingClientRect())
+          const axes = [...document.querySelectorAll('[data-testid=mixer-pad] .mx-axis')].map(e => e.getBoundingClientRect())
+          const ov = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+          return {
+            rows: rows.length,
+            outside: rows.filter(q => q.left < pad.left - 0.5 || q.right > pad.right + 0.5 || q.top < pad.top - 0.5 || q.bottom > pad.bottom + 0.5).length,
+            covered: rows.reduce((n, q) => n + axes.filter(a => ov(q, a) > 0).length, 0),
+            fontMin: Math.min(...[...document.querySelectorAll('[data-testid=mixer-near] .mx-callout__row[data-star]')].map(e => parseFloat(getComputedStyle(e).fontSize))),
+          }
+        })
+        assert.equal(r.rows, 3, `${kind}/${locale} ${where}: three titles`)
+        assert.equal(r.outside, 0, `${kind}/${locale} ${where}: titles inside the pad`)
+        assert.equal(r.covered, 0, `${kind}/${locale} ${where}: no axis label covered`)
+        assert.ok(r.fontMin >= 12, `${kind}/${locale} ${where}: titles at least 12px (${r.fontMin})`)
+      }
+      await check('default centre')
+      const pad = await page.locator('[data-testid=mixer-pad]').boundingBox()
+      const at = (h, f) => [pad.x + h * pad.width, pad.y + (1 - f) * pad.height]
+      await page.mouse.move(...at(0.5, 0.5))
+      await page.mouse.down()
+      for (const [h, f, where] of [
+        [0.93, 0.5, 'right edge'],
+        [0.96, 0.05, 'bottom-right corner'],
+        [0.5, 0.96, 'top edge'],
+        [0.07, 0.5, 'left edge'],
+      ]) {
+        await page.mouse.move(...at(h, f), { steps: 6 })
+        await page.waitForTimeout(250)
+        await check(where)
+      }
+      await page.mouse.up()
+      noErrors(errors, `callout ${kind}`)
+    }
+  })
+
   // ---------------------------------------------------------------- M8 #5 / T06 the language sheet
   await stepC('M8#5 / T06 language: switches in place (no reload, animations keep running), search works in Korean', async () => {
     const { page, errors } = await open('phone', Q)

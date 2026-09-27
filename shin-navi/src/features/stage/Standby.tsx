@@ -10,6 +10,7 @@ import { ticker } from '../../core/ticker'
 import { sound } from '../../core/sound'
 import { Button } from '../../core/ui/Button'
 import { SongTitle } from '../../core/ui/SongTitle'
+import { common } from '../../i18n/common'
 import { S } from './strings'
 import { lightColor, splitAround } from './model'
 import { ProgressRing, useMemberName } from './parts'
@@ -18,6 +19,7 @@ import './stage.css'
 
 export function Standby(p: { ball: ReactNode }): JSX.Element {
   const t = S.useT()
+  const tc = common.useT()
   const n = useNavi(selMyTurnIn)
   const now = useNavi(s => s.room.now)
   const members = useNavi(s => s.room.members)
@@ -57,6 +59,8 @@ export function Standby(p: { ball: ReactNode }): JSX.Element {
     <div ref={host} className={`sg-standby${gather ? ' is-gather' : ''}${n === 0 ? ' is-now' : ''}`} data-testid="standby" data-gather={gather ? '1' : '0'} onPointerDown={onTap}>
       <SpeckField gather={gather} reduced={reduced} centre={ballBox} />
       <div className="sg-standby__top">
+        {/* the prototype label stays on every full-screen view (QA POLICY#5) */}
+        <span className="sg-standby__brand">{tc('brand')}</span>
         <span className="sg-lbl">{t('standbyLabel')}</span>
         {now ? (
           <span className="sg-standby__now" style={{ ['--c' as string]: nowColor }}>
@@ -115,7 +119,7 @@ export function Standby(p: { ball: ReactNode }): JSX.Element {
 
 function BigTurn({ n }: { n: number }) {
   const t = S.useT()
-  const [a, b] = splitAround(t('myTurnIn', { n: '\u0001' }), '\u0001')
+  const [a, b] = splitAround(t(n === 1 ? 'myTurnIn.one' : 'myTurnIn', { n: '\u0001' }), '\u0001')
   // a short counter word sits beside the number; a long phrase goes underneath
   const inline = b.trim().length <= 3
   return (

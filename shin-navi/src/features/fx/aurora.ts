@@ -48,12 +48,17 @@ export class PaletteTracker {
     this.from = PALETTE_RGB[start]
     this.shown = PALETTE_RGB[start]
   }
-  update(fx: { aurora: AuroraKey; auroraT: number; gold: number }): Palette3 {
+  update(fx: { aurora: AuroraKey; auroraT: number; gold: number }, preview?: { k: number; rgb: Palette3; afterglow?: number } | null): Palette3 {
     if (fx.aurora !== this.target) {
       this.from = this.shownNoGold ?? this.shown
       this.target = fx.aurora
     }
-    const base = blendPalette(this.from, PALETTE_RGB[this.target], fx.auroraT, 0)
+    let base = blendPalette(this.from, PALETTE_RGB[this.target], fx.auroraT, 0)
+    // the forecast lean (fxPreview) sits between the real palette and the gold flush
+    if (preview && preview.k > 0.001) base = leanPalette(base, preview.rgb, preview.k)
+    // after an all-know the wall keeps a little lamplight while the word celebrates
+    const ag = preview?.afterglow ?? 0
+    if (ag > 0.001) base = leanPalette(base, GOLD_RGB, AFTERGLOW_MIX * smooth(ag))
     this.shownNoGold = base
     this.shown = fx.gold > 0 ? blendPalette(base, base, 1, fx.gold) : base
     return this.shown
@@ -63,6 +68,21 @@ export class PaletteTracker {
     return this.target
   }
 }
+
+/** A palette leaning `k` (0..1) of the way toward another one (the forecast preview). */
+export function leanPalette(base: Palette3, to: Palette3, k: number): Palette3 {
+  const x = Math.max(0, Math.min(1, k))
+  return [mixRgb(base[0], to[0], x), mixRgb(base[1], to[1], x), mixRgb(base[2], to[2], x)]
+}
+
+/** How far the wall leans toward the forecast palette (QA OWNER#7: 30–50 %). */
+export const PREVIEW_MIX = 0.45
+/** All-know: after the 0.8 s gold flush the wall keeps this much gold, melting over ~3 s. */
+export const AFTERGLOW_MIX = 0.24
+export const AFTERGLOW_MS = 3000
+/** The lean arrives within ~1.2 s of a reservation and melts over the 1.8 s crossfade. */
+export const PREVIEW_IN_MS = 1200
+export const PREVIEW_OUT_MS = CROSSFADE_MS
 
 export type IntroMode = 'full' | 'short' | 'none'
 

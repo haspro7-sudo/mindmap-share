@@ -141,7 +141,7 @@ export function framePath(frame: CardFrame, w: number, h: number): string {
   }
 }
 
-/** Small English caps code shown before the local kind name (SPEC C-7, e.g. SPARK + the local name). */
+/** Short English code (kept for aria/debug only; the visible label is the localised name + glyph). */
 export function kindCode(card: Pick<DeckCard, 'kind' | 'variant'>): string {
   if (card.kind === 'song') return card.variant === 'opener' ? 'SPARK' : card.variant === 'visa' ? 'VISA' : 'SONG'
   if (card.kind === 'ask') return card.variant === 'welcome' ? 'WELCOME' : 'ASK'
@@ -160,6 +160,48 @@ export function kindCode(card: Pick<DeckCard, 'kind' | 'variant'>): string {
     breather: 'BREATHE',
   }
   return CODES[card.kind]
+}
+
+/** Which glyph a kind label / peek teaser carries (see KindGlyph). */
+export type GlyphId = 'ember' | 'note' | 'globe' | 'ask' | 'welcome' | 'shift' | 'link' | 'voice' | 'gap' | 'letter' | 'twin' | 'duet' | 'disc' | 'glass' | 'star' | 'moon'
+
+export function glyphOf(card: Pick<DeckCard, 'kind' | 'variant'>): GlyphId {
+  switch (card.kind) {
+    case 'song':
+      return card.variant === 'opener' ? 'ember' : card.variant === 'visa' ? 'globe' : 'note'
+    case 'ask':
+      return card.variant === 'welcome' ? 'welcome' : 'ask'
+    case 'invite':
+      return card.variant === 'twin' ? 'twin' : card.variant === 'duet' ? 'duet' : 'letter'
+    case 'shift':
+      return 'shift'
+    case 'link':
+      return 'link'
+    case 'voice':
+      return 'voice'
+    case 'gap':
+      return 'gap'
+    case 'import':
+      return 'disc'
+    case 'coaster':
+      return 'glass'
+    case 'finale':
+      return 'star'
+    case 'breather':
+      return 'moon'
+  }
+}
+
+/** Peek teaser key (SPEC C-5 のぞく縁): what kind of card is next, never what is on it. */
+export function teaserKey(card: Pick<DeckCard, 'kind' | 'variant' | 'from'>): CardsKey {
+  if (card.kind === 'song') return card.variant === 'opener' ? 'peek.opener' : card.variant === 'visa' ? 'peek.visa' : 'peek.song'
+  if (card.kind === 'ask') return card.variant === 'welcome' ? 'peek.welcome' : 'peek.ask'
+  if (card.kind === 'invite') {
+    if (card.variant === 'twin') return 'peek.twin'
+    if (card.variant === 'duet') return 'peek.duet'
+    return card.from ? 'peek.requestFrom' : 'peek.request'
+  }
+  return `peek.${card.kind}` as CardsKey
 }
 
 /** Local kind name key in the `cards` namespace. */
@@ -209,8 +251,21 @@ export function leftKey(card: Pick<DeckCard, 'kind'>): CardsKey {
   }
 }
 
-/** Peek offsets (SPEC B-2): first peek lifts 12 px at 0.95, the second 22 px at 0.9. */
-export const PEEKS = [
-  { lift: 16, scale: 0.95, opacity: 1 },
-  { lift: 31, scale: 0.9, opacity: 0.8 },
-] as const
+/**
+ * Peek offsets (SPEC B-2 / C-5): how far the next two cards rise behind the top card. The
+ * bands are tall enough to carry a readable teaser (≥ 12 px) and the real silhouette.
+ */
+export type PeekPose = { lift: number; scale: number; opacity: number }
+export const PEEKS: readonly PeekPose[] = [
+  { lift: 30, scale: 0.95, opacity: 1 },
+  { lift: 54, scale: 0.9, opacity: 0.86 },
+]
+export const PEEKS_SMALL: readonly PeekPose[] = [
+  { lift: 26, scale: 0.95, opacity: 1 },
+  { lift: 46, scale: 0.9, opacity: 0.86 },
+]
+export function peeksFor(small: boolean): readonly PeekPose[] {
+  return small ? PEEKS_SMALL : PEEKS
+}
+/** Extra lift of the first peek while the top card is dragged more than 40 px (anticipation). */
+export const PEEK_BOOST = 12

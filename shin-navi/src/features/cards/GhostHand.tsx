@@ -1,7 +1,7 @@
 // Ghost hand (SPEC B-2 2.4 s): on the very first visit a translucent finger draws one upward
 // stroke from the first card into the breathing lane slot, then fades. Shown once, ever
 // (ui.coach.ghostHand), and dismissed by the first touch on the card.
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { naviApi, useNavi } from '../../core/store'
 import { introPending, introWait } from '../../core/intro'
@@ -19,8 +19,11 @@ const LINGER = 1.25
 export function GhostHand({ layerRef, scale }: { layerRef: RefObject<HTMLDivElement>; scale: number }) {
   const t = S.useT()
   const eligible = useNavi(s => !s.ui.coach.ghostHand && s.session.intro === 'full' && s.session.visit <= 1 && !s.ui.reduced)
+  // it lives in the fx layer above every tab: only while the discover tab is really in front
+  const onDiscover = useNavi(s => s.ui.tab === 'discover' && s.ui.sheet == null && s.ui.overlay == null)
   const [geo, setGeo] = useState<Geo | null>(null)
   const [gone, setGone] = useState(false)
+  const finishRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (!eligible || !introPending('ghostHand')) return
@@ -31,6 +34,7 @@ export function GhostHand({ layerRef, scale }: { layerRef: RefObject<HTMLDivElem
       setGone(true)
       naviApi.getState().coachDone('ghostHand')
     }
+    finishRef.current = finish
     const startMs = introWait('ghostHand') * 1000
     const measure = window.setTimeout(() => {
       const layer = layerRef.current
@@ -55,7 +59,12 @@ export function GhostHand({ layerRef, scale }: { layerRef: RefObject<HTMLDivElem
     }
   }, [eligible])
 
-  const show = eligible && !gone && geo
+  // leaving the discover tab (or opening a sheet) is a touch too: the coach is done
+  useEffect(() => {
+    if (!onDiscover && geo) finishRef.current?.()
+  }, [onDiscover, geo])
+
+  const show = eligible && !gone && geo && onDiscover
   const pts = geo ? Array.from({ length: 13 }, (_, i) => i / 12) : []
   return (
     <AnimatePresence>

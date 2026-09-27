@@ -4,7 +4,8 @@ import type { CollectionSlice, NaviState } from './types'
 import type { Face, Night, WallMarker } from '../types'
 import { freshCollection } from './initial'
 import { bus } from '../events'
-import { SONGS, SONG_BY_ID } from '../../data/songs'
+import { SONG_BY_ID } from '../../data/songs'
+import { DEMO_PATH, SEED_NIGHT_SONGS } from '../../data/tables'
 import { faceNote, nextFaceState, AURORA_PALETTES } from '../rules'
 import { mulberry32, hashString } from '../../lib/rng'
 
@@ -148,6 +149,8 @@ export const createCollectionSlice: StateCreator<NaviState, [], [], CollectionSl
 
   seedPastNights(n) {
     // Clearly labelled demo data (Night.seeded) so the collection is not empty in a pitch.
+    // Songs come from a curated list that never meets the demo path (QA DEMO#3), and every past
+    // face was reserved or sung (neon / mirror / prism): tonight's keeps and firsts stay new.
     const s = get()
     if (s.col.nights.some(x => x.seeded)) return
     const rand = mulberry32(hashString('seed-nights'))
@@ -155,10 +158,13 @@ export const createCollectionSlice: StateCreator<NaviState, [], [], CollectionSl
     const now = Date.now()
     const nights: Night[] = []
     const faces: Record<string, Face> = { ...s.col.faces }
-    const pool = SONGS.filter(x => x.reservable).slice()
-    const perNight = Math.ceil(30 / Math.max(1, n))
-    for (let k = 0; k < Math.max(1, n); k++) {
-      const startedAt = now - (70 - k * 45) * day
+    const pool = SEED_NIGHT_SONGS.map(id => SONG_BY_ID[id]).filter(x => x?.reservable && !DEMO_PATH.has(x.id))
+    const count = Math.max(1, n)
+    const perNight = Math.ceil(pool.length / count)
+    // spread over the last ten weeks (70 and 25 days ago for two nights), never in the future
+    const step = count > 1 ? Math.min(45, 60 / (count - 1)) : 0
+    for (let k = 0; k < count; k++) {
+      const startedAt = now - Math.round(70 - k * step) * day
       const id = `seed-${k + 1}`
       const gained: string[] = []
       const points: Night['points'] = []
@@ -166,7 +172,7 @@ export const createCollectionSlice: StateCreator<NaviState, [], [], CollectionSl
       for (let i = 0; i < perNight && pool.length; i++) {
         const song = pool.splice(Math.floor(rand() * pool.length), 1)[0]
         const r = rand()
-        const state: Face['state'] = r < 0.35 ? 'sketch' : r < 0.6 ? 'neon' : r < 0.9 ? 'mirror' : 'prism'
+        const state: Face['state'] = r < 0.4 ? 'neon' : r < 0.85 ? 'mirror' : 'prism'
         const sung = state === 'mirror' || state === 'prism'
         if (!faces[song.id]) {
           faces[song.id] = {
@@ -204,7 +210,7 @@ export const createCollectionSlice: StateCreator<NaviState, [], [], CollectionSl
 
   wipe() {
     pendingMarkers = []
-    set(st => ({ col: { ...freshCollection(), nights: st.col.nights.filter(n => n.id === st.session.nightId).map(n => ({ ...n, points: [], melody: [], facesGained: [], shared: [] })) } }))
+    set(st => ({ col: { ...freshCollection(), nights: st.col.nights.filter(n => n.id === st.session.nightId).map(n => ({ ...n, points: [], melody: [], facesGained: [], shared: [], allKnow: [] })) } }))
   },
 
   restoreFace(songId, prev) {

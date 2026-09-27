@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { OrderStatus } from '../../core/types'
 import { useNavi } from '../../core/store'
+import { selRoomUnlinked } from '../../core/selectors'
 import { useBox } from '../../core/layout'
 import { LOCALES, trIn } from '../../i18n'
 import { common } from '../../i18n/common'
@@ -27,7 +28,7 @@ export function RoomSidebar(p: { constellation: ReactNode }): JSX.Element {
       </section>
       <section className="sg-side__sec">
         <h3 className="sg-side__h">{t('air')}</h3>
-        <MoodWord size="room" />
+        <MoodWord size="room" max={tight ? 32 : 40} />
       </section>
       <section className="sg-side__sec sg-side__sky">
         <h3 className="sg-side__h">{t('constellation')}</h3>
@@ -50,13 +51,20 @@ const SHOWN: OrderStatus[] = ['sending', 'accepted', 'preparing', 'delivered']
 function OrderCounts() {
   const t = S.useT()
   const list = useNavi(s => s.orders.list)
-  const closed = useNavi(s => s.orders.closed)
+  // after the exit orders are closed (E-12): say so instead of inviting new ones
+  const closed = useNavi(s => s.orders.closed || selRoomUnlinked(s))
   const counts = useMemo(() => {
     const m = new Map<OrderStatus, number>()
     for (const o of list) if (SHOWN.includes(o.status)) m.set(o.status, (m.get(o.status) ?? 0) + 1)
     return SHOWN.filter(s => m.get(s)).map(s => [s, m.get(s)!] as const)
   }, [list])
-  if (!counts.length || closed) return <div className="sg-orders is-none">{t('ordersNone')}</div>
+  if (closed)
+    return (
+      <div className="sg-orders is-none is-closed" data-testid="room-orders-closed">
+        {t('ordersClosed')}
+      </div>
+    )
+  if (!counts.length) return <div className="sg-orders is-none">{t('ordersNone')}</div>
   return (
     <div className="sg-orders" data-testid="room-orders">
       {counts.map(([status, n]) => (

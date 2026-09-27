@@ -144,12 +144,81 @@ export async function run({ openApp, assert, step }) {
     const text = await page.locator('[data-testid=record-screen]').innerText()
     assert.match(text, /声は曲や日によって変わります/, 'voice log note')
     assert.match(text, /白日/, 'My Songs lists the saved song')
-    assert.match(text, /面の内訳/)
-    assert.match(text, /刻印の見方/)
+    assert.doesNotMatch(text, /刻印の見方/, 'the marks legend is behind ⓘ, not on the tab')
     assert.doesNotMatch(text, BANNED)
     assert.equal(await page.locator('[data-testid=record-screen]').getAttribute('data-private'), '1')
     assert.equal(await page.locator('[data-testid=record-screen]').getAttribute('data-anchor'), 'record')
     noErrors(errors, 'record tab')
+  })
+
+  // ---------------------------------------------------------------- QA OWNER#8: the collection as a toy
+  await stepC('record tab is a toy: the ball fills ≥ 70 % of the first screen, one line, 4 chips light faces on the ball, ⓘ legend, pager, settings behind one row', async () => {
+    const { page, errors } = await open('phone', Q)
+    await playNight(page)
+    await openRecord(page)
+    // the ball's stage owns the first screen (between the compact lane and the dock)
+    const geo = await S(page, () => {
+      const sc = document.querySelector('.ps-tab--record')
+      const st = document.querySelector('[data-testid=record-stage]').getBoundingClientRect()
+      const r = sc.getBoundingClientRect()
+      const top = r.top + parseFloat(getComputedStyle(sc).paddingTop)
+      return { visible: r.bottom - top, stage: st.height, stageTop: st.top - top, ball: document.querySelector('[data-testid=record-stage] [data-testid=ball-canvas]').getBoundingClientRect().width }
+    })
+    assert.ok(geo.stage / geo.visible >= 0.69, `stage ${geo.stage}px of ${geo.visible}px`)
+    assert.ok(geo.stageTop < 8, `the stage starts at the top (${geo.stageTop})`)
+    assert.match(await page.locator('[data-testid=record-line]').innerText(), /\d+面が点灯/)
+    // the four chips sit in the first screen and light one state on the ball (fxState.ballHighlight)
+    const chips = page.locator('[data-testid=record-state-chip]')
+    assert.equal(await chips.count(), 4)
+    const chipBottom = await S(page, () => {
+      const r = document.querySelector('[data-testid=record-stats]').getBoundingClientRect()
+      return r.bottom <= document.querySelector('.ps-dock').getBoundingClientRect().top
+    })
+    assert.ok(chipBottom, 'chips visible without scrolling')
+    const hl = () => S(page, () => window.__fx?.state().ballHighlight ?? null)
+    await page.click('[data-testid=record-state-chip][data-state=neon]')
+    assert.equal(await hl(), 'neon')
+    assert.equal(await page.locator('[data-testid=record-screen]').getAttribute('data-sel'), 'neon')
+    assert.ok(await waitFor(page, () => /ネオン[\s\S]*予約した/.test(document.querySelector('[data-testid=record-line]')?.innerText ?? ''), null, 1500), 'the line says what neon means')
+    await page.click('[data-testid=record-state-chip][data-state=neon]')
+    assert.equal(await hl(), null, 'tap again: all faces')
+    await page.click('[data-testid=record-state-chip][data-state=mirror]')
+    assert.equal(await hl(), 'mirror')
+    // ⓘ: states, marks and the map live in a sheet
+    await page.click('[data-testid=record-legend-open]')
+    const legend = page.locator('[data-testid=sheet][data-sheet=legend]')
+    await legend.waitFor()
+    const lt = await legend.innerText()
+    for (const w of ['面の状態', '刻印の見方', 'ボールの地図']) assert.ok(lt.includes(w), `legend shows ${w}`)
+    await legend.locator('.sheet__close').click()
+    await legend.waitFor({ state: 'detached' })
+    // the pager: tonight's wall · calendar · pins
+    const tabs = page.locator('[data-testid=record-pager-tab]')
+    assert.deepEqual(await tabs.evaluateAll(els => els.map(e => e.dataset.page)), ['wall', 'cal', 'pins'])
+    await tabs.nth(2).click()
+    assert.ok(await waitFor(page, () => document.querySelector('[data-testid=record-pager]')?.dataset.page === 'pins', null, 2000), 'tab → pins page')
+    const pinsIn = await waitFor(
+      page,
+      () => {
+        const pg = document.querySelector('[data-testid=record-page][data-page=pins]').getBoundingClientRect()
+        const tr = document.querySelector('.rc-pager__track').getBoundingClientRect()
+        return pg.left >= tr.left - 1 && pg.right <= tr.right + 1
+      },
+      null,
+      2000,
+    )
+    assert.ok(pinsIn, 'the pins page scrolled into view')
+    // settings: one row, the panel in a sheet
+    await page.locator('[data-testid=record-settings]').scrollIntoViewIfNeeded()
+    await page.click('[data-testid=record-settings]')
+    const set = page.locator('[data-testid=sheet][data-sheet=settings]')
+    await set.waitFor()
+    assert.equal(await set.locator('[data-testid=record-wipe]').count(), 1)
+    // leaving the tab puts every face back
+    await S(page, () => window.__navi.get().setTab('discover'))
+    await page.waitForTimeout(600)
+    assert.equal(await hl(), null, 'cleared on leave')
+    noErrors(errors, 'toy')
   })
 
   await stepC('record tab: gap areas open a filtered search; clearing data asks first', async () => {
@@ -164,8 +233,11 @@ export async function run({ openApp, assert, step }) {
     assert.ok(filters?.tempo && filters?.genre, `search opened with area filters ${JSON.stringify(filters)}`)
     await S(page, () => window.__navi.get().closeSheet())
     await page.waitForTimeout(400)
-    const wipe = page.locator('[data-testid=record-wipe]')
-    await wipe.scrollIntoViewIfNeeded()
+    const row = page.locator('[data-testid=record-settings]')
+    await row.scrollIntoViewIfNeeded()
+    await row.click()
+    const wipe = page.locator('[data-testid=sheet][data-sheet=settings] [data-testid=record-wipe]')
+    await wipe.waitFor()
     await wipe.click()
     await page.waitForTimeout(250)
     assert.ok((await S(page, () => Object.keys(window.__navi.get().col.faces).length)) > 0, 'nothing erased before confirming')
@@ -261,6 +333,9 @@ export async function run({ openApp, assert, step }) {
     await page.mouse.click(300, 420)
     assert.ok(await waitFor(page, () => document.querySelector('[data-testid=wrap-page]')?.getAttribute('data-page') === '3', null, 1500), 'tap → page 3')
     assert.match(await page.locator('[data-testid=wrap-page]').innerText(), /全員が知ってた曲/)
+    assert.ok((await page.locator('[data-testid=wrap-common-song]').count()) >= 1, 'page 3 lists the songs everyone knew')
+    // POLICY#5: the recap carries the concept-prototype label
+    assert.equal((await page.locator('[data-testid=wrap-brand]').innerText()).trim(), '新ナビ（コンセプト試作）')
     await page.waitForTimeout(400)
     const melodyBefore = (await sounds(page)).filter(x => x === 'melody').length
     await page.mouse.click(300, 420)
@@ -275,6 +350,7 @@ export async function run({ openApp, assert, step }) {
     await page.mouse.click(300, 420)
     assert.ok(await waitFor(page, () => document.querySelector('[data-testid=wrap-page]')?.getAttribute('data-page') === '5', null, 1500), 'tap → page 5')
     await page.waitForTimeout(500)
+    assert.equal((await page.locator('.rw-p5__brand').innerText()).trim(), '新ナビ（コンセプト試作）', 'the stamp page carries the label too')
     // the stamp: a short press does nothing, a 700 ms hold stamps
     const cell = page.locator('[data-testid=wrap] [data-testid=stamp-cell][data-today="1"]')
     const box = await cell.boundingBox()
@@ -340,8 +416,10 @@ export async function run({ openApp, assert, step }) {
     const ja = await row.locator('.rc-night__name').innerText()
     assert.match(ja, /座$/)
     await page.evaluate(() => (window.__marker = 1))
+    await page.locator('[data-testid=record-settings]').scrollIntoViewIfNeeded()
+    await page.click('[data-testid=record-settings]')
     const en = page.locator('.rc-set__lang', { hasText: 'English' })
-    await en.scrollIntoViewIfNeeded()
+    await en.waitFor()
     await en.click()
     await page.waitForTimeout(250)
     assert.equal(await page.evaluate(() => document.documentElement.lang), 'en')
@@ -376,6 +454,55 @@ export async function run({ openApp, assert, step }) {
     noErrors(errors, 'room')
   })
 
+  // ---------------------------------------------------------------- QA DEMO#4: everyone knew it, then someone joined
+  await stepC('wrap page 3 keeps an all-know moment after someone joins (night.allKnow), with its size', async () => {
+    const { page, errors } = await open('phone', Q)
+    await playNight(page, { seedNights: false, voice: false })
+    const before = await S(page, () => window.__navi.get().col.nights.find(n => n.id === window.__navi.get().session.nightId).allKnow ?? [])
+    assert.ok(
+      before.some(a => a.songId === 'yoru-ni-kakeru' && a.size === 3),
+      `core remembered the moment ${JSON.stringify(before)}`,
+    )
+    // Jun joins and has not answered: "now" nothing is all-know among 4
+    await S(page, () => window.__navi.get().memberJoin('jun'))
+    await page.waitForTimeout(200)
+    await fire(page, { t: 'exit' })
+    await page.locator('[data-testid=wrap]').waitFor()
+    await page.locator('.rw__dot').nth(2).click()
+    assert.ok(await waitFor(page, () => document.querySelector('[data-testid=wrap-page]')?.getAttribute('data-page') === '3', null, 1500))
+    const song = page.locator('[data-testid=wrap-common-song][data-song=yoru-ni-kakeru]')
+    await song.waitFor()
+    assert.ok(Number(await song.getAttribute('data-size')) >= 3)
+    assert.match(await song.innerText(), /\d人全員/)
+    assert.doesNotMatch(await page.locator('[data-testid=wrap-page]').innerText(), /全員がそろう曲は、次の夜に/, 'not the empty state')
+    noErrors(errors, 'all-know after join')
+  })
+
+  // ---------------------------------------------------------------- QA ROBUST#8 / DEMO#16: the empty wall line wraps, never clipped
+  await stepC('room sidebar: the empty wall-of-light line is fully visible (dual 1366 ja, room 1024 en)', async () => {
+    for (const [kind, q, vp] of [
+      ['dual', '?test=1&seed=demo&reset=1&intro=0&view=dual', null],
+      ['tablet', '?test=1&seed=demo&reset=1&intro=0&view=room&locale=en', { width: 1024, height: 768 }],
+    ]) {
+      const { page, errors } = await open(kind, q)
+      if (vp) await page.setViewportSize(vp)
+      await page.waitForSelector('[data-testid=app-root]')
+      await page.waitForTimeout(900)
+      const empty = page.locator('[data-shell=room] [data-testid=room-sidebar] [data-testid=wall-empty]')
+      await empty.waitFor()
+      const fit = await empty.evaluate(el => {
+        const span = el.firstElementChild
+        const box = el.closest('.sg-side__constellation') ?? el.parentElement
+        const a = span.getBoundingClientRect()
+        const b = box.getBoundingClientRect()
+        return { inside: a.left >= b.left - 0.5 && a.right <= b.right + 0.5, noClip: span.scrollWidth <= span.clientWidth + 1, text: span.textContent }
+      })
+      assert.ok(fit.inside && fit.noClip, `${kind}: empty line fits ${JSON.stringify(fit)}`)
+      assert.ok(fit.text.length > 10)
+      noErrors(errors, `wall empty ${kind}`)
+    }
+  })
+
   // ---------------------------------------------------------------- small phone + T14 wording
   await stepC('360×740: record tab and the wrap fit without horizontal scroll', async () => {
     const { page, errors } = await open('small', Q)
@@ -383,6 +510,8 @@ export async function run({ openApp, assert, step }) {
     await openRecord(page)
     const sw = () => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))
     assert.ok((await sw()) <= 360, `record scrollWidth ${await sw()}`)
+    const cut = await S(page, () => [...document.querySelectorAll('.rc-chip__name, .rc-pager__tab span')].filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent))
+    assert.deepEqual(cut, [], 'chip and tab labels are not cut at 360')
     await fire(page, { t: 'exit' })
     await page.locator('[data-testid=wrap]').waitFor()
     await page.click('[data-testid=wrap-skip]')

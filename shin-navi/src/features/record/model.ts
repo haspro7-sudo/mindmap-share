@@ -24,14 +24,30 @@ export function takeHomeSongs(s: Pick<NaviState, 'room' | 'col' | 'session'>): {
   return [...out.entries()].filter(([id]) => !have.has(id) && SONG_BY_ID[id]).map(([songId, version]) => ({ songId, version }))
 }
 
-/** Songs every present member knew tonight (asked in the room), then the shared songs I sang. */
-export function selCommon(s: Pick<NaviState, 'room' | 'col' | 'session'>): { ids: SongId[]; size: number } {
+export type CommonSong = { songId: SongId; size: number }
+
+/**
+ * Songs everyone in the room knew tonight (wrap page 3), each with the room size at that moment:
+ * first the moments core remembered in `night.allKnow` (a later arrival makes it 3/4, but
+ * "青と夏 · 3人全員" happened), then tallies that are all-know among the members present now,
+ * then the shared songs I sang. Never names who was missing; a room of one is not "everyone".
+ */
+export function selCommon(s: Pick<NaviState, 'room' | 'col' | 'session'>): { items: CommonSong[]; size: number } {
   const ids = presentIdsOf(s)
-  const all = Object.values(s.room.knowing)
+  const night = s.col.nights.find(n => n.id === s.session.nightId)
+  const items: CommonSong[] = []
+  const push = (songId: SongId, size: number) => {
+    if (!SONG_BY_ID[songId] || size < 2) return
+    const had = items.find(x => x.songId === songId)
+    // the same song all-know again with more people (Jun joined and knew it too) keeps the bigger room
+    if (had) had.size = Math.max(had.size, size)
+    else items.push({ songId, size })
+  }
+  for (const a of [...(night?.allKnow ?? [])].sort((x, y) => x.at - y.at)) push(a.songId, a.size)
+  const live = Object.values(s.room.knowing)
     .filter(t => knowView(t, ids).all)
     .sort((a, b) => a.askedAt - b.askedAt)
-    .map(t => t.songId)
-  const night = s.col.nights.find(n => n.id === s.session.nightId)
-  for (const id of night?.shared ?? []) if (!all.includes(id)) all.push(id)
-  return { ids: all, size: ids.length }
+  for (const t of live) push(t.songId, ids.length)
+  for (const id of night?.shared ?? []) if (!items.some(x => x.songId === id)) push(id, ids.length)
+  return { items, size: ids.length }
 }

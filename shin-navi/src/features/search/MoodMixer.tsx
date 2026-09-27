@@ -20,7 +20,7 @@ import { selHeat } from '../../core/selectors'
 import { GENRES, type Genre } from '../../data/songs'
 import { songTitle, useLocale, type Locale } from '../../i18n'
 import { S } from './strings'
-import { CELLS, auroraAt, cellOf, clamp01, nearestStars, noteForCell, previewHeat, previewSpeed, songStars, zoneOf, type Star, type ZoneId } from './mixerMath'
+import { CELLS, auroraAt, cellOf, clamp01, nearestStars, noteForCell, placeCallout, previewHeat, previewSpeed, songStars, zoneOf, type Rect, type Star, type ZoneId } from './mixerMath'
 
 const COMPANIONS: Companion[] = ['friends', 'family', 'work', 'date', 'solo']
 const HOLD_AFTER_RELEASE_MS = 1100
@@ -384,6 +384,9 @@ export function MoodMixer(): JSX.Element {
   const ringRefs = useRef<(HTMLSpanElement | null)[]>([])
   const rowRefs = useRef<(HTMLElement | null)[]>([])
   const calloutRef = useRef<HTMLSpanElement>(null)
+  const calloutBox = useRef({ w: 0, h: 0 })
+  const calloutSlot = useRef(-1)
+  const axisCache = useRef<{ key: string; rects: Rect[] }>({ key: '', rects: [] })
   const pos = useRef({ h: start.hype, f: start.fresh })
   const lastCell = useRef(-1)
   const ringFirst = useRef(false)
@@ -401,6 +404,36 @@ export function MoodMixer(): JSX.Element {
   const fx = usePadFx(canvasRef, padRef)
   useStarField(starsRef, padRef, stars)
 
+  /** The four axis labels inside the pad (layout boxes, cached per pad size and language). */
+  const axisRects = (W: number, H: number): Rect[] => {
+    const key = `${W}x${H}:${localeRef.current}`
+    if (axisCache.current.key === key) return axisCache.current.rects
+    const pad = padRef.current
+    if (!pad) return []
+    const rects = [...pad.querySelectorAll<HTMLElement>('.mx-axis')].map(el => {
+      const w = el.offsetWidth
+      const hh = el.offsetHeight
+      // the labels are centred on their edge with a CSS translate of -50%
+      const side = el.classList.contains('mx-axis--l') || el.classList.contains('mx-axis--r')
+      const x = side ? el.offsetLeft : el.offsetLeft - w / 2
+      const y = side ? el.offsetTop - hh / 2 : el.offsetTop
+      return { x: x - 3, y: y - 3, w: w + 6, h: hh + 6 }
+    })
+    axisCache.current = { key, rects }
+    return rects
+  }
+
+  /** The callout beside the puck: inside the pad, clear of the axis labels (ROBUST#14). */
+  const placeNear = (px: number, py: number, W: number, H: number) => {
+    const co = calloutRef.current
+    if (!co) return
+    const { w, h } = calloutBox.current
+    const spot = placeCallout(px, py, W, H, w, h, axisRects(W, H), calloutSlot.current, 26)
+    calloutSlot.current = spot.slot
+    co.style.transform = `translate3d(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px, 0)`
+    if (co.dataset.side !== spot.side) co.dataset.side = spot.side
+  }
+
   /**
    * Surface the songs nearest to the puck: a ring on each of the three stars and a callout of
    * their titles riding beside the puck (DOM writes only when the set changes).
@@ -413,15 +446,11 @@ export function MoodMixer(): JSX.Element {
       { x: px, y: py },
       near.map(s => ({ x: s.hype * W, y: (1 - s.fresh) * H, color: GENRE_COLOR[s.genre] })),
     )
-    const co = calloutRef.current
-    if (co) {
-      // beside the puck, on the side with room, kept inside the pad vertically
-      const dy = Math.max(38 - py, Math.min(H - 38 - py, 0))
-      co.style.transform = `translate3d(${px.toFixed(1)}px, ${(py + dy).toFixed(1)}px, 0)`
-      co.dataset.side = h > 0.55 ? 'l' : 'r'
-    }
     const sig = near.map(s => s.id).join('|')
-    if (sig === lastNear.current && !force) return
+    if (sig === lastNear.current && !force) {
+      placeNear(px, py, W, H)
+      return
+    }
     lastNear.current = sig
     near.forEach((s, i) => {
       const ring = ringRefs.current[i]
@@ -439,6 +468,10 @@ export function MoodMixer(): JSX.Element {
         if (!reduced && typeof row.animate === 'function') row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' })
       }
     })
+    // the titles changed: measure the list once, then place it
+    const list = calloutRef.current?.firstElementChild as HTMLElement | null
+    if (list) calloutBox.current = { w: list.offsetWidth, h: list.offsetHeight }
+    placeNear(px, py, W, H)
   }
 
   /** Put the puck at (h, f); ring the cell when it changes. */

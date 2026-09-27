@@ -402,7 +402,7 @@ function AreaBanner({ tempo, genre }: { tempo: Tempo; genre: Genre }): JSX.Eleme
 
 export function SearchSheet(): JSX.Element {
   const t = S.useT()
-  const countText = (n: number) => t(n === 1 ? 'countOne' : 'count', { n })
+  const countText = (n: number) => t('count', { n })
   const v = vocab.useT()
   const locale = useLocale()
   const room = useViewMode() === 'room'

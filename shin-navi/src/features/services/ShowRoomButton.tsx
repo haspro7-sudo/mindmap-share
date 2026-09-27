@@ -29,6 +29,7 @@ export function ShowRoomButton({ songId, cardId, className, disabled }: { songId
         </svg>
       </span>
       <span className="imp-show__text">{on ? t('import.showing') : busy ? t('import.showBusy') : t('import.show')}</span>
+      {!on && !busy ? <span className="imp-show__sec">{t('import.showSec')}</span> : null}
       {on ? <span key={promptId ?? ''} className="imp-show__bar" style={{ animationDuration: `${SHOW_MS}ms`, animationDelay: `-${elapsed}ms` }} aria-hidden="true" /> : null}
     </button>
   )

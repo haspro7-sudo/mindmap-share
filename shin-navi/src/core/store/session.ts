@@ -8,7 +8,8 @@ import { SONG_BY_ID } from '../../data/songs'
 import { IMPORT_DEMO } from '../../data/tables'
 import { AURORA_PALETTES, heatBucket, moodWordFor, roomMinutesLeft, simMsForMinutesLeft } from '../rules'
 import { clearAllStorage } from '../storage'
-import type { AuroraKey } from '../types'
+import { isMine } from './room'
+import type { AuroraKey, Night } from '../types'
 
 /** Queue head starts playing only after the undo window has passed (real ms). */
 const START_GRACE_MS = 3500
@@ -19,9 +20,13 @@ export const createSessionSlice: StateCreator<NaviState, [], [], SessionSlice> =
 
   startNight(o) {
     const prev = get().session
-    const col = get().col
-    const realNights = col.nights.filter(n => !n.seeded)
-    const visit = o?.nextVisit ? Math.max(prev.visit + 1, realNights.length + 1) : realNights.length + 1
+    // A night left open (reload with another seed, a scripted re-entry…) is never kept as an
+    // orphan: an empty one is dropped, one with something in it is closed where it stopped.
+    const nights = get().col.nights.flatMap(n => (n.seeded || n.endedAt != null ? [n] : nightIsEmpty(n) ? [] : [{ ...n, endedAt: Date.now() }]))
+    // Visits count real nights that ended (QA ROBUST#0), not reloads.
+    const closedReal = nights.filter(n => !n.seeded && n.endedAt != null).length
+    const visit = o?.nextVisit ? Math.max(prev.visit + 1, closedReal + 1) : closedReal + 1
+    const col = { ...get().col, nights }
     const seed = o?.seed ?? params.seed ?? `night-${todayKey()}-${visit}`
     const nightId = uid(`n${todayKey()}`)
     const session = {
@@ -50,7 +55,7 @@ export const createSessionSlice: StateCreator<NaviState, [], [], SessionSlice> =
       orders: freshOrders(),
       metrics: freshMetrics(),
       ui: { ...freshUi(), coach: s.ui.coach, reduced: s.ui.reduced },
-      col: { ...s.col, imports, nights: [...s.col.nights, freshNight(nightId)] },
+      col: { ...s.col, imports, nights: [...col.nights, freshNight(nightId)] },
     }))
     bus.emit({ type: 'night/started', nightId, visit })
   },
@@ -80,15 +85,19 @@ export const createSessionSlice: StateCreator<NaviState, [], [], SessionSlice> =
     })
     if (moodWord !== room.moodWord) bus.emit({ type: 'heat/changed', heat: room.heat, word: moodWord })
 
-    // Songs move on their own outside script mode.
+    // Songs move on their own outside script mode. In script mode only the night's very first
+    // song starts by itself (the 口火 is actually sung); every later move waits for "next".
+    const st = get()
+    const now = st.room.now
     if (!s.session.script) {
-      const st = get()
-      const now = st.room.now
       if (now && simMs - now.startedAt >= now.durationMs) st.finishNow()
       else if (!now && st.room.queue.length) {
         const head = st.room.queue[0]
         if (simMs - head.addedAt >= START_GRACE_MS * speed) st.startNext()
       }
+    } else if (!now && st.room.sung.length === 0 && st.room.queue.length) {
+      const head = st.room.queue[0]
+      if (simMs - head.addedAt >= START_GRACE_MS * speed) st.startNext()
     }
     checkMinutes(get().session.nightId, simMs)
   },
@@ -131,10 +140,21 @@ export const createSessionSlice: StateCreator<NaviState, [], [], SessionSlice> =
   exitRoom() {
     const s = get()
     if (s.session.phase !== 'live') return
+    // E-12 退室: my song on stage ends here (it counts as sung for the recap), my waiting songs
+    // leave the queue, I leave the room and the orders close. room.sung stays for the recap; the
+    // shared screen reads selRoomUnlinked and shows nothing personal.
+    if (s.room.now && isMine(s.room.now.item)) s.finishNow()
     s.closeOrders()
     set(st => ({
       session: { ...st.session, phase: 'wrap' },
-      room: { ...st.room, prompt: null, invites: st.room.invites.filter(i => i.status !== 'open'), bubbles: [] },
+      room: {
+        ...st.room,
+        queue: st.room.queue.filter(q => !isMine(q)),
+        members: { ...st.room.members, me: { ...st.room.members.me, present: false, arriving: false, joinedAt: null } },
+        prompt: null,
+        invites: st.room.invites.filter(i => i.status !== 'open'),
+        bubbles: [],
+      },
       ui: { ...st.ui, sheet: null, overlay: 'wrap', tab: 'discover' },
       col: { ...st.col, nights: st.col.nights.map(n => (n.id === st.session.nightId ? { ...n, endedAt: Date.now() } : n)) },
     }))
@@ -171,6 +191,11 @@ export const createSessionSlice: StateCreator<NaviState, [], [], SessionSlice> =
     get().startNight()
   },
 })
+
+/** Nothing of mine happened in this night (no face, no sung point, no note). */
+export function nightIsEmpty(n: Night): boolean {
+  return !n.facesGained.length && !n.points.length && !n.melody.length && !(n.allKnow?.length ?? 0)
+}
 
 function checkMinutes(nightId: string, simMs: number) {
   const left = roomMinutesLeft(simMs)

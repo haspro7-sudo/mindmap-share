@@ -99,30 +99,84 @@ function Swatch({ songId }: { songId: string }) {
   return <i className="sv-swatch" style={{ background: `linear-gradient(135deg, ${p.a}, ${p.b})` } as CSSProperties} />
 }
 
-/** Where the panel goes: over the deck on the phone, a side sheet on the room and dual views. */
+type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number }
+const rectOf = (sel: string): Rect | null => {
+  const r = document.querySelector(sel)?.getBoundingClientRect()
+  return r && r.width > 4 && r.height > 4 ? r : null
+}
+
+/**
+ * Where the panel goes (QA DEMO#0, handshake 8).
+ * · room / dual: inside the room screen's centre column (the ball area), under its status bar —
+ *   the lane stays readable on the left, the members on the right, and the bottom-right corner is
+ *   left to the presenter's pill. If the presenter's panel still reaches into that column, the split
+ *   slides left of it or ends above it: its right side (新ナビ) and the 更新 flash are never covered.
+ * · phone: over the deck, between the hero and the dock; when the presenter's pill sits in that band
+ *   (docked above the action bar) the split ends above it, taking the hero's room if it must.
+ * Re-placed on resize and on a slow poll (the pill can be dragged).
+ */
+export function placeSplit(wide: boolean, vw: number, vh: number, q: (sel: string) => Rect | null = rectOf): CSSProperties {
+  const pp = q('[data-testid="presenter-panel"]')
+  if (wide) {
+    const centre = q('[data-shell="room"] .rs-centre')
+    const status = q('[data-shell="room"] .rs-status')
+    const room = q('[data-shell="room"]')
+    const want = centre ? Math.min(560, Math.max(360, centre.width - 16)) : Math.min(460, Math.max(320, vw * 0.34))
+    let width = Math.min(want, vw - 16)
+    let left = centre ? centre.left + (centre.width - width) / 2 : vw - 16 - width
+    const top = Math.round((status && status.bottom < vh * 0.3 ? status.bottom : 48) + 10)
+    let bottom = vh - 16
+    if (pp) {
+      const floorLeft = Math.max(8, room ? room.left + 8 : 8)
+      const clash = () => left < pp.right + 12 && pp.left - 12 < left + width
+      if (clash() && pp.top > vh * 0.45) bottom = Math.min(bottom, pp.top - 12) // the pill (or a short panel) at the bottom
+      else if (clash()) {
+        // a tall panel on the right: end the split left of it, keeping at least a readable width
+        const right = pp.left - 12
+        width = Math.min(width, Math.max(320, right - floorLeft))
+        left = Math.max(8, right - width)
+        if (clash() && pp.top > top + 240) bottom = Math.min(bottom, pp.top - 12)
+      }
+    }
+    left = Math.max(8, Math.min(left, vw - 8 - width))
+    return { left: Math.round(left), top, width: Math.round(width), maxHeight: Math.max(200, Math.round(bottom - top)) }
+  }
+  const hero = q('[data-shell="phone"] [data-testid="hero"]')
+  const dock = q('[data-shell="phone"] [data-anchor="dock"]')
+  const shell = q('[data-shell="phone"]')
+  let top = hero && hero.bottom > 80 ? hero.bottom - 6 : vh * 0.45
+  let bottom = dock && dock.top > top + 200 ? dock.top - 6 : vh - 84
+  const left = shell ? Math.max(6, shell.left + 6) : 6
+  const right = shell ? Math.max(6, vw - shell.right + 6) : 6
+  if (pp && pp.bottom > top && pp.top < bottom) {
+    // the larger free band beside the presenter's pill/panel; above it, the hero may give its room
+    const upTop = hero && pp.top - 8 > hero.top + 4 ? Math.max(hero.top + 4, pp.top - 8 - 460) : top
+    const above = pp.top - 8 - Math.min(top, upTop)
+    const below = bottom - (pp.bottom + 8)
+    if (below >= above) top = pp.bottom + 8
+    else {
+      bottom = pp.top - 8
+      if (bottom - top < 300) top = Math.min(top, upTop)
+    }
+  }
+  // as tall as its content: below it the deck (the subject of the comparison) stays in view
+  return { left, right, top: Math.round(top), maxHeight: Math.max(220, Math.round(bottom - top)) }
+}
+
 function usePlacement(wide: boolean): CSSProperties {
   const [style, setStyle] = useState<CSSProperties>({})
   useLayoutEffect(() => {
     const place = () => {
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-      if (wide) {
-        const w = Math.min(460, Math.max(320, vw * 0.34))
-        setStyle({ right: 16, top: 60, width: w, maxHeight: vh - 80 })
-        return
-      }
-      const hero = document.querySelector('[data-shell="phone"] [data-testid="hero"]')?.getBoundingClientRect()
-      const dock = document.querySelector('[data-shell="phone"] [data-anchor="dock"]')?.getBoundingClientRect()
-      const top = hero && hero.bottom > 80 ? hero.bottom - 6 : vh * 0.45
-      const bottom = dock && dock.top > top + 200 ? dock.top - 6 : vh - 84
-      const shell = document.querySelector('[data-shell="phone"]')?.getBoundingClientRect()
-      const left = shell ? Math.max(6, shell.left + 6) : 6
-      const right = shell ? Math.max(6, vw - shell.right + 6) : 6
-      setStyle({ left, right, top, height: Math.max(240, bottom - top) })
+      const next = placeSplit(wide, window.innerWidth, window.innerHeight)
+      setStyle(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
     }
     place()
     window.addEventListener('resize', place)
-    return () => window.removeEventListener('resize', place)
+    const poll = window.setInterval(place, 500)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.clearInterval(poll)
+    }
   }, [wide])
   return style
 }
@@ -240,8 +294,10 @@ function SplitPanel() {
   const view = useViewMode()
   const t = planner.useT()
   const wide = view !== 'phone' || window.innerWidth >= 700
-  const small = !wide && (window.innerWidth < 375 || window.innerHeight < 760)
   const style = usePlacement(wide)
+  const small = !wide && (window.innerWidth < 375 || window.innerHeight < 760 || (typeof style.maxHeight === 'number' && style.maxHeight < 380))
+  // a split inside the room's centre column is narrower than a side sheet: rows drop the lock glyph
+  const narrow = wide && typeof style.width === 'number' && style.width < 480
   // the declared situation is frozen when the split opens: that is what "self-declared" means
   const [companion] = useState(() => naviApi.getState().room.mood.companion)
   const ids = useMemo(() => staticList(companion), [companion])
@@ -278,7 +334,7 @@ function SplitPanel() {
   }, [flash])
   return (
     <motion.div
-      className={`sv-root${wide ? ' is-wide' : ''}${small ? ' is-small' : ''}`}
+      className={`sv-root${wide ? ' is-wide' : ''}${small ? ' is-small' : ''}${narrow ? ' is-narrow' : ''}`}
       data-testid="split-view"
       style={{ pointerEvents: 'none' }}
       initial={{ opacity: 0 }}

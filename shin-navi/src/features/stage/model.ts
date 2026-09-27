@@ -1,7 +1,7 @@
 // Pure helpers for the stage module (no React, no DOM): unit-tested in stage.test.ts.
-import type { Member, MemberId, Order, SongId, SungEntry, VoiceTypeId } from '../../core/types'
+import type { AuroraKey, Member, MemberId, MoodWordId, Order, SongId, SungEntry, VoiceTypeId } from '../../core/types'
 import { SONG_BY_ID } from '../../data/songs'
-import { heatAfter, pKnow } from '../../core/rules'
+import { auroraFor, heatAfter, moodWordFor, pKnow } from '../../core/rules'
 import { seeded, clamp } from '../../lib/rng'
 
 // ---------------------------------------------------------------- colours
@@ -71,6 +71,31 @@ export function glassSlots(rowCount: number, orders: Pick<Order, 'status' | 'eta
   return out
 }
 
+/**
+ * The ETA the empty lane shows for its single glass (QA ROBUST#15): the soonest open order's own
+ * etaAfterSongs (at least 1), so the lane and the order never disagree.
+ */
+export function soonestEta(orders: Pick<Order, 'status' | 'etaAfterSongs'>[]): number {
+  const open = orders.filter(o => o.status === 'sending' || o.status === 'accepted' || o.status === 'preparing')
+  return open.length ? Math.max(1, Math.min(...open.map(o => o.etaAfterSongs))) : 1
+}
+
+/** The hero's forecast word key for the word the air is heading to, worded by direction (QA OWNER#7). */
+export function forecastKey(word: MoodWordId, rising: boolean): 'fc.hot' | 'fc.warmUp' | 'fc.warmDown' | 'fc.mellowUp' | 'fc.mellowDown' | 'fc.quiet' {
+  switch (word) {
+    case 'peak':
+    case 'rising':
+      return 'fc.hot'
+    case 'warming':
+    case 'welcome':
+      return rising ? 'fc.warmUp' : 'fc.warmDown'
+    case 'mellow':
+      return 'fc.mellowDown'
+    default:
+      return rising ? 'fc.mellowUp' : 'fc.quiet'
+  }
+}
+
 /** Split a translated sentence around a marker so a number can be styled on its own. */
 export function splitAround(text: string, marker: string): [string, string] {
   const i = text.indexOf(marker)
@@ -112,6 +137,22 @@ export function forecastQueue(heat: number, songIds: SongId[], present: Presenti
     out.push(h)
   }
   return out
+}
+
+/**
+ * Navi's read of the air after the songs that are coming (NOW + the next two), expressed as the
+ * aurora colour the mood word would then have (QA OWNER#7). Uses the same heat model as the flow
+ * line and the same word rules as the store, so "a different colour" means the word would really
+ * change (the raw heat buckets and the word thresholds differ around 0.45–0.55).
+ */
+export function forecastMood(heat: number, sungEnergies: number[], upcoming: SongId[], present: Presentish[]): { word: MoodWordId; bucket: AuroraKey; rising: boolean } | null {
+  const ids = upcoming.filter(id => SONG_BY_ID[id]).slice(0, 3)
+  if (!ids.length) return null
+  const hs = forecastQueue(heat, ids, present)
+  const h = hs[hs.length - 1]
+  const trend: -1 | 0 | 1 = h > heat + 0.02 ? 1 : h < heat - 0.02 ? -1 : 0
+  const word = moodWordFor({ heat: h, trend, started: true, recentEnergies: [...sungEnergies, ...ids.map(id => SONG_BY_ID[id]?.energy ?? 0.5)] })
+  return { word, bucket: auroraFor(word), rising: trend > 0 }
 }
 
 /** A display range around the values (at least 0.3 tall) so small heat changes still read. */

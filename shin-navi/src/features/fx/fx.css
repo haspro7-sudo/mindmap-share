@@ -80,6 +80,13 @@
   --c3: rgba(255, 240, 184, 0.6);
   transition-duration: 0.25s;
 }
+/* the forecast lean (QA OWNER#7): the coming palette shows part-way on top of the current one */
+.fx-bg[data-preview='quiet'] .fx-static--quiet,
+.fx-bg[data-preview='mellow'] .fx-static--mellow,
+.fx-bg[data-preview='warm'] .fx-static--warm,
+.fx-bg[data-preview='hot'] .fx-static--hot {
+  opacity: 0.45;
+}
 .fx-bg[data-palette='quiet'] .fx-static--quiet,
 .fx-bg[data-palette='mellow'] .fx-static--mellow,
 .fx-bg[data-palette='warm'] .fx-static--warm,

@@ -1,5 +1,7 @@
 // M2 ball acceptance (SPEC L/M2 1–8; T01 ball parts, T02 keep → data-lit-count/data-sketch,
 // T04 sketch → neon → mirror, T12 room ball privacy, T15 reduced motion + performance).
+// QA fix round 1: ROBUST#2 (raster cost: DPR cap, frame pacing, governor tiers), the record chips'
+// highlight (fxState.ballHighlight) and the gap card front (OWNER#6 card-front contract).
 export const name = 'ball'
 
 const HERO = '[data-shell=phone] [data-testid=ball-canvas][data-variant=hero], [data-testid=ball-canvas][data-variant=hero]'
@@ -269,7 +271,7 @@ export async function run({ openApp, assert, step, browser, url }) {
     const heroFps = (f1.hero - f0.hero) / 2
     // headless machines may render below 60 fps; the mini ball must still stay at ≤10 fps
     assert.ok(miniFps <= 11 && miniFps >= Math.min(7, heroFps * 0.45), `mini ball ≈10 fps (${miniFps}; hero ${heroFps})`)
-    assert.ok(heroFps > miniFps * 1.4, `hero draws every frame (${heroFps} fps)`)
+    assert.ok(heroFps > miniFps * 1.4, `the idle hero draws faster than the dock ball (${heroFps} fps, ≈30 when idle — ROBUST#2 pacing)`)
     await page.click('[data-testid=dock-sing]')
     await page.waitForTimeout(700)
     const h0 = await page.evaluate(() => window.__ball.frames('hero'))
@@ -307,31 +309,90 @@ export async function run({ openApp, assert, step, browser, url }) {
     await context.close()
   })
 
-  await step('gap card body: zoomed ball, area headline, three songs, primary opens the area (M2-8)', async () => {
+  await step('gap card front: zoomed ball, the area as the title, one short line, a peek at its songs; primary opens the area (M2-8, OWNER#6)', async () => {
+    for (const [locale, viewport] of [['ja', 'phone'], ['en', 'small']]) {
+      const { page, errors, context } = await openApp(viewport, `?test=1&seed=test&reset=1&intro=0&locale=${locale}`)
+      await page.waitForSelector('[data-testid=deck]')
+      await page.waitForTimeout(500)
+      await page.evaluate(() => {
+        window.__navi.get().dealCards([{ id: 'gap-e2e', kind: 'gap', area: 'slow:J-POP', reason: { source: 'yomu', text: { key: 'reason.gap', vars: { tempo: { tempo: 'slow' }, genre: { genre: 'J-POP' } } }, cause: { key: 'cause.interval' } }, trigger: { type: 'enter', at: 0 }, rule: 'test', dealtAt: Date.now() }], 'top')
+      })
+      await page.waitForSelector('.gap-body [data-testid=gap-ball]')
+      await page.waitForTimeout(400)
+      const info = await page.evaluate(() => {
+        const body = document.querySelector('.gap-body')
+        // visible text elements on the front of the body (leaf elements with their own text)
+        const texts = [...body.querySelectorAll('*')].filter(el => [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 0)
+        const title = body.querySelector('.gap-body__title').getBoundingClientRect()
+        const line = body.querySelector('.gap-body__line').getBoundingClientRect()
+        const face = body.closest('.cs__face')?.getBoundingClientRect() ?? body.getBoundingClientRect()
+        return {
+          head: body.querySelector('[data-testid=card-reason]').textContent,
+          title: body.querySelector('.gap-body__title').textContent,
+          line: body.querySelector('.gap-body__line').textContent,
+          songs: body.querySelector('.gap-body__songs').textContent.split(' · ').length,
+          all: body.textContent,
+          texts: texts.length,
+          minFont: Math.min(...texts.map(el => parseFloat(getComputedStyle(el).fontSize))),
+          inside: title.left >= face.left - 1 && title.right <= face.right + 1 && line.bottom <= face.bottom + 1,
+          ready: body.querySelector('[data-testid=gap-ball]').getAttribute('data-ready'),
+          primary: window.__navi.get().deck.primary,
+        }
+      })
+      if (locale === 'ja') {
+        assert.equal(info.title, 'スローなJ-POP', `the area is the title (${info.title})`)
+        assert.match(info.line, /まだ0曲/)
+      } else {
+        assert.equal(info.title, 'Slow J-Pop', `the area is the title (${info.title})`)
+        assert.match(info.line, /None lit/)
+      }
+      // card-front contract: no planner numbers or region jargon on the front
+      assert.ok(!/23|面が点灯|南側|faces lit|the south/.test(info.all), `no counters / region jargon on the front: ${info.all}`)
+      assert.ok(info.texts <= 4, `at most title, line and a song peek on the body (${info.texts} text elements)`)
+      assert.ok(info.minFont >= 12, `min font 12px (${info.minFont})`)
+      assert.ok(info.inside, 'title and line inside the card')
+      assert.equal(info.songs, 3, 'a peek at three songs of the area')
+      assert.equal(info.ready, '1')
+      assert.equal(info.primary?.action, 'openArea')
+      await page.evaluate(() => window.__navi.get().act('gap-e2e', 'openArea'))
+      await page.waitForTimeout(200)
+      const sheet = await page.evaluate(() => window.__navi.get().ui.sheet)
+      assert.equal(sheet?.id, 'search')
+      assert.equal(sheet.arg.filters.tempo, 'slow')
+      noErrors(errors, `gap ${locale}`)
+      await context.close()
+    }
+  })
+
+  await step('record chips: fxState.ballHighlight dims the other faces to ~25 %, turns the nearest match to the front, clears on null', async () => {
     const { page, errors, context } = await openApp('phone', '?test=1&seed=test&reset=1&intro=0')
-    await page.waitForSelector('[data-testid=deck]')
-    await page.waitForTimeout(500)
+    await page.waitForSelector(HERO)
     await page.evaluate(() => {
-      window.__navi.get().dealCards([{ id: 'gap-e2e', kind: 'gap', area: 'slow:J-POP', reason: { source: 'yomu', text: { key: 'reason.gap', vars: { tempo: { tempo: 'slow' }, genre: { genre: 'J-POP' } } } }, trigger: { type: 'enter', at: 0 }, rule: 'test', dealtAt: Date.now() }], 'top')
+      const g = window.__navi.get
+      ;['lemon', 'gurenge', 'idol', 'pretender', 'marigold', 'hakujitsu'].forEach((id, i) => g().faceEvent(id, i % 2 ? 'reserve' : 'sung'))
     })
-    await page.waitForSelector('.gap-body [data-testid=gap-ball]')
-    await page.waitForTimeout(400)
-    const info = await page.evaluate(() => ({
-      head: document.querySelector('.gap-body [data-testid=card-reason]').textContent,
-      songs: document.querySelectorAll('.gap-body__song').length,
-      ready: document.querySelector('.gap-body [data-testid=gap-ball]').getAttribute('data-ready'),
-      primary: window.__navi.get().deck.primary,
-    }))
-    assert.ok(/J-POP/.test(info.head) && /南側/.test(info.head), `headline names the area (${info.head})`)
-    assert.equal(info.songs, 3)
-    assert.equal(info.ready, '1')
-    assert.equal(info.primary?.action, 'openArea')
-    await page.evaluate(() => window.__navi.get().act('gap-e2e', 'openArea'))
-    await page.waitForTimeout(200)
-    const sheet = await page.evaluate(() => window.__navi.get().ui.sheet)
-    assert.equal(sheet?.id, 'search')
-    assert.equal(sheet.arg.filters.tempo, 'slow')
-    noErrors(errors, 'gap')
+    await page.click('[data-testid=dock-record]')
+    const REC = '[data-testid=ball-canvas][data-variant=record]'
+    await page.waitForSelector(REC)
+    await page.waitForTimeout(600)
+    assert.equal(await page.evaluate(() => window.__ball.dimmed('record')), 0, 'nothing dimmed without a chip')
+    const neon = await page.evaluate(() => Object.values(window.__navi.get().col.faces).filter(f => f.state === 'neon').map(f => f.songId))
+    await page.evaluate(() => window.__ball.highlight('neon'))
+    await page.waitForTimeout(1100)
+    const r = await page.evaluate(ids => ({
+      attr: document.querySelector('[data-testid=ball-canvas][data-variant=record]').getAttribute('data-highlight'),
+      dimmed: window.__ball.dimmed('record'),
+      mini: window.__ball.dimmed('mini'),
+      front: Math.max(...ids.map(id => window.__ball.face(id, 'record')?.z ?? -1)),
+    }), neon)
+    assert.equal(r.attr, 'neon')
+    assert.equal(r.dimmed, 154 - neon.length, `every face but the ${neon.length} neon ones dims (${r.dimmed})`)
+    assert.ok(r.mini > 100, `the dock ball follows (${r.mini})`)
+    assert.ok(r.front > 0.8, `the nearest neon face turned to the front (z ${r.front.toFixed(2)})`)
+    await page.evaluate(() => window.__ball.highlight(null))
+    await page.waitForTimeout(700)
+    assert.equal(await page.evaluate(() => window.__ball.dimmed('record')), 0, 'all faces light again')
+    noErrors(errors, 'highlight')
     await context.close()
   })
 
@@ -347,6 +408,52 @@ export async function run({ openApp, assert, step, browser, url }) {
     await page.waitForTimeout(800)
     const r1 = await page.evaluate(() => window.__ball.rot())
     assert.ok(Math.abs(r1 - r0) < 1e-6, 'the ball does not spin')
+    await context.close()
+  })
+
+  await step('ROBUST#2 raster cost: DPR ≤ 1.5, the idle hero redraws at ~30 fps, a finger gets every frame, lower tiers go lighter', async () => {
+    const { page, errors, context } = await openApp('phone', '?test=1&seed=test&reset=1&intro=0')
+    await page.waitForSelector(HERO)
+    await page.evaluate(() => window.__fx.forceTier(2))
+    await page.waitForTimeout(1200)
+    const a = await page.evaluate(() => ({ p: window.__ball.pace('hero'), t: performance.now(), css: document.querySelector('[data-testid=ball-canvas][data-variant=hero]').getBoundingClientRect().width }))
+    assert.ok(a.p.dpr <= 1.5, `hero DPR ${a.p.dpr} (device 2)`)
+    assert.ok(a.p.px <= Math.ceil(a.css * 1.5) ** 2, `backing store ${a.p.px} px for ${a.css} css px`)
+    const halo = await page.evaluate(() => !!document.querySelector('.mb--hero .mb__halo'))
+    assert.ok(halo, 'the static halo lives in its own canvas')
+    await page.waitForTimeout(2000)
+    const b = await page.evaluate(() => ({ p: window.__ball.pace('hero'), t: performance.now() }))
+    const draws = b.p.frames - a.p.frames
+    const ticks = draws + (b.p.skipped - a.p.skipped)
+    const fps = (draws * 1000) / (b.t - a.t)
+    assert.ok(b.p.skipped - a.p.skipped > 10, `idle ticks are skipped (${b.p.skipped - a.p.skipped})`)
+    assert.ok(fps <= 36, `idle hero ≈30 fps at most: ${fps.toFixed(1)} fps, ${draws}/${ticks} ticks drawn`)
+    // a finger on the ball: every frame is drawn
+    const box = await page.locator('.mb--hero').boundingBox()
+    const drag = await page.evaluate(async ([x0, y]) => {
+      const el = document.querySelector('.mb--hero')
+      const fire = (type, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 5, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y }))
+      fire('pointerdown', x0)
+      const p0 = window.__ball.pace('hero')
+      for (let i = 1; i <= 30; i++) {
+        await new Promise(r => requestAnimationFrame(r))
+        fire('pointermove', x0 + i * 3)
+      }
+      const p1 = window.__ball.pace('hero')
+      fire('pointerup', x0 + 90)
+      return { draws: p1.frames - p0.frames, skipped: p1.skipped - p0.skipped }
+    }, [box.x + 30, box.y + box.height / 2])
+    assert.ok(drag.draws >= 26 && drag.skipped <= 3, `dragging draws every frame (${JSON.stringify(drag)})`)
+    // tier 0: 15 fps, DPR 1
+    await page.evaluate(() => window.__fx.forceTier(0))
+    await page.waitForTimeout(1500)
+    const c = await page.evaluate(() => ({ p: window.__ball.pace('hero'), t: performance.now() }))
+    await page.waitForTimeout(2000)
+    const d = await page.evaluate(() => ({ p: window.__ball.pace('hero'), t: performance.now() }))
+    const fps0 = ((d.p.frames - c.p.frames) * 1000) / (d.t - c.t)
+    assert.equal(d.p.dpr, 1, 'tier 0 draws at DPR 1')
+    assert.ok(fps0 <= 19, `tier 0 idles at ≈15 fps (${fps0.toFixed(1)})`)
+    noErrors(errors, 'pace')
     await context.close()
   })
 

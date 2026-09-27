@@ -13,7 +13,7 @@ export const coreStrings = defineStrings('core', {
   },
   en: {
     queuedEnd: 'Added to the end of the queue',
-    excuse: 'The navi misread that one. It will make up for it next.',
+    excuse: 'Navi misread that one. It’ll make up for it next.',
     notReservable: 'Not yet available at this venue (demo)',
     orderClosed: 'Ordering is closed',
     undone: 'Undone',
@@ -45,6 +45,6 @@ export const coreStrings = defineStrings('core', {
     orderClosed: '주문이 마감되었어요',
     undone: '되돌렸어요',
     inserted: '다음 곡으로 넣었어요',
-    finaleFixed: '마지막 곡이 정해졌어요',
+    finaleFixed: '마무리 곡이 정해졌어요',
   },
 })

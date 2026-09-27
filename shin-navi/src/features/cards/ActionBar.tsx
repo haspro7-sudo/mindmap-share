@@ -1,14 +1,15 @@
 // Action bar (SPEC C-1, F-3): the button twin of every flick. [left] [primary, 50%, biggest]
 // [keep]. The primary label comes from the card body (setPrimary). Keep is hidden for kinds that
-// cannot become a face; the bar disappears for the breather and turns into a single
-// "done singing (demo)" button while my song is on.
-import { useLayoutEffect, useRef } from 'react'
+// cannot become a face; the bar empties for the breather. The three buttons ALWAYS stay — also
+// while my own song is on (the demo "done singing" control lives in the lane's NOW chip, stage).
+// On the first visit the bar fades in with the lane (B-2 2.4 s), never before the card rises.
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { motion } from 'motion/react'
 import type { CardAction } from '../../core/types'
 import { KEEPABLE } from '../../core/types'
 import { useNavi } from '../../core/store'
 import { selTopCard } from '../../core/selectors'
-import { bus } from '../../core/events'
+import { introPending, introWait } from '../../core/intro'
 import { SPRING } from '../../core/ui/motion'
 import { useTr } from '../../i18n'
 import { deckCtl, type CommitDir } from './DeckView'
@@ -26,6 +27,7 @@ const TONE: Partial<Record<CardAction, string>> = {
   reveal: 'violet',
   accept: 'hot',
   putDown: 'mint',
+  keep: 'silver',
 }
 
 function PassIcon() {
@@ -56,8 +58,9 @@ export function ActionBar(): JSX.Element {
   const trr = useTr()
   const top = useNavi(selTopCard)
   const primary = useNavi(s => s.deck.primary)
-  const myTurn = useNavi(s => !!s.room.now && s.room.now.item.by === 'me')
   const ref = useRef<HTMLDivElement>(null)
+  // decided once at mount: a first-visit intro keeps the bar dark until the lane arrives
+  const entrance = useMemo(() => (introPending('lane') ? { delay: introWait('lane') } : null), [])
 
   useLayoutEffect(() => {
     deckCtl.barEl = ref.current
@@ -67,40 +70,29 @@ export function ActionBar(): JSX.Element {
   })
 
   const go = (d: CommitDir) => deckCtl.commit?.(d)
+  const fade = {
+    initial: entrance ? { opacity: 0, y: 10 } : false,
+    animate: { opacity: 1, y: 0 },
+    transition: entrance ? { duration: 0.3, ease: 'easeOut' as const, delay: entrance.delay } : { duration: 0 },
+  } as const
 
-  if (myTurn) {
-    return (
-      <div className="abar abar--turn" ref={ref}>
-        <motion.button
-          type="button"
-          className="abar__btn abar__btn--primary abar__btn--wide"
-          data-testid="btn-finish"
-          whileTap={{ scale: 0.96 }}
-          transition={SPRING.snappy}
-          onClick={() => bus.emit({ type: 'presenter/cmd', cmd: { t: 'finishMine' } })}
-        >
-          <span className="abar__label">{t('finishedDemo')}</span>
-        </motion.button>
-      </div>
-    )
-  }
-
-  if (!top || top.kind === 'breather') return <div className="abar is-empty" ref={ref} aria-hidden="true" />
+  if (!top || top.kind === 'breather') return <motion.div className="abar is-empty" ref={ref} aria-hidden="true" {...fade} />
 
   const keepable = KEEPABLE.has(top.kind)
   const fallbackOk = top.kind === 'song' || top.kind === 'ask' || top.kind === 'link'
   const label = primary ? trr(primary.label) : fallbackOk ? t('reserve') : String.fromCharCode(0x2026)
   const enabled = primary ? primary.enabled : false
   const tone = primary ? TONE[primary.action] ?? 'hot' : 'hot'
+  const passLabel = t(leftKey(top))
   return (
-    <div className="abar" ref={ref} data-kind={top.kind}>
-      <motion.button type="button" className="abar__btn abar__btn--side abar__btn--pass" data-testid="btn-pass" whileTap={{ scale: 0.94 }} transition={SPRING.snappy} onClick={() => go('left')}>
+    <motion.div className="abar" ref={ref} data-kind={top.kind} data-testid="action-bar" {...fade}>
+      <motion.button type="button" className={`abar__btn abar__btn--side abar__btn--pass${passLabel.length > 6 ? ' is-long' : ''}`} data-testid="btn-pass" whileTap={{ scale: 0.94 }} transition={SPRING.snappy} onClick={() => go('left')}>
         <PassIcon />
-        <span className="abar__label">{t(leftKey(top))}</span>
+        <span className="abar__label">{passLabel}</span>
       </motion.button>
       <motion.button
         type="button"
-        className={`abar__btn abar__btn--primary tone-${tone}`}
+        className={`abar__btn abar__btn--primary tone-${tone}${label.length > 12 ? ' is-long' : ''}`}
         data-testid="btn-primary"
         data-action={primary?.action ?? ''}
         disabled={!enabled}
@@ -121,6 +113,6 @@ export function ActionBar(): JSX.Element {
       ) : (
         <span className="abar__btn abar__btn--side abar__btn--spacer" aria-hidden="true" />
       )}
-    </div>
+    </motion.div>
   )
 }

@@ -1,4 +1,6 @@
-// M5 room-sim acceptance (SPEC L/M5; the M5 parts of B-2, T03, T10, T13; E-6, E-7, E-13, E-14).
+// M5 room-sim acceptance (SPEC L/M5; the M5 parts of B-2, T03, T10, T13; E-6, E-7, E-13, E-14)
+// and QA fix round 1: the → presses of SPEC N (DEMO#1/#8), the presenter pill (DEMO#0/#10), the
+// demo's language at exit (DEMO#5) and あなたの番 never taking a private song (POLICY#1).
 export const name = 'room'
 
 const Q = '?test=1&seed=test&reset=1'
@@ -7,6 +9,14 @@ const PP_IDS = [
   'coaster', 'min15', 'exit', 'nextvisit', 'seed', 'view-auto', 'view-phone', 'view-room', 'view-dual', 'lang', 'lens', 'split',
   'noduck', 'entry', 'reset', 'metrics-reset', 'close', 'collapse',
 ]
+/** The script: two quiet set-up steps and six → presses (SPEC N beats 5, 6, 7, 7, 8, 10). */
+const STEPS = ['enter', 'saki-mellow', 'minato-reserve', 'jun-join', 'advance-2', 'my-turn', 'my-song-end', 'coaster', 'exit']
+const IMPORT_DEMO = ['kaiju-hanauta', 'hakujitsu', 'bansanka', 'plastic-love', 'ditto']
+const box = async loc => {
+  const b = await loc.boundingBox()
+  return b && { l: b.x, t: b.y, r: b.x + b.width, b: b.y + b.height, w: b.width, h: b.height }
+}
+const hits = (a, b) => !!a && !!b && a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5
 
 export async function run({ openApp, assert, step }) {
   const opened = []
@@ -33,7 +43,8 @@ export async function run({ openApp, assert, step }) {
       const api = window.__navi.api
       api.setState(s => {
         const i = s.deck.cards.findIndex(c => c.kind === k && (!v || c.variant === v))
-        if (i < 0) return {}
+        // already on top (presenter-fired invites land there): keep its primary button
+        if (i <= 0) return {}
         const cards = s.deck.cards.slice()
         const [c] = cards.splice(i, 1)
         return { deck: { ...s.deck, cards: [c, ...cards], primary: null } }
@@ -80,7 +91,8 @@ export async function run({ openApp, assert, step }) {
     const panel = page.locator('[data-testid=presenter-panel]')
     await panel.waitFor({ state: 'visible' })
     for (const id of PP_IDS) assert.equal(await page.locator(`[data-testid=pp-${id}]`).count(), 1, `pp-${id}`)
-    for (let i = 0; i < 11; i++) assert.ok(await page.locator('[data-testid^=pp-step-]').nth(i).count())
+    assert.equal(await page.locator('[data-testid^=pp-step-]').count(), STEPS.length, 'one rail dot per script step')
+    for (const id of STEPS) assert.equal(await page.locator(`[data-testid=pp-step-${id}]`).count(), 1, `pp-step-${id}`)
     assert.ok(await page.locator('[data-testid=pp-hud-ttfr]').isVisible(), 'metrics HUD')
     const box = await panel.boundingBox()
     assert.ok(box.x >= 0 && box.x + box.width <= 390, 'panel fits the phone width')
@@ -121,8 +133,102 @@ export async function run({ openApp, assert, step }) {
     }
   })
 
+  // ---------------------------------------------------------------- QA DEMO#0/#10: the presenter pill
+  await stepC('presenter pill: folded panel ≤ 340×52 on the tab bar (phone) / bottom-right (wide); ⋯ menu; S and L fold it', async () => {
+    for (const kind of ['phone', 'small']) {
+      const { page, errors } = await open(kind, `${Q}&intro=0&script=1`)
+      await page.waitForSelector('[data-testid=card-top]')
+      await page.keyboard.press('?')
+      await page.locator('[data-testid=presenter-panel][data-mini="0"]').waitFor({ state: 'visible' })
+      await page.click('[data-testid=pp-collapse]')
+      const pill = page.locator('[data-testid=presenter-panel][data-mini="1"]')
+      await pill.waitFor({ state: 'visible' })
+      await page.waitForTimeout(400)
+      const vw = page.viewportSize().width
+      const vh = page.viewportSize().height
+      const p = await box(pill)
+      assert.ok(p.w <= 340 + 0.5 && p.h <= 52 + 0.5, `${kind}: pill ${p.w}×${p.h}`)
+      assert.ok(p.l >= 0 && p.r <= vw && p.t >= 0 && p.b <= vh, `${kind}: pill inside the viewport`)
+      for (const [what, sel] of [
+        ['status bar', '[data-testid=status-bar]'],
+        ['queue', '[data-shell=phone] [data-testid=stage-lane]'],
+        ['search', '[data-shell=phone] [data-testid=search-bar]'],
+        ['card', '[data-shell=phone] [data-testid=card-top]'],
+        ['action bar', '[data-shell=phone] [data-testid=btn-primary]'],
+        ['language', '[data-testid=lang-button]'],
+      ]) {
+        const b = await box(page.locator(sel).first())
+        assert.ok(!hits(p, b), `${kind}: pill clear of the ${what} ${JSON.stringify(b)} (pill ${JSON.stringify(p)})`)
+      }
+      // → from the pill runs the script (the quiet set-up passes silently, Jun walks in)
+      assert.equal(await page.locator('[data-testid=pp-next]').getAttribute('data-step'), 'jun-join')
+      await page.click('[data-testid=pp-next]')
+      assert.ok(await waitFor(page, () => window.__navi.get().room.members.jun.present), `${kind}: → from the pill`)
+      // a quick tap on the pill does nothing; holding it opens the menu (Escape closes it)
+      const grip = await box(page.locator('.pp-pill__grip'))
+      await page.mouse.move(grip.l + 40, grip.t + grip.h / 2)
+      await page.mouse.down()
+      await page.mouse.up()
+      await page.waitForTimeout(700)
+      assert.equal(await page.locator('[data-testid=pp-menu]').count(), 0, `${kind}: a tap is not a hold`)
+      await page.mouse.down()
+      await page.waitForTimeout(700)
+      await page.mouse.up()
+      await page.locator('[data-testid=pp-menu]').waitFor({ state: 'visible' })
+      await page.keyboard.press('Escape')
+      await page.locator('[data-testid=pp-menu]').waitFor({ state: 'detached' })
+      // ⋯ opens split / lens / Jun / open / close
+      await page.click('[data-testid=pp-more]')
+      await page.locator('[data-testid=pp-menu]').waitFor({ state: 'visible' })
+      for (const id of ['split', 'lens', 'join', 'open', 'close']) assert.equal(await page.locator(`[data-testid=pp-menu] [data-testid=pp-${id}]`).count(), 1, `menu pp-${id}`)
+      const m = await box(page.locator('[data-testid=pp-menu]'))
+      assert.ok(m.t >= 0 && m.b <= vh && m.l >= 0 && m.r <= vw, `${kind}: the menu is on screen`)
+      await page.click('[data-testid=pp-menu] [data-testid=pp-split]')
+      await page.locator('[data-testid=split-view]').waitFor({ state: 'visible' })
+      assert.equal(await page.locator('[data-testid=presenter-panel]').getAttribute('data-pill'), 'forced')
+      // the pill can be dragged, but never over the queue
+      const g = await box(page.locator('.pp-pill__grip'))
+      await page.mouse.move(g.l + 30, g.t + g.h / 2)
+      await page.mouse.down()
+      await page.mouse.move(g.l + 30, 10, { steps: 8 })
+      await page.mouse.up()
+      await page.waitForTimeout(250)
+      const lane = await box(page.locator('[data-shell=phone] [data-testid=stage-lane]').first())
+      const moved = await box(pill)
+      assert.ok(moved.t < p.t - 40, `${kind}: dragged up (${p.t} → ${moved.t})`)
+      assert.ok(moved.t >= lane.b - 1, `${kind}: never over the queue (${moved.t} < ${lane.b})`)
+      noErrors(errors, `pill ${kind}`)
+    }
+    // wide: the full panel folds into a bottom-right pill as soon as the split or the lens shows
+    const { page, errors } = await open('dual', `?test=1&seed=demo&reset=1&intro=0&view=dual&script=1`)
+    await page.waitForSelector('[data-testid=app-root]')
+    await page.waitForTimeout(700)
+    await page.keyboard.press('?')
+    await page.locator('[data-testid=presenter-panel][data-mini="0"]').waitFor({ state: 'visible' })
+    for (const key of ['s', 'l']) {
+      await page.keyboard.press(key)
+      const pill = page.locator('[data-testid=presenter-panel][data-mini="1"]')
+      await pill.waitFor({ state: 'visible' })
+      await page.waitForTimeout(500)
+      const p = await box(pill)
+      assert.ok(p.w <= 340.5 && p.h <= 52.5, `dual ${key}: pill ${p.w}×${p.h}`)
+      assert.ok(Math.abs(1366 - 16 - p.r) <= 1 && Math.abs(768 - 16 - p.b) <= 1, `dual ${key}: bottom-right, 16 px in (${JSON.stringify(p)})`)
+      if (key === 's') {
+        await page.evaluate(() => window.__navi.fire({ t: 'join', id: 'jun' }))
+        await page.waitForTimeout(1300)
+        for (const sel of ['[data-testid=split-dynamic]', '[data-testid=split-flash]']) {
+          const b = await box(page.locator(sel).first())
+          assert.ok(b && !hits(p, b), `dual: ${sel} clear of the pill`)
+        }
+      }
+      await page.keyboard.press(key)
+      await page.locator('[data-testid=presenter-panel][data-mini="0"]').waitFor({ state: 'visible' })
+    }
+    noErrors(errors, 'pill dual')
+  })
+
   // ---------------------------------------------------------------- E-13 / T03: the script walks the demo
-  await stepC('E-13 / T03: pp-next runs the script; each step builds its state and brings its card', async () => {
+  await stepC('E-13 / T03 (QA DEMO#1/#8): six → presses, each with its own result; the opener is sung; nobody jumps the queue', async () => {
     const { page, errors } = await open('phone', `${Q}&intro=0&script=1&speed=8`)
     await page.waitForSelector('[data-testid=card-top]')
     const kinds = new Set()
@@ -138,67 +244,88 @@ export async function run({ openApp, assert, step }) {
       const c = s.deck.cards[0]
       if (c) s.act(c.id, c.kind === 'invite' && c.variant !== 'twin' ? 'decline' : c.kind === 'breather' ? 'oneMore' : 'pass')
     })
+    const started = () => S(page, () => window.__started)
     await page.keyboard.press('?')
+    await page.click('[data-testid=pp-collapse]')
     // every bubble the floor says during the demo is a positive line from the room namespace
     await S(page, () => {
       window.__bubbles = new Set()
+      window.__started = []
       window.__navi.api.subscribe(s => s.room.bubbles.forEach(b => window.__bubbles.add(`${b.member}|${b.text.key}`)))
+      window.__navi.api.subscribe((s, p) => {
+        if (s.room.now && s.room.now !== p.room.now) window.__started.push(`${s.room.now.item.songId}|${s.room.now.item.by}`)
+      })
     })
-    // my opener goes in first (a thrown card)
+    // beat 2: my opener goes in first (a thrown card) and is actually sung
     await look()
+    const opener = await S(page, () => window.__navi.get().deck.cards[0].songId)
     await page.click('[data-testid=btn-primary]')
     await page.waitForTimeout(600)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       await look()
       await passTop()
       await page.waitForTimeout(250)
     }
+    const presses = []
     const next = async id => {
       assert.equal(await page.locator('[data-testid=pp-next]').getAttribute('data-step'), id, `next step is ${id}`)
+      presses.push(id)
       await page.click('[data-testid=pp-next]')
       await page.waitForTimeout(350)
     }
-    // steps 2–3 are the room's own reaction to my first song: Minato, then Saki's slow pair
-    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.some(q => q.by === 'minato')), 'Minato reserved on his own')
-    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.filter(q => q.by === 'saki').length === 2), 'Saki queued her pair')
-    assert.deepEqual(await S(page, () => window.__navi.get().room.queue.filter(q => q.by === 'saki').map(q => q.songId)), ['lemon', 'dry-flower'])
-    assert.equal(await S(page, () => window.__navi.get().room.now), null, 'nothing starts by itself in script mode')
-    await page.waitForTimeout(200)
+    assert.ok(await waitFor(page, o => window.__navi.get().room.now?.item.songId === o, opener, 5000), 'the opener goes on stage by itself (handshake 6)')
+    // the room's quiet set-up: Saki's slow pair first, then Minato
+    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.filter(q => q.by === 'saki').length === 2, null, 7000), 'Saki queued her pair')
+    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.some(q => q.by === 'minato'), null, 7000), 'Minato reserved on his own')
+    const q0 = await S(page, () => window.__navi.get().room.queue.map(q => `${q.songId}|${q.by}`))
+    assert.deepEqual(q0.slice(0, 2), ['lemon|saki', 'dry-flower|saki'], `Saki's pair is ahead of Minato (${q0})`)
+    // beat 5
     await next('jun-join')
     assert.equal(await page.locator('[data-shell=phone] [data-testid=member-orb][data-member=jun]').first().getAttribute('data-present'), '1')
     await page.waitForTimeout(1500)
     await look()
     const visa = await S(page, () => window.__navi.get().deck.cards.some(c => c.kind === 'song' && c.variant === 'visa'))
     assert.ok(visa, 'a visa card is dealt after Jun joins')
+    // beat 6: the opener ends first (mirror face), then Saki's pair back to back → the shift card on top
     await next('advance-2')
-    assert.ok(await waitFor(page, () => window.__navi.get().room.sung.length >= 2 && !window.__navi.get().room.now), 'two songs played')
-    const last2 = await S(page, () => window.__navi.get().room.sung.slice(-2).map(e => e.item.songId))
-    assert.deepEqual(last2, ['lemon', 'dry-flower'])
+    assert.ok(await waitFor(page, () => window.__navi.get().room.sung.length >= 3 && !window.__navi.get().room.now), 'three songs played')
+    const sung3 = await S(page, () => window.__navi.get().room.sung.map(e => `${e.item.songId}|${e.item.by}`))
+    assert.deepEqual(sung3, [`${opener}|me`, 'lemon|saki', 'dry-flower|saki'])
+    assert.equal(await S(page, o => window.__navi.get().col.faces[o]?.state, opener), 'mirror', 'the sung opener is a mirror face')
     await page.waitForTimeout(400)
-    assert.equal(await topKind(page), 'shift', 'mellow2 brings the shift card on top')
+    assert.equal(await topKind(page), 'shift', 'mellow2 brings the shift card on top (no voice card above it)')
     await look()
+    // beat 7: my turn comes after the songs ahead of it, in order
     await next('my-turn')
-    assert.ok(await S(page, () => window.__navi.get().room.now?.item.by === 'me'), 'my song is NOW')
+    assert.ok(await waitFor(page, () => window.__navi.get().room.now?.item.by === 'me'), 'my song is NOW')
     await next('my-song-end')
     await page.waitForTimeout(300)
     const score = await S(page, () => window.__navi.get().room.sung.at(-1)?.score)
     assert.ok(score >= 78 && score <= 96, `demo score ${score}`)
-    assert.equal(await topKind(page), 'voice', 'the voice card is inserted on top')
+    assert.ok(await waitFor(page, () => window.__navi.get().deck.cards[0]?.kind === 'voice'), 'the voice card is inserted on top')
     await look()
-    await next('request-saki')
-    assert.ok(await waitFor(page, () => window.__navi.get().deck.cards.some(c => c.kind === 'invite' && c.variant === 'request')), 'the request card is dealt')
-    await toTop(page, 'invite', 'request')
-    await page.waitForTimeout(300)
+    // Saki's request is a panel button (backup beat), and it lands on top
+    await page.click('[data-testid=pp-collapse]')
+    await page.click('[data-testid=pp-request]')
+    assert.ok(await waitFor(page, () => { const c = window.__navi.get().deck.cards[0]; return c?.kind === 'invite' && c.variant === 'request' }), 'the requested invite lands on top')
     await look()
+    await page.click('[data-testid=pp-collapse]')
+    // beat 8
     await next('coaster')
     assert.ok(await waitFor(page, () => window.__navi.get().deck.cards[0]?.kind === 'coaster'), 'coaster on top')
     await look()
-    await next('minutes-15')
+    // the finale is a panel button too
+    await fire(page, { t: 'minutesLeft', m: 15 })
     assert.ok(await waitFor(page, () => window.__navi.get().deck.cards[0]?.kind === 'finale'), 'finale on top')
     await look()
+    // beat 10
     await next('exit')
     assert.equal(await S(page, () => window.__navi.get().session.phase), 'wrap')
     assert.equal(await page.locator('[data-testid=pp-next]').getAttribute('data-step'), '', 'script complete')
+    assert.deepEqual(presses, ['jun-join', 'advance-2', 'my-turn', 'my-song-end', 'coaster', 'exit'], 'six → presses')
+    // songs started in the order they were queued (the opener, Saki's pair, then on)
+    const order = await started()
+    assert.deepEqual(order.slice(0, 3), [`${opener}|me`, 'lemon|saki', 'dry-flower|saki'], `start order ${order}`)
     const said = await S(page, () => [...window.__bubbles])
     assert.ok(said.length >= 2, `the floor talks during the demo (${said.join(', ')})`)
     for (const b of said) assert.match(b, /^(minato|saki|jun)\|(room\.bubble\.(know|chorus|agree|queued|cheer|clap|hello|twinYes|duetYes|reqYes)\d?|core\.[\w.]+)$/, `positive bubble only: ${b}`)
@@ -206,6 +333,61 @@ export async function run({ openApp, assert, step }) {
     assert.ok(kinds.size >= 6, `kinds ${[...kinds].join(',')}`)
     assert.ok(labels.size >= 5, `primary labels ${[...labels].join(' / ')}`)
     noErrors(errors, 'script')
+  })
+
+  // ---------------------------------------------------------------- QA DEMO#5: the ending in the demo's language
+  await stepC('DEMO#5: beat 9 switches to 한국어; the exit → brings the wrap back in Japanese', async () => {
+    const { page, errors } = await open('phone', `${Q}&intro=0&script=1`)
+    await page.waitForSelector('[data-testid=card-top]')
+    await page.keyboard.press('?')
+    await page.click('[data-testid=pp-collapse]')
+    await page.click('[data-testid=pp-next]') // jun-join
+    await page.waitForTimeout(300)
+    await S(page, () => window.__navi.fire({ t: 'step', id: 'my-song-end' }))
+    assert.ok(await waitFor(page, () => window.__navi.get().room.sung.some(e => e.item.by === 'me')))
+    await page.click('[data-testid=lang-button]')
+    await page.click('[data-testid=lang-chip][data-locale=ko]')
+    assert.equal(await page.evaluate(() => document.documentElement.lang), 'ko')
+    await page.keyboard.press('Escape').catch(() => {})
+    await fire(page, { t: 'step', id: 'coaster' })
+    assert.equal(await page.locator('[data-testid=pp-next]').getAttribute('data-step'), 'exit')
+    assert.match(await page.locator('[data-testid=pp-next]').getAttribute('aria-label'), /日本語/, 'the pill says the language comes back')
+    await page.click('[data-testid=pp-next]')
+    assert.ok(await waitFor(page, () => window.__navi.get().session.phase === 'wrap'))
+    assert.equal(await page.evaluate(() => document.documentElement.lang), 'ja', 'the wrap is in Japanese')
+    await page.locator('[data-testid=wrap]').waitFor({ state: 'visible' })
+    await page.waitForTimeout(600)
+    const text = await page.locator('[data-testid=wrap]').innerText()
+    assert.ok(/[ぁ-んァ-ン]/.test(text) && !/[가-힣]{2}/.test(text), `the wrap reads in Japanese (${text.slice(0, 80)})`)
+    noErrors(errors, 'DEMO#5')
+  })
+
+  // ---------------------------------------------------------------- QA POLICY#1: あなたの番 never picks a private card
+  await stepC('POLICY#1: pp-myTurn with an import card on top never puts a candidate on the room screen', async () => {
+    const { page, errors } = await open('dual', '?test=1&seed=demo&script=1&reset=1&intro=0&view=dual')
+    await page.waitForSelector('[data-shell=phone] [data-testid=card-top]')
+    assert.ok(await waitFor(page, () => window.__navi.get().deck.cards.some(c => c.kind === 'import')) || true)
+    // an import candidate on top, a private invite and a voice card behind it, no reservation of mine
+    await S(page, () => {
+      const s = window.__navi.get()
+      s.openInvite({ variant: 'request', from: 'saki', songId: 'hakujitsu' })
+    })
+    await page.waitForTimeout(300)
+    await S(page, () => {
+      const api = window.__navi.api
+      const mk = (id, kind, songId, extra = {}) => ({ id, kind, songId, reason: { source: 'dare', text: { key: 'reason.twin' } }, trigger: { type: 'refill', at: 0 }, rule: 'test', dealtAt: Date.now(), ...extra })
+      api.setState(s => ({ deck: { ...s.deck, primary: null, cards: [mk('t-imp', 'import', 'kaiju-hanauta'), mk('t-inv', 'invite', 'hakujitsu', { variant: 'request', from: 'saki' }), mk('t-voice', 'voice', 'kanade'), ...s.deck.cards.filter(c => c.kind === 'song')] } }))
+    })
+    await page.waitForTimeout(300)
+    const imports = await S(page, () => window.__navi.get().col.imports.map(i => i.songId))
+    await page.keyboard.press('?')
+    await page.click('[data-testid=pp-myturn]')
+    assert.ok(await waitFor(page, () => window.__navi.get().room.now?.item.by === 'me'), 'my turn')
+    const now = await S(page, () => window.__navi.get().room.now.item.songId)
+    for (const id of [...IMPORT_DEMO, ...imports, 'hakujitsu', 'kanade']) assert.notEqual(now, id, `NOW is not the private ${id}`)
+    const roomText = await page.locator('[data-shell=room]').innerText()
+    for (const t of ['怪獣の花唄', 'ハクジツ', '奏']) assert.ok(!roomText.includes(t), `the room screen never shows ${t}`)
+    noErrors(errors, 'POLICY#1')
   })
 
   // ---------------------------------------------------------------- T10: Jun joins, the room re-reads
@@ -286,7 +468,8 @@ export async function run({ openApp, assert, step }) {
     })
     await page.mouse.click(10, 400)
     await fire(page, { t: 'twin' })
-    assert.ok(await waitFor(page, () => window.__navi.get().deck.cards.some(c => c.kind === 'invite' && c.variant === 'twin')))
+    // a presenter-fired twin star lands on top (QA DEMO#14/#15: room fires, the dealer places)
+    assert.ok(await waitFor(page, () => { const c = window.__navi.get().deck.cards[0]; return c?.kind === 'invite' && c.variant === 'twin' }), 'the twin invite is on top')
     await toTop(page, 'invite', 'twin')
     const body = page.locator('[data-testid=invite-body][data-variant=twin]')
     await body.waitFor({ state: 'visible' })

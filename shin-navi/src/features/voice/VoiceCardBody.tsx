@@ -1,7 +1,10 @@
-// The voice card body (arch frame, SPEC C-8 (5)). Before a check: "see your voice tonight?", the
-// two paths and "nothing is recorded" under three breathing pillars. After: the pillars fused into
-// tonight's colour orb, "this time, the voice was {type}", the evidence line and one song with its
-// key; the primary turns into a key-attached reserve ("-2 reserve") and a right flick keeps it.
+// The voice card body (arch frame, SPEC C-8 (5)). Before a check: "see your voice tonight?" and
+// the two paths under three breathing pillars. After: the pillars fused into tonight's colour orb,
+// "this time, the voice was {type}", the evidence line and one song with its key; the primary turns
+// into a key-attached reserve ("-2 reserve") and a right flick keeps it.
+// Card-front contract: "nothing is recorded" is a lock glyph on the hum path (its words are on the
+// back — cards' fine.voice — for screen readers, and in the sheet); the long key sentence becomes
+// the key badge (the sentence is the badge's label and is spelled out in the sheet's result).
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { motion } from 'motion/react'
 import type { CardBodyComponent, CardBodyProps, VoiceReading } from '../../core/types'
@@ -110,8 +113,13 @@ function VoiceBody({ card, active, act, setPrimary }: CardBodyProps) {
             </span>
             <span className="vc__ptext">
               <b>{t('card.mic')}</b>
-              <i>{t('card.micSub')}</i>
             </span>
+            {/* "optional" + the lock: nothing is recorded (the words are on the back and in the sheet) */}
+            <span className="vc__tag" data-testid="voice-card-norec" title={t('card.noRec')}>
+              <Icon name="lock" size={11} strokeWidth={2.4} />
+              {t('card.micSub')}
+            </span>
+            <span className="sr-only">{t('card.noRec')}</span>
           </motion.button>
           <motion.button type="button" className="vc__path vc__path--quiz" data-testid="voice-card-quiz" whileTap={{ scale: 0.95 }} onClick={() => open('quiz')}>
             <span className="vc__pico">
@@ -119,13 +127,8 @@ function VoiceBody({ card, active, act, setPrimary }: CardBodyProps) {
             </span>
             <span className="vc__ptext">
               <b>{t('card.quiz')}</b>
-              <i>{t('card.quizSub')}</i>
             </span>
           </motion.button>
-        </div>
-        <div className="vc__norec">
-          <Icon name="lock" size={12} strokeWidth={2.2} />
-          {t('card.noRec')}
         </div>
       </div>
     )
@@ -146,9 +149,12 @@ function VoiceBody({ card, active, act, setPrimary }: CardBodyProps) {
           </div>
           <div className="vc__meta">
             <SongTitle songId={song.id} variant="chip" className="vc__title" />
-            <span className="vc__keytext">{trr(keyAdvice(sug.keyShift))}</span>
+            <span className="vc__artist">{song.artist}</span>
           </div>
-          <span className={`vc__key${sug.keyShift === 0 ? ' is-orig' : ''}`}>{sug.keyShift === 0 ? t('key.origShort') : keyBadge(sug.keyShift)}</span>
+          <span className={`vc__key${sug.keyShift === 0 ? ' is-orig' : ''}`} title={trr(keyAdvice(sug.keyShift))} aria-label={trr(keyAdvice(sug.keyShift))}>
+            <small aria-hidden="true">{t('key.label')}</small>
+            <b aria-hidden="true">{sug.keyShift === 0 ? t('key.origShort') : keyBadge(sug.keyShift)}</b>
+          </span>
         </div>
       ) : (
         <div className="vc__ev vc__ev--dim">{t('noSong')}</div>

@@ -2758,9 +2758,6 @@
   gap: 16px;
   container-type: inline-size;
 }
-.sg-side .sg-mood--room .sg-mood__word {
-  font-size: min(40px, 10.6cqi) !important;
-}
 .sg-side__sec {
   display: flex;
   flex-direction: column;
@@ -2909,9 +2906,6 @@
 }
 .sg-side.is-tight {
   gap: 11px;
-}
-.sg-side.is-tight .sg-mood--room .sg-mood__word {
-  font-size: min(32px, 10.6cqi) !important;
 }
 .sg-side.is-tight .sg-crow {
   min-height: 30px;
@@ -3245,4 +3239,530 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--ink-dim);
+}
+
+/* ================================================================ QA fix round 1 */
+
+/* ---- ON STAGE: my-turn takeover (StageMoment). Static gradients; only transform/opacity move. */
+.sg-moment {
+  position: absolute;
+  inset: 0;
+  z-index: 58;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.sg-moment.is-out {
+  pointer-events: none;
+}
+.sg-moment__veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(6, 3, 18, 0.58) 0,
+    rgba(6, 3, 18, 0.4) calc(var(--sm-ball) - var(--sm-ballr)),
+    rgba(6, 3, 18, 0.36) calc(var(--sm-herob) - 40px),
+    rgba(6, 3, 18, 0.9) calc(var(--sm-herob) + 30px),
+    rgba(6, 3, 18, 0.95) 100%
+  );
+}
+.sg-moment__beam {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 560px;
+  height: calc(var(--sm-horizon) + 34px);
+  margin-left: -280px;
+  transform-origin: 50% 0;
+  /* a static fade at the foot so the beam melts into the pool (never a hard edge) */
+  -webkit-mask-image: linear-gradient(180deg, #000 76%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 76%, transparent 100%);
+  background: conic-gradient(
+    from 159deg at 50% -2%,
+    rgba(255, 246, 216, 0) 0deg,
+    rgba(255, 238, 196, 0.2) 7deg,
+    rgba(255, 250, 232, 0.5) 15deg,
+    rgba(255, 255, 248, 0.64) 21deg,
+    rgba(255, 250, 232, 0.5) 27deg,
+    rgba(255, 238, 196, 0.2) 35deg,
+    rgba(255, 246, 216, 0) 42deg,
+    rgba(255, 246, 216, 0) 360deg
+  );
+}
+.sg-moment__beam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from 146deg at 50% -2%,
+    rgba(255, 211, 107, 0) 0deg,
+    rgba(255, 211, 107, 0.12) 16deg,
+    rgba(255, 190, 120, 0.16) 34deg,
+    rgba(255, 211, 107, 0.12) 52deg,
+    rgba(255, 211, 107, 0) 68deg,
+    rgba(255, 211, 107, 0) 360deg
+  );
+}
+.sg-moment__source {
+  position: absolute;
+  left: 50%;
+  top: -46px;
+  width: 220px;
+  height: 96px;
+  margin-left: -110px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fff 0%, rgba(255, 246, 216, 0.9) 28%, rgba(255, 211, 107, 0.34) 62%, rgba(255, 211, 107, 0) 100%);
+}
+.sg-moment__pool {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--sm-horizon) - 34px);
+  width: 360px;
+  height: 76px;
+  margin-left: -180px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 250, 232, 0.62), rgba(255, 211, 107, 0.24) 55%, rgba(255, 211, 107, 0) 100%);
+}
+.sg-moment__sparks {
+  position: absolute;
+  inset: 0;
+}
+.sg-moment__spark {
+  --r: 0deg;
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 18%, var(--c) 40%, color-mix(in srgb, var(--c) 35%, transparent) 60%, transparent 72%);
+  opacity: 0;
+  animation: sg-applause 1s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+.sg-moment__spark.is-star {
+  --r: 45deg;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #fff 0%, var(--c) 45%, color-mix(in srgb, var(--c) 60%, transparent) 100%);
+}
+@keyframes sg-applause {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(var(--r)) scale(0.3);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(calc(var(--dx) * 0.2), calc(var(--dy) * 0.24)) rotate(var(--r)) scale(1.15);
+  }
+  62% {
+    opacity: 1;
+    transform: translate(calc(var(--dx) * 0.82), var(--dy)) rotate(calc(var(--r) + 90deg)) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), calc(var(--dy) + 34px)) rotate(calc(var(--r) + 160deg)) scale(0.45);
+  }
+}
+.sg-moment__card {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.sg-moment__glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 380px;
+  height: 240px;
+  margin: -120px 0 0 -190px;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, rgba(255, 211, 107, 0.24), rgba(255, 61, 168, 0.12) 58%, rgba(255, 61, 168, 0) 100%),
+    radial-gradient(closest-side, rgba(6, 3, 18, 0.82), rgba(6, 3, 18, 0) 100%);
+  pointer-events: none;
+}
+.sg-moment.is-tab .sg-moment__veil {
+  background: linear-gradient(180deg, rgba(6, 3, 18, 0.74) 0, rgba(6, 3, 18, 0.92) 42%, rgba(6, 3, 18, 0.95) 100%);
+}
+
+.sg-moment__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 0.42em;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.42em;
+  line-height: 1;
+  color: #ffd36b;
+  text-shadow: 0 0 14px rgba(255, 211, 107, 0.85);
+  white-space: nowrap;
+}
+.sg-moment__label i {
+  width: 30px;
+  height: 1.5px;
+  background: linear-gradient(90deg, rgba(255, 211, 107, 0), #ffd36b);
+}
+.sg-moment__label i:last-child {
+  background: linear-gradient(270deg, rgba(255, 211, 107, 0), #ffd36b);
+}
+.sg-moment__title {
+  width: 100%;
+  align-items: center;
+}
+.sg-moment__title .st__fit {
+  font-weight: 900;
+  line-height: 1.1;
+  color: #fff;
+  background: linear-gradient(175deg, #ffffff 20%, #fff1c4 58%, #ffc46b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.sg-moment__title .st__sub {
+  justify-content: center;
+}
+.sg-moment__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--ink-dim);
+}
+.sg-moment__who b {
+  font-weight: 900;
+  color: #ffd36b;
+}
+.sg-moment__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fff6d8;
+  box-shadow: 0 0 10px 2px rgba(255, 211, 107, 0.9);
+}
+.sg-moment__artist {
+  font-weight: 700;
+}
+.sg-moment__artist::before {
+  content: '·';
+  margin-right: 8px;
+  opacity: 0.6;
+}
+.sg-moment__hint {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(245, 241, 255, 0.62);
+}
+.sg-moment.is-small .sg-moment__card {
+  gap: 8px;
+}
+
+/* ---- the NOW chip while I sing: a gold pulse, plus the demo "done" ghost pill */
+.sg-head.is-onstage {
+  max-width: 74%;
+  padding-right: 4px;
+  background: linear-gradient(90deg, rgba(255, 211, 107, 0.3), rgba(21, 11, 46, 0.88) 80%);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 211, 107, 0.95),
+    0 0 20px -4px rgba(255, 211, 107, 0.95);
+}
+.sg-head.is-onstage .sg-head__by {
+  color: #ffd36b;
+}
+.sg-head__pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 1.5px rgba(255, 211, 107, 0.75),
+    0 0 18px 3px rgba(255, 211, 107, 0.55);
+  pointer-events: none;
+  animation: sg-onstage 1.3s ease-in-out infinite alternate;
+}
+@keyframes sg-onstage {
+  from {
+    opacity: 0.2;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.035);
+  }
+}
+.sg-finish {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: calc(100% - 8px);
+  min-height: 28px;
+  padding: 0 10px;
+  margin-left: 2px;
+  border-radius: 999px;
+  color: rgba(245, 241, 255, 0.72);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 246, 216, 0.28);
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.sg-finish:hover {
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 246, 216, 0.5);
+}
+.sg-finish__main {
+  font-size: 11px;
+  font-weight: 800;
+}
+.sg-finish__demo {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.sg-lane.is-small .sg-finish {
+  padding: 0 8px;
+}
+.sg-lane.is-small .sg-finish__main {
+  font-size: 10.5px;
+}
+
+/* ---- unlinked (after 退室): phone lane row and the room's vertical lane */
+.sg-empty.is-bye {
+  opacity: 0.8;
+  animation: none;
+}
+.sg-vbye {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 20px 20px 22px;
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(138, 107, 255, 0.14), rgba(11, 6, 32, 0.6));
+  box-shadow: inset 0 0 0 1px rgba(255, 246, 216, 0.16);
+}
+.sg-vbye__moon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff6d8, #c9b8ff 55%, rgba(201, 184, 255, 0) 72%);
+  opacity: 0.85;
+}
+.sg-vbye__bye {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.1;
+  background: linear-gradient(120deg, #fff, #cfc4ff 60%, #7df9ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.sg-vbye__txt {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.sg-vbye__sub {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+/* ---- room screen: the stage light on whoever sings, ON STAGE flash, and the unlinked "see you" */
+.sg-board > .sg-rspot {
+  pointer-events: none;
+}
+.sg-rspot {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.sg-rspot__beam {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1000px;
+  height: calc(50% + var(--room-ball, 360px) * 0.52);
+  margin-left: -500px;
+  transform-origin: 50% 0;
+  background: conic-gradient(
+    from 162deg at 50% -1%,
+    rgba(255, 246, 216, 0) 0deg,
+    rgba(255, 238, 196, 0.08) 8deg,
+    rgba(255, 250, 232, 0.2) 14deg,
+    rgba(255, 255, 246, 0.26) 18deg,
+    rgba(255, 250, 232, 0.2) 22deg,
+    rgba(255, 238, 196, 0.08) 28deg,
+    rgba(255, 246, 216, 0) 36deg,
+    rgba(255, 246, 216, 0) 360deg
+  );
+}
+.sg-rspot__beam--soft {
+  background: conic-gradient(
+    from 152deg at 50% -1%,
+    rgba(255, 211, 107, 0) 0deg,
+    rgba(255, 211, 107, 0.1) 18deg,
+    rgba(255, 211, 107, 0.14) 28deg,
+    rgba(255, 211, 107, 0.1) 38deg,
+    rgba(255, 211, 107, 0) 56deg,
+    rgba(255, 211, 107, 0) 360deg
+  );
+}
+.sg-rspot__sway {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 0;
+  animation: sg-rsway 7s ease-in-out infinite alternate;
+}
+.sg-rspot__sway.is-still {
+  animation: none;
+}
+@keyframes sg-rsway {
+  from {
+    transform: rotate(-3.5deg);
+  }
+  to {
+    transform: rotate(3.5deg);
+  }
+}
+.sg-rspot__source {
+  position: absolute;
+  left: 50%;
+  top: -56px;
+  width: 280px;
+  height: 112px;
+  margin-left: -140px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fff 0%, rgba(255, 246, 216, 0.75) 30%, rgba(255, 211, 107, 0.25) 62%, rgba(255, 211, 107, 0) 100%);
+}
+.sg-bnow {
+  z-index: 1;
+}
+.sg-bnow__onstage {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px 0 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: 0.28em;
+  white-space: nowrap;
+  color: #2a1600;
+  background: linear-gradient(135deg, #fff1c4, #ffd36b 50%, #ffb547);
+  box-shadow: 0 0 18px rgba(255, 211, 107, 0.75);
+}
+.sg-bbye {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sg-bbye .sg-lbl {
+  font-size: 12px;
+}
+.sg-bbye__bye {
+  font-size: 56px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, #ffffff 10%, #cfc4ff 55%, #7df9ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.sg-bbye__txt {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.sg-bbye__sub {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+/* ---- mood word: Navi's forecast (a hypothesis, dashed) and the all-know override (gold) */
+.sg-mood__labeltxt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sg-mood__dash {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 1.5px dashed currentColor;
+}
+.sg-mood.is-forecast .sg-mood__label {
+  color: rgba(255, 224, 150, 0.9);
+}
+.sg-mood.is-forecast .sg-mood__word {
+  padding: 0 8px 1px;
+  margin-left: -8px;
+  border-radius: 12px;
+  outline: 1.5px dashed color-mix(in srgb, var(--mglow) 75%, transparent);
+  outline-offset: 2px;
+  background: rgba(11, 6, 32, 0.28);
+}
+.sg-mood.is-forecast .sg-mood__fill {
+  opacity: 0.92;
+}
+.sg-mood.is-all .sg-mood__label {
+  color: #ffd36b;
+}
+.sg-mood.is-all .sg-mood__ch::before {
+  opacity: 0.75;
+}
+
+/* ---- standby: the concept-prototype label (QA POLICY#5) */
+.sg-standby__brand {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+/* ---- shift card front (card-front contract): ≥12 px type, the navi pick as a star badge */
+.sg-shift__role {
+  font-size: 12px;
+}
+.sg-shift__artist {
+  font-size: 12px;
+}
+.sg-shift__navi {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  right: 8px;
+  top: -9px;
+}
+.sg-shift__navi .sg-tagi {
+  width: 12px;
+  height: 12px;
+}
+.sg-shift__slotlbl {
+  display: flex;
+  justify-content: center;
+}
+.sg-shift__slotlbl svg {
+  width: 13px;
+  height: 13px;
 }

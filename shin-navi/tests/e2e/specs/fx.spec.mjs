@@ -194,8 +194,11 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     })
     await page.waitForTimeout(120)
     assert.ok((await fx(page)).st.gold > 0.3, 'the wall flushes gold when everyone knows')
+    const nowBefore = await page.evaluate(() => window.__navi.get().room.now?.item.id ?? null)
     await page.waitForTimeout(1500)
-    assert.equal((await fx(page)).st.gold, 0, 'gold melts back within 0.8 s')
+    // (my own song starting in the meantime flushes gold again — handshake 7's ON STAGE flourish)
+    const nowAfter = await page.evaluate(() => window.__navi.get().room.now?.item.id ?? null)
+    if (nowAfter === nowBefore) assert.equal((await fx(page)).st.gold, 0, 'gold melts back within 0.8 s')
     l = await log()
     assert.ok(l.includes('knowChord') && l.includes('knowTick'), `ticks and the chord: ${l}`)
     const before = l.filter(n => n === 'redeal').length
@@ -207,6 +210,62 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     l = await log()
     assert.equal(l.filter(n => n === 'redeal').length, before + 1, 'a redeal plays once')
     noErrors(errors, 'sounds')
+    await context.close()
+  })
+
+  await step('OWNER#7 / DEMO#13: a reservation leans the wall toward the forecast within 1.2 s; a song end hands over to the real palette; all-know keeps a gold afterglow; my song starts in gold', async () => {
+    const { page, errors, context } = await openApp('dual', '?test=1&seed=test&reset=1&intro=0&script=1&view=dual')
+    await page.waitForTimeout(1200)
+    await page.evaluate(() => window.__fx.forceTier(2))
+    const before = await page.evaluate(() => ({ pv: window.__fx.preview(), aurora: window.__fx.state().aurora }))
+    assert.equal(before.pv.k, 0, 'no lean before anything is reserved')
+    // two hype songs: the room is heading somewhere warmer than its quiet start
+    await page.evaluate(() => {
+      const s = window.__navi.get()
+      s.reserve('gurenge', { by: 'me' })
+      s.reserve('kick-back', { by: 'minato' })
+    })
+    const early = await page.evaluate(() => window.__fx.preview())
+    assert.ok(early.armed && early.key && early.key !== before.aurora && early.target >= 0.3, `the forecast is armed at once ${JSON.stringify(early)}`)
+    await page.waitForTimeout(1250)
+    const lean = await page.evaluate(() => ({ pv: window.__fx.preview(), prev: [...document.querySelectorAll('.fx-bg')].map(e => e.dataset.preview) }))
+    assert.ok(lean.pv.k >= 0.3 && lean.pv.k <= 0.5, `leaning 30–50 % toward ${lean.pv.key} after 1.2 s (${lean.pv.k.toFixed(2)})`)
+    assert.deepEqual(lean.prev, [lean.pv.key, lean.pv.key], 'phone and room walls both lean (static look too)')
+    // the song plays and ends: the air really changed, the lean melts into the real palette
+    await page.evaluate(() => {
+      const s = window.__navi.get()
+      s.startNext()
+      window.__navi.get().finishNow({ claps: 30 })
+    })
+    await page.waitForTimeout(80)
+    const after = await page.evaluate(() => ({ pv: window.__fx.preview(), st: window.__fx.state() }))
+    assert.equal(after.pv.target, 0, 'disarmed when the song ends')
+    await page.waitForTimeout(2000)
+    assert.equal((await page.evaluate(() => window.__fx.preview())).k, 0, 'the lean has melted')
+    // everyone knows: 0.8 s of gold, then a softer afterglow while the word celebrates
+    await page.evaluate(() => {
+      const s = window.__navi.get()
+      s.askRoom('lemon', 'me')
+      for (const m of Object.values(window.__navi.get().room.members)) if (m.present) window.__navi.get().answerKnow('lemon', m.id, 'know')
+    })
+    await page.waitForTimeout(100)
+    const g = await page.evaluate(() => ({ gold: window.__fx.state().gold, ag: window.__fx.preview().afterglow }))
+    assert.ok(g.gold > 0.5 && g.ag > 0.9, `gold flush + afterglow ${JSON.stringify(g)}`)
+    await page.waitForTimeout(1300)
+    const g2 = await page.evaluate(() => ({ gold: window.__fx.state().gold, ag: window.__fx.preview().afterglow }))
+    assert.ok(g2.gold === 0 && g2.ag > 0.3, `the flush is over, the afterglow lingers ${JSON.stringify(g2)}`)
+    // my turn (handshake 7): the wall flushes lamplight as my song starts, under stage's ON STAGE
+    await page.waitForTimeout(3200)
+    const turn = await page.evaluate(() => {
+      const s = window.__navi.get()
+      if (s.room.now) s.finishNow({ claps: 10 })
+      window.__navi.api.setState(st => ({ room: { ...st.room, queue: [] } }))
+      window.__navi.get().reserve('lemon', { by: 'me' })
+      window.__navi.get().startNext()
+      return { gold: window.__fx.state().gold, ag: window.__fx.preview().afterglow, mine: window.__navi.get().room.now?.item.by }
+    })
+    assert.ok(turn.mine === 'me' && turn.gold === 1 && turn.ag === 1, `my song starts in gold ${JSON.stringify(turn)}`)
+    noErrors(errors, 'forecast')
     await context.close()
   })
 
@@ -297,18 +356,24 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
     await context.close()
   })
 
-  await step('T15 (fx share): CPU ×4 — the governor settles on a tier ≥ 1 and the frame median < 20 ms', async () => {
+  await step('T15: CPU ×4, the whole home screen (ball, aurora, specks) — the governor settles on a tier ≥ 1 and the frame median < 20 ms', async () => {
     const { page, errors, context } = await openApp('phone', '?test=1&seed=test&reset=1&script=1')
-    // isolate this module's cost from the start: the ball canvases are M2's (own 4 ms budget)
-    await page.addStyleTag({ content: '[data-testid=ball-canvas], [data-testid=ball-canvas-mini] { display: none !important }' })
+    // QA ROBUST#2: measure what the user sees — the hero and dock balls stay visible and drawing
     await page.waitForTimeout(3300) // the entrance is over: measure the steady home screen
+    const shown = await page.evaluate(() => {
+      const hero = document.querySelector('[data-testid=ball-canvas][data-variant=hero]')
+      const r = hero.getBoundingClientRect()
+      return { w: r.width, vis: getComputedStyle(hero).visibility, disp: getComputedStyle(hero).display, frames: window.__ball.frames('hero') }
+    })
+    assert.ok(shown.w > 100 && shown.vis === 'visible' && shown.disp !== 'none' && shown.frames > 10, `the hero ball is on screen and drawing ${JSON.stringify(shown)}`)
     const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
     await page.waitForTimeout(4000)
     // one-second windows until it has settled (other processes on the machine steal the CPU in
-    // bursts, so the best of several windows is the steady state)
+    // bursts, so the best of several windows is the steady state; a drop to tier 0 during such a
+    // burst is re-probed by the governor after ~8 s, so give it the time to come back)
     const windows = []
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 16; k++) {
       const w = await page.evaluate(
         () =>
           new Promise(res => {
@@ -331,10 +396,13 @@ export async function run({ browser, url, openApp, assert, step, VIEWPORTS }) {
       if (w.tier >= 1 && w.median < 20) break
     }
     const gov = await page.evaluate(() => window.__fx.govLog())
+    const pace = await page.evaluate(() => window.__ball.pace('hero'))
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
     const ok = windows.find(w => w.tier >= 1 && w.median < 20)
-    console.log(`      (CPU×4: ${windows.map(w => `${w.median.toFixed(1)}ms@t${w.tier}`).join(' ')}; governor ${gov.map(e => `${e.from}>${e.to}:${e.why}`).join(' ') || 'kept tier 2'})`)
+    console.log(`      (CPU×4: ${windows.map(w => `${w.median.toFixed(1)}ms@t${w.tier}`).join(' ')}; governor ${gov.map(e => `${e.from}>${e.to}:${e.why}`).join(' ') || 'kept tier 2'}; hero ${pace.frames} draws, ${pace.skipped} paced ticks, dpr ${pace.dpr})`)
     assert.ok(ok, `settled on tier ≥ 1 with a median < 20 ms: ${JSON.stringify(windows)}`)
+    assert.ok(pace.dpr <= 1.5, `hero canvas DPR capped at 1.5 (${pace.dpr})`)
+    assert.ok(pace.frames > 60, `the hero kept drawing while measured (${pace.frames})`)
     noErrors(errors, 'perf')
     await context.close()
   })

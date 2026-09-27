@@ -1467,41 +1467,39 @@
 }
 /* their titles ride beside the puck */
 .mx-callout {
+  /* its top-left corner is placed beside the puck by placeCallout (inside the pad, clear of the
+     axis labels); only its transform changes while the puck moves */
   position: absolute;
   left: 0;
   top: 0;
-  width: 0;
-  height: 0;
   will-change: transform;
 }
 .mx-callout__list {
-  position: absolute;
-  top: -34px;
-  left: 34px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  opacity: 0.72;
+  gap: 2px;
+  opacity: 0.78;
   transition: opacity 0.2s;
 }
 .mx-callout[data-side='l'] .mx-callout__list {
-  left: auto;
-  right: 34px;
   align-items: flex-end;
+}
+.mx-callout[data-side='c'] .mx-callout__list {
+  align-items: center;
 }
 .mx.is-drag .mx-callout__list {
   opacity: 1;
 }
 .mx-callout__row {
-  max-width: 150px;
+  max-width: 156px;
   height: 20px;
   padding: 0 8px 0 6px;
   display: flex;
   align-items: center;
   gap: 5px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;

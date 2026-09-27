@@ -30,7 +30,7 @@ import {
   sendTwin,
   useSim,
 } from './sim'
-import { advanceOne, autoStep, finishMineOrTurn, makeMyTurn, runNext, runStep } from './script'
+import { advanceOne, autoStep, finishMineOrTurn, makeMyTurn, restoreHome, runNext, runStep, settleChain } from './script'
 
 const BUBBLE_TTL = 2600
 // positive floor chatter only (E-2, E-12): never about who knows what, never a judgement
@@ -93,7 +93,7 @@ export function installRoomSim(api: NaviApi): () => void {
     firstShift = ''
     lastBubble = {}
     mineTimer = null
-    useSim.setState(freshSim(S().session.nightId))
+    useSim.setState(freshSim(S().session.nightId, getLocale()))
   }
 
   const bubble = (member: MemberId, text: TextRef) => {
@@ -228,9 +228,11 @@ export function installRoomSim(api: NaviApi): () => void {
   // ================================================================ script mode: the room's quiet set-up (E-13 steps 2–3)
 
   /**
-   * In script mode the room reacts to my first song the way E-13 describes: Minato queues one
-   * of his a few seconds later, then Saki her slow pair. Both are the script's own steps, run
-   * only while they are the next step (a → press beats them to it), so the order never breaks.
+   * In script mode the room reacts to my first song the way E-13 describes: once it is on
+   * stage (the core starts the night's first song after the undo window), Saki queues her slow
+   * pair, then Minato one of his. Saki goes first so beat 6 plays the room on in queue order,
+   * never jumping it. Both are the script's own quiet steps, run only while they are the next
+   * step (a → press beats them to it), so the order never breaks.
    */
   const onQueued = (item: QueueItem) => {
     const s = S()
@@ -245,14 +247,14 @@ export function installRoomSim(api: NaviApi): () => void {
       }
     }
     if (!s.session.script) return
-    if (item.by === 'me') {
-      later(4000 + 2000 * seeded(`${seed}|autoMinato`)(), () => {
+    if (isMine(item)) {
+      laterReal(3900 + 1300 * seeded(`${seed}|autoSaki`)(), () => {
         const st = S()
         const mine = st.room.queue.some(isMine) || (!!st.room.now && isMine(st.room.now.item)) || st.room.sung.some(e => isMine(e.item))
-        if (mine) autoStep(api, 'minato-reserve')
+        if (mine) autoStep(api, 'saki-mellow')
       })
-    } else if (item.by === 'minato') {
-      later(5000 + 2000 * seeded(`${seed}|autoSaki`)(), () => void autoStep(api, 'saki-mellow'))
+    } else if (item.by === 'saki') {
+      laterReal(3200 + 1800 * seeded(`${seed}|autoMinato`)(), () => void autoStep(api, 'minato-reserve'))
     }
   }
 
@@ -553,7 +555,10 @@ export function installRoomSim(api: NaviApi): () => void {
         if (live()) s.jumpToMinutesLeft(cmd.m)
         break
       case 'exit':
-        s.exitRoom()
+        // a scripted demo closes in the language it was told in (QA DEMO#5)
+        settleChain()
+        if (s.session.script) restoreHome()
+        S().exitRoom()
         break
       case 'nextVisit':
         keepPresenter(() => {

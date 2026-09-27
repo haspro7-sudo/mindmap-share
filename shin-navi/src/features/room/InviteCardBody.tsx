@@ -37,11 +37,16 @@ export function useCardSize(fallback = { w: 334, h: 262 }) {
 
 const memberRef = (id: MemberId) => ({ key: `vocab.member.${id}` })
 
-/** The reason line with its source glyph (the card-reason every card carries). */
-function ReasonRow({ reason, className }: { reason: Reason; className?: string }) {
+/**
+ * The card's one reason line with its source glyph (the card-reason every card carries). The
+ * cause and any fine print live on the back (card-front contract); `text` may give a shorter
+ * line for the front.
+ */
+function ReasonRow({ reason, className, text, answer, answerKey, waiting }: { reason: Reason; className?: string; text?: string; answer?: string | null; answerKey?: string; waiting?: boolean }) {
   const trr = useTr()
+  const line = answer ?? text ?? trr(reason.text)
   return (
-    <div className={`rm-reason ${className ?? ''}`} data-testid="card-reason">
+    <div className={`rm-reason ${className ?? ''}${answer ? ' is-answer' : ''}`} data-testid="card-reason">
       <svg className="rm-reason__glyph" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
         {reason.source === 'voice' ? (
           <>
@@ -55,10 +60,26 @@ function ReasonRow({ reason, className }: { reason: Reason; className?: string }
           </>
         )}
       </svg>
-      <span className="rm-reason__text">
-        {trr(reason.text)}
-        {reason.cause ? <span className="rm-reason__cause">{trr(reason.cause)}</span> : null}
-      </span>
+      {/* once I have acted, the line becomes the room's answer (one line on the front, always) */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={answerKey ?? 'reason'}
+          className="rm-reason__text"
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.2 }}
+        >
+          {waiting ? (
+            <span className="rm-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : null}
+          {line}
+        </motion.span>
+      </AnimatePresence>
     </div>
   )
 }
@@ -80,28 +101,6 @@ function Barcode({ seed, w = 64, h = 14 }: { seed: string; w?: number; h?: numbe
         <rect key={i} x={b.x} y={0} width={b.w} height={h} />
       ))}
     </svg>
-  )
-}
-
-function serialOf(id: string): string {
-  return String(hashString(id) % 10000).padStart(4, '0')
-}
-
-function hhmm(ms: number): string {
-  const d = new Date(ms > 1e12 ? ms : Date.now())
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-function TicketMeta({ card }: { card: CardBodyProps['card'] }) {
-  return (
-    <div className="rm-inv__meta" aria-hidden="true">
-      <Barcode seed={card.id} />
-      <span>No.{serialOf(card.id)}</span>
-      <span className="rm-inv__metadot" />
-      <span>ROOM 12</span>
-      <span className="rm-inv__metadot" />
-      <span>{hhmm(card.dealtAt)}</span>
-    </div>
   )
 }
 
@@ -155,20 +154,17 @@ function RequestBody({ card, setPrimary, active }: CardBodyProps) {
     setPrimary({ action: 'accept', label: R.ref('act.sing'), enabled: !!song?.reservable && !queued, arg: { songId: card.songId } })
   }, [card.id, queued])
   if (!song) return <div className="rm-inv" ref={size.ref} />
+  // front: the song, the artist and one line from the sender; the seal and "next time is never
+  // sent back" are on the back (card-front contract)
   return (
     <div className={`rm-inv rm-inv--request${size.small ? ' is-small' : ''}`} ref={size.ref} data-testid="invite-body" data-variant="request" data-state="open">
       <div className="rm-inv__main">
-        <SongTitle songId={song.id} variant="card" max={size.small ? 23 : 26} min={15} className="rm-inv__title" />
+        <SongTitle songId={song.id} variant="card" max={size.small ? 30 : 34} min={16} className="rm-inv__title" />
         <div className="rm-inv__artist">{song.artist}</div>
-        <ReasonRow reason={card.reason} className="rm-inv__note" />
-        <div className="rm-inv__perks">
-          <span className="rm-inv__perk">
-            <i className="rm-inv__sealdot" aria-hidden="true" />
-            {t('inv.req.seal')}
-          </span>
-          <span className="rm-inv__private">{t('inv.req.private')}</span>
+        <ReasonRow reason={card.reason} className="rm-inv__note" text={t('inv.req.line', { member: { member: from } })} />
+        <div className="rm-inv__meta" aria-hidden="true">
+          <Barcode seed={card.id} w={size.small ? 88 : 104} h={12} />
         </div>
-        <TicketMeta card={card} />
       </div>
       <RequestStub from={from} active={active} />
       <div className="rm-inv__holo" aria-hidden="true" />
@@ -266,8 +262,9 @@ function TwinBody({ card, setPrimary, act, active }: CardBodyProps) {
   }, [phase, active])
 
   if (!song) return <div className="rm-inv" ref={size.ref} />
+  // "names open only when both reveal" is fine print on the back; the front answers once I act
   const status =
-    phase === 'idle' ? t('inv.twin.hint') : phase === 'wait' ? t('inv.twin.waiting') : phase === 'met' ? t('inv.twin.both', { member: { member: partner } }) : t('inv.twin.notYet')
+    phase === 'idle' ? null : phase === 'wait' ? t('inv.twin.waiting') : phase === 'met' ? t('inv.twin.both', { member: { member: partner } }) : t('inv.twin.notYet')
   return (
     <div
       className={`rm-inv rm-inv--twin is-${phase}${size.small ? ' is-small' : ''}`}
@@ -278,28 +275,9 @@ function TwinBody({ card, setPrimary, act, active }: CardBodyProps) {
       style={{ ['--rm-them' as string]: phase === 'met' ? partnerColor : '#E9E4FF' } as CSSProperties}
     >
       <div className="rm-inv__main">
-        <ReasonRow reason={card.reason} className="rm-inv__lead" />
-        <SongTitle songId={song.id} variant="card" max={size.small ? 24 : 28} min={15} className="rm-inv__title" />
+        <SongTitle songId={song.id} variant="card" max={size.small ? 26 : 30} min={16} className="rm-inv__title" />
         <div className="rm-inv__artist">{song.artist}</div>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={phase}
-            className={`rm-inv__status rm-inv__status--${phase}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.22 }}
-          >
-            {phase === 'wait' ? (
-              <span className="rm-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            ) : null}
-            {status}
-          </motion.div>
-        </AnimatePresence>
+        <ReasonRow reason={card.reason} className={`rm-inv__note rm-inv__note--twin is-${phase}`} answer={status} answerKey={phase} waiting={phase === 'wait'} />
         {phase === 'met' ? (
           <motion.button type="button" className="rm-inv__ghostbtn" data-testid="twin-keep-secret" initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileTap={{ scale: 0.95 }} onClick={() => act('decline', { songId: card.songId })}>
             {t('inv.twin.keep')}
@@ -336,7 +314,6 @@ function DuetStub({ mineType, theirType, state, partner }: { mineType: VoiceType
           <motion.span key="spark" className="rm-twin__burst rm-twin__burst--duet" initial={{ scale: 0.3, opacity: 1 }} animate={{ scale: 2.4, opacity: 0 }} transition={{ duration: 0.8, ease: 'easeOut' }} />
         ) : null}
       </AnimatePresence>
-      <span className="rm-duet__x">DUET</span>
       <span className="rm-stub__name">{trr(memberRef(partner))}</span>
     </div>
   )
@@ -376,7 +353,8 @@ function DuetBody({ card, setPrimary, act, active }: CardBodyProps) {
 
   if (!song) return <div className="rm-inv" ref={size.ref} />
   const pair = trr(pairName(mineType, theirType))
-  const status = state === 'asking' ? t('inv.duet.asking', { member: { member: partner } }) : state === 'yes' ? t('inv.duet.yes', { member: { member: partner } }) : state === 'sent' ? t('inv.duet.sent') : t('inv.duet.note')
+  // "a name for the pair, never a rating" is on the back; the front speaks once I invite
+  const status = state === 'asking' ? t('inv.duet.asking', { member: { member: partner } }) : state === 'yes' ? t('inv.duet.yes', { member: { member: partner } }) : state === 'sent' ? t('inv.duet.sent') : null
   return (
     <div
       className={`rm-inv rm-inv--duet is-${state}${size.small ? ' is-small' : ''}`}
@@ -387,32 +365,53 @@ function DuetBody({ card, setPrimary, act, active }: CardBodyProps) {
       style={{ ['--va' as string]: VOICE_COLOR[theirType], ['--vb' as string]: VOICE_COLOR[mineType] } as CSSProperties}
     >
       <div className="rm-inv__main">
-        {/* the formula as two lights (the reason line, read out whole for screen readers) */}
-        <div className="rm-duo" data-testid="card-reason">
-          <span className="rm-vh">{trr(card.reason.text)}</span>
-          <span className="rm-duo__who" aria-hidden="true">
-            <i style={{ ['--c' as string]: VOICE_COLOR[theirType] } as CSSProperties} />
-            {trr(memberRef(partner))}
-          </span>
-          <span className="rm-duo__x" aria-hidden="true">
-            ×
-          </span>
-          <span className="rm-duo__who" aria-hidden="true">
-            <i style={{ ['--c' as string]: VOICE_COLOR[mineType] } as CSSProperties} />
-            {trr(memberRef('me'))}
-          </span>
-          {card.reason.cause ? <span className="rm-reason__cause">{trr(card.reason.cause)}</span> : null}
-        </div>
-        <div className="rm-inv__pair">{pair}</div>
-        <div className="rm-inv__songlabel">{t('inv.duet.song')}</div>
-        <SongTitle songId={song.id} variant="card" max={size.small ? 19 : 21} min={14} className="rm-inv__title rm-inv__title--mid" />
-        <div className="rm-inv__artist">{song.artist}</div>
-        <AnimatePresence mode="wait">
-          <motion.div key={state} className={`rm-inv__status rm-inv__status--${state}`} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-            {state === 'asking' ? <span className="rm-dots" aria-hidden="true"><i /><i /><i /></span> : null}
-            {status}
-          </motion.div>
+        {/* the formula as two lights (the reason line, read out whole for screen readers); once
+            I invite, the same line carries the answer */}
+        <AnimatePresence mode="wait" initial={false}>
+          {status ? (
+            <motion.div
+              key={state}
+              className={`rm-inv__status rm-inv__status--${state}`}
+              data-testid="card-reason"
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.2 }}
+            >
+              {state === 'asking' ? (
+                <span className="rm-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              ) : null}
+              {status}
+            </motion.div>
+          ) : (
+            <motion.div key="formula" className="rm-duo" data-testid="card-reason" exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
+              <span className="rm-vh">{trr(card.reason.text)}</span>
+              <span className="rm-duo__who" aria-hidden="true">
+                <i style={{ ['--c' as string]: VOICE_COLOR[theirType] } as CSSProperties} />
+                {trr(memberRef(partner))}
+              </span>
+              <span className="rm-duo__x" aria-hidden="true">
+                ×
+              </span>
+              <span className="rm-duo__who" aria-hidden="true">
+                <i style={{ ['--c' as string]: VOICE_COLOR[mineType] } as CSSProperties} />
+                {trr(memberRef('me'))}
+              </span>
+            </motion.div>
+          )}
         </AnimatePresence>
+        <div className="rm-inv__pair">{pair}</div>
+        <span className="rm-inv__duetsep" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6 12.2a2.2 2.2 0 1 1-1.5-2.1V3.2L13 1.5v8.7a2.2 2.2 0 1 1-1.5-2.1V4.3L6 5.4z" />
+          </svg>
+        </span>
+        <SongTitle songId={song.id} variant="card" max={size.small ? 21 : 24} min={14} className="rm-inv__title rm-inv__title--mid" />
+        <div className="rm-inv__artist">{song.artist}</div>
       </div>
       <DuetStub mineType={mineType} theirType={theirType} state={state} partner={partner} />
     </div>

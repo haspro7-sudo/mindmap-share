@@ -112,7 +112,18 @@ describe('nightName (SPEC D-7)', () => {
 
 type S = Parameters<typeof takeHomeSongs>[0]
 const mem = (id: MemberId, present = true) => ({ id, color: '#fff', locale: 'ja', generation: 20, likes: {}, voiceType: null, present, arriving: false, joinedAt: 0 }) as Member
-const state = (o: { sung?: QueueItem[]; queue?: QueueItem[]; gained?: string[]; saved?: string[]; knowing?: Record<string, KnowTally>; shared?: string[]; jun?: boolean }): S =>
+const state = (o: {
+  sung?: QueueItem[]
+  queue?: QueueItem[]
+  gained?: string[]
+  saved?: string[]
+  knowing?: Record<string, KnowTally>
+  shared?: string[]
+  allKnow?: Night['allKnow']
+  jun?: boolean
+  saki?: boolean
+  minato?: boolean
+}): S =>
   ({
     session: { nightId: 'n1' },
     room: {
@@ -120,9 +131,12 @@ const state = (o: { sung?: QueueItem[]; queue?: QueueItem[]; gained?: string[]; 
       now: null,
       queue: o.queue ?? [],
       knowing: o.knowing ?? {},
-      members: { me: mem('me'), minato: mem('minato'), saki: mem('saki'), jun: mem('jun', !!o.jun) },
+      members: { me: mem('me'), minato: mem('minato', o.minato ?? true), saki: mem('saki', o.saki ?? true), jun: mem('jun', !!o.jun) },
     },
-    col: { nights: [night([], { facesGained: o.gained ?? [], shared: o.shared ?? [] })], saved: (o.saved ?? []).map(songId => ({ songId, version: 'original', at: 0, from: 'import' })) },
+    col: {
+      nights: [night([], { facesGained: o.gained ?? [], shared: o.shared ?? [], ...(o.allKnow ? { allKnow: o.allKnow } : {}) })],
+      saved: (o.saved ?? []).map(songId => ({ songId, version: 'original', at: 0, from: 'import' })),
+    },
   }) as unknown as S
 
 describe('recap models', () => {
@@ -148,9 +162,40 @@ describe('recap models', () => {
       lemon: tally('lemon', { me: 'know', minato: 'chorus', saki: 'know' }, 2),
       zankoku: tally('zankoku', { me: 'know', minato: 'know', saki: 'know' }, 3),
     }
-    expect(selCommon(state({ knowing, shared: ['idol'] }))).toEqual({ ids: ['marigold', 'zankoku', 'idol'], size: 3 })
+    expect(selCommon(state({ knowing, shared: ['idol'] }))).toEqual({
+      items: [
+        { songId: 'marigold', size: 3 },
+        { songId: 'zankoku', size: 3 },
+        { songId: 'idol', size: 3 },
+      ],
+      size: 3,
+    })
     // Jun joined and has not answered: nobody is "all" any more, and nothing says who is missing
-    expect(selCommon(state({ knowing, jun: true })).ids).toEqual([])
+    expect(selCommon(state({ knowing, jun: true })).items).toEqual([])
+  })
+
+  it('common songs: the all-know moments core remembered keep their size after someone joins (DEMO#4)', () => {
+    const allKnow = [
+      { songId: 'marigold', size: 4, at: 20 },
+      { songId: 'ao-to-natsu', size: 3, at: 10 },
+    ]
+    // Jun is here now (4 people) and has not answered 青と夏: it still happened, as 3 of 3
+    const got = selCommon(state({ allKnow, jun: true, shared: ['ao-to-natsu', 'idol'] }))
+    expect(got.items).toEqual([
+      { songId: 'ao-to-natsu', size: 3 },
+      { songId: 'marigold', size: 4 },
+      { songId: 'idol', size: 4 },
+    ])
+    expect(got.size).toBe(4)
+    // everyone knew it again after Jun joined: the bigger room wins
+    const knowing = {
+      'ao-to-natsu': { songId: 'ao-to-natsu', askedAt: 0, by: 'me', answers: { me: { a: 'know', at: 1 }, minato: { a: 'know', at: 1 }, saki: { a: 'know', at: 1 }, jun: { a: 'know', at: 2 } } },
+    } as Record<string, KnowTally>
+    expect(selCommon(state({ allKnow, knowing, jun: true })).items[0]).toEqual({ songId: 'ao-to-natsu', size: 4 })
+    // alone in the room: never "everyone"
+    expect(selCommon(state({ shared: ['idol'], saki: false, minato: false })).items).toEqual([])
+    // unknown songs are skipped
+    expect(selCommon(state({ allKnow: [{ songId: 'nope', size: 3, at: 1 }] })).items).toEqual([])
   })
 })
 
@@ -159,6 +204,20 @@ describe('recap models', () => {
 describe('record module hygiene', () => {
   it('never says streak, scarcity or "does not know" (D-15, E-12, T14)', () => {
     for (const l of LOCALE_IDS) for (const s of Object.values(RECORD_DICTS[l])) expect(s).not.toMatch(/連続|残り|期間限定|今だけ|知らない|連續|连续|streak|연속/i)
+  })
+
+  it('EN counts read "1 song", "1 face", "1 note" (singular .one keys, QA ROBUST#16)', () => {
+    const en = (key: string, n: number) => trIn({ key: `record.${key}`, vars: { n } }, 'en')
+    expect(en('nights.sung', 1)).toBe('1 song')
+    expect(en('nights.sung', 2)).toBe('2 songs')
+    expect(en('gaps.n', 1)).toBe('1 song')
+    expect(en('faces.total', 1)).toBe('1 face')
+    expect(en('hero.litN', 1)).toBe('1 face lit')
+    expect(en('night.notes', 1)).toBe('1 note')
+    expect(en('wrap.melody', 1)).toBe('Tonight’s melody · 1 note')
+    expect(en('wrap.facesHead', 1)).toBe('1 face lit up tonight')
+    // every EN "{n} …s" string has a singular sibling
+    for (const [k, v] of Object.entries(RECORD_DICTS.en)) if (!k.endsWith('.one') && /\{n\} \w+s\b/.test(v)) expect(RECORD_DICTS.en[`${k}.one`], k).toBeTypeOf('string')
   })
 
   it('has every key in all five languages with the same variables', () => {

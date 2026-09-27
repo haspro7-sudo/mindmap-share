@@ -19,6 +19,7 @@ import { SongTitle } from '../../core/ui/SongTitle'
 import { VoiceOrb } from '../../core/ui/VoiceOrb'
 import { SONG_BY_ID } from '../../data/songs'
 import { useTr } from '../../i18n'
+import { common } from '../../i18n/common'
 import { FACE_STATES, FaceSwatch, StampArt } from './parts'
 import { WallConstellation } from './WallConstellation'
 import { Calendar, InkBurst, useHold, useLanded } from './Calendar'
@@ -33,6 +34,7 @@ const LABELS = ["TONIGHT'S FACES", "TONIGHT'S VOICE", 'EVERYONE KNEW', 'WALL OF 
 
 export function WrapOverlay(p: { renderBall: (o: { flashSongIds: SongId[] }) => ReactNode }): JSX.Element {
   const t = R.useT()
+  const brand = common.useT()
   const reduced = useNavi(s => s.ui.reduced)
   const raw = useNavi(selTonight)
   // until closeNight stores it, tonight's palette follows its base colour
@@ -127,6 +129,9 @@ export function WrapOverlay(p: { renderBall: (o: { flashSongIds: SongId[] }) => 
         ) : (
           <span className="rw__skip is-ghost" />
         )}
+        <small className="rw__proto" data-testid="wrap-brand">
+          {brand('brand')}
+        </small>
       </header>
 
       <main className="rw__main">
@@ -341,8 +346,11 @@ function Crystals({ n, reduced }: { n: number; reduced: boolean }) {
 
 function P3Common({ reduced }: { reduced: boolean }) {
   const t = R.useT()
-  const common = useNaviStable(selCommon)
+  const known = useNaviStable(selCommon)
   const members = useNaviStable(s => presentMembers(s).map(m => ({ id: m.id as MemberId, color: m.color })))
+  const sizes = [...new Set(known.items.map(x => x.size))]
+  // one room size all night → "all 3 of you knew"; someone joined in between → each row says its size
+  const head = sizes.length === 1 ? t('wrap.commonHead', { n: sizes[0] }) : t('wrap.commonHeadMixed')
   return (
     <div className="rw-p3">
       <div className="rw-p3__who" aria-hidden="true">
@@ -356,21 +364,33 @@ function P3Common({ reduced }: { reduced: boolean }) {
           />
         ))}
       </div>
-      {common.ids.length ? (
+      {known.items.length ? (
         <>
-          <p className="rw-big__t is-center">{t('wrap.commonHead', { n: common.size })}</p>
-          <ul className="rw-p3__list">
-            {common.ids.slice(0, 4).map((id, i) => (
-              <motion.li key={id} className="rw-common" initial={reduced ? false : { opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ ...SPRING.soft, delay: 0.3 + i * 0.14 }}>
+          <p className="rw-big__t is-center">{head}</p>
+          <ul className="rw-p3__list" data-testid="wrap-common">
+            {known.items.slice(0, 4).map(({ songId: id, size }, i) => (
+              <motion.li
+                key={id}
+                className="rw-common"
+                data-testid="wrap-common-song"
+                data-song={id}
+                data-size={size}
+                initial={reduced ? false : { opacity: 0, x: -24 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ ...SPRING.soft, delay: 0.3 + i * 0.14 }}
+              >
                 <i className="rw-common__edge" aria-hidden="true" />
                 <span className="rw-common__txt">
                   <SongTitle songId={id} variant="chip" className="rw-common__title" />
                   <span className="rw-common__artist">{SONG_BY_ID[id]?.artist}</span>
                 </span>
-                <span className="rw-common__dots" aria-hidden="true">
-                  {Array.from({ length: common.size }, (_, k) => (
-                    <motion.i key={k} initial={reduced ? false : { scale: 0 }} animate={{ scale: [0, 1.35, 1] }} transition={{ delay: 0.55 + i * 0.14 + k * 0.12, duration: 0.36 }} />
-                  ))}
+                <span className="rw-common__size">
+                  <span className="rw-common__dots" aria-hidden="true">
+                    {Array.from({ length: size }, (_, k) => (
+                      <motion.i key={k} initial={reduced ? false : { scale: 0 }} animate={{ scale: [0, 1.35, 1] }} transition={{ delay: 0.55 + i * 0.14 + k * 0.12, duration: 0.36 }} />
+                    ))}
+                  </span>
+                  <span className="rw-common__n">{t('wrap.commonSize', { n: size })}</span>
                 </span>
               </motion.li>
             ))}
@@ -489,9 +509,11 @@ function P5Stamp({ night }: { night: Night }) {
     setShake(k => k + 1)
   }
   const hold = useHold(stamp, night.stamped)
+  const c = common.useT()
   return (
     <div className="rw-p5">
       <StampHero night={night} hold={hold} />
+      <span className="rw-p5__brand">{c('brand')}</span>
       <p className="rw-p5__head">{night.stamped ? tr(night.name ?? nightName(night, { weekday: weekdayOf(night) })) : t('wrap.stampHead')}</p>
       <motion.div className="rw-p5__cal" data-noadvance="1" animate={shake ? { y: [0, 6, -2, 1, 0] } : undefined} transition={{ duration: 0.34, ease: 'easeOut' }} onClick={e => e.stopPropagation()}>
         <Calendar nights={nights} tonightId={night.id} mode="wrap" onStamp={stamp} hold={hold} />

@@ -13,8 +13,9 @@ import { AURORA_PALETTES, areaColor, isSleeping } from '../../core/rules'
 import { PIN_IDS, type AreaKey, type FaceMark, type FaceState, type PinId, type SongId } from '../../core/types'
 import { SONG_BY_ID } from '../../data/songs'
 import { areaKeyOf, areaTiles, ballLayout, tileArea, tilesCentroid, TILE_COUNT, type BallLayout } from './layout'
-import { BallPainter, createScene, hexRgb, K_CHROME, K_MIRROR, K_NEON, K_PRISM, K_SKETCH, K_SMOKE, MARK_BIT, MOON_BIT, type Frame, type Scene } from './render'
+import { BallPainter, createScene, haloAlpha, hexRgb, paintHalo, K_CHROME, K_MIRROR, K_NEON, K_PRISM, K_SKETCH, K_SMOKE, MARK_BIT, MOON_BIT, type Frame, type Scene } from './render'
 import { TILT, frontRot, nearestAngle, project, tileAt, type BallView } from './hit'
+import { ballPace, due, oddSlot } from './pace'
 
 export type Variant = 'hero' | 'mini' | 'record' | 'room' | 'standby' | 'wrap' | 'zoom'
 
@@ -22,7 +23,15 @@ export type Variant = 'hero' | 'mini' | 'record' | 'room' | 'standby' | 'wrap' |
 const PERIOD: Record<Variant, number> = { hero: 24, mini: 24, record: 40, room: 24, standby: 40, wrap: 30, zoom: 0 }
 /** canvas size / ball diameter (room for the halo, glints and beams) */
 export const PAD: Record<Variant, number> = { hero: 1.5, mini: 1.24, record: 1.4, room: 1.42, standby: 1.5, wrap: 1.45, zoom: 1 }
-const DPR_CAP: Record<Variant, number> = { hero: 2, mini: 2, record: 2, room: 1.5, standby: 2, wrap: 2, zoom: 2 }
+/** QA ROBUST#2: the big canvases are 1.5× the ball; DPR 2 made the hero 588² px per frame. The
+ *  governor tier can lower it further (pace.ts); the 30 px dock ball keeps its crisp 2×. */
+const DPR_CAP: Record<Variant, number> = { hero: 1.5, mini: 2, record: 1.5, room: 1.5, standby: 1.5, wrap: 1.5, zoom: 1.5 }
+/** Variants whose static halo is painted once into its own canvas behind the ball. */
+const HALO_LAYER: ReadonlySet<Variant> = new Set<Variant>(['hero', 'record', 'room', 'standby', 'wrap'])
+/** Record chips (fxState.ballHighlight): the other faces keep this much of their light. */
+export const HIGHLIGHT_KEEP = 0.25
+/** Personal balls that follow the record chips' highlight (the dock ball stays in step). */
+const FOLLOWS_HIGHLIGHT: ReadonlySet<Variant> = new Set<Variant>(['record', 'mini'])
 
 const STATE_KIND: Record<FaceState, number> = { sketch: K_SKETCH, neon: K_NEON, mirror: K_MIRROR, prism: K_PRISM }
 export const PIN_COLOR: Record<PinId, string> = {
@@ -75,6 +84,21 @@ const now = () => performance.now()
 const easeOut = (p: number) => 1 - Math.pow(1 - p, 3)
 const easeInOut = (p: number) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2)
 
+/**
+ * Record chips (fxState.ballHighlight): per-tile dim target (0 = keeps its light, 0.75 = dimmed
+ * to HIGHLIGHT_KEEP) written into `out`; returns the tiles in the chosen state. null = all lit.
+ */
+export function highlightTargets(kind: ArrayLike<number>, state: FaceState | null, out: Float32Array): number[] {
+  const k = state ? STATE_KIND[state] : -1
+  const matches: number[] = []
+  for (let i = 0; i < out.length; i++) {
+    const on = !state || kind[i] === k
+    out[i] = on ? 0 : 1 - HIGHLIGHT_KEEP
+    if (state && on) matches.push(i)
+  }
+  return matches
+}
+
 // ---------------------------------------------------------------- registry (face resolver)
 
 const live = new Set<BallController>()
@@ -122,6 +146,8 @@ export class BallController {
   private painter: BallPainter
   private canvas: HTMLCanvasElement | null = null
   private ctx: CanvasRenderingContext2D | null = null
+  private halo: HTMLCanvasElement | null = null
+  private haloKey = ''
   size: number
   cw = 0
   ch = 0
@@ -175,6 +201,17 @@ export class BallController {
   paused = false
   private drawnOnce = false
   private destroyed = false
+  // frame pacing (pace.ts)
+  private dirty = true
+  private tierDpr = 1.5
+  private lite = false
+  private flashLive = false
+  // record chips: light one face state, dim the rest (fxState.ballHighlight)
+  private hl: FaceState | null = null
+  private muteTo = new Float32Array(TILE_COUNT)
+  private hlMoving = false
+  /** draws skipped by the pacing (tests) */
+  skipped = 0
 
   constructor(o: ControllerOpts) {
     this.variant = o.variant
@@ -187,9 +224,10 @@ export class BallController {
 
   // ------------------------------------------------------------ lifecycle
 
-  attach(canvas: HTMLCanvasElement): void {
+  attach(canvas: HTMLCanvasElement, halo?: HTMLCanvasElement | null): void {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d', { alpha: true })
+    this.halo = halo && HALO_LAYER.has(this.variant) ? halo : null
     this.layoutCanvas()
     const api = naviApi
     this.sync(api.getState())
@@ -202,6 +240,7 @@ export class BallController {
       }),
     )
     this.listen()
+    this.observe(canvas)
     this.offs.push(ticker.add((dt, t) => this.tick(dt, t), 0))
     if (this.variant !== 'zoom') register(this)
     this.frame(now(), 0)
@@ -214,6 +253,7 @@ export class BallController {
     unregister(this)
     this.canvas = null
     this.ctx = null
+    this.halo = null
   }
 
   setSize(size: number): void {
@@ -240,13 +280,33 @@ export class BallController {
     } else {
       this.computeZoom()
     }
-    const cap = Math.min(DPR_CAP[this.variant], typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+    const tierCap = this.variant === 'mini' ? DPR_CAP.mini : this.tierDpr
+    const cap = Math.min(DPR_CAP[this.variant], tierCap, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
     this.dpr = Math.max(1, cap)
     const W = Math.max(1, Math.round(this.cw * this.dpr))
     const H = Math.max(1, Math.round(this.ch * this.dpr))
     if (c.width !== W) c.width = W
     if (c.height !== H) c.height = H
     this.rectAt = -1e9
+    this.dirty = true
+    this.haloKey = ''
+    this.paintHaloLayer()
+  }
+
+  /** The halo only changes with the size and the collection's glow: paint it once, not per frame. */
+  private paintHaloLayer() {
+    const h = this.halo
+    if (!h) return
+    const glow = Math.round(Math.min(1, this.lit / 40) * 40) / 40
+    const key = `${this.cw}|${this.dpr}|${this.size}|${glow}`
+    if (key === this.haloKey) return
+    this.haloKey = key
+    const W = Math.max(1, Math.round(this.cw * this.dpr))
+    const H = Math.max(1, Math.round(this.ch * this.dpr))
+    if (h.width !== W) h.width = W
+    if (h.height !== H) h.height = H
+    const x = h.getContext('2d')
+    if (x) paintHalo(x, this.cw, this.ch, this.dpr, this.size / 2, haloAlpha(glow, false))
   }
 
   // ------------------------------------------------------------ store → scene
@@ -269,6 +329,9 @@ export class BallController {
     else if (this.variant === 'zoom') this.syncPersonal(s, false)
     else this.syncPersonal(s, true)
     this.synced = true
+    this.dirty = true
+    if (this.hl) this.retargetHighlight(false)
+    this.paintHaloLayer()
   }
 
   private syncPersonal(s: NaviState, extras: boolean) {
@@ -599,6 +662,10 @@ export class BallController {
     if (!c || !c.isConnected) return false
     // full-screen overlays (standby, wrap, entry) cover the home ball and the dock
     if ((this.variant === 'hero' || this.variant === 'mini') && naviApi.getState().ui.overlay) return false
+    if (c.closest('[data-active="0"], [aria-hidden="true"]')) return false
+    // an IntersectionObserver keeps the on-screen state without forcing a layout 4× a second
+    // (QA ROBUST#2: that poll was the ball's biggest script cost while other layers animate)
+    if (this.io) return this.inView
     const r = c.getBoundingClientRect()
     this.rect = r
     this.rectAt = now()
@@ -606,14 +673,34 @@ export class BallController {
     const W = window.innerWidth || 0
     const H = window.innerHeight || 0
     if (r.bottom < 0 || r.right < 0 || (W && r.left > W) || (H && r.top > H)) return false
-    if (c.closest('[data-active="0"], [aria-hidden="true"]')) return false
     return true
+  }
+
+  private io: IntersectionObserver | null = null
+  private inView = true
+
+  private observe(c: HTMLCanvasElement) {
+    if (typeof IntersectionObserver === 'undefined' || this.variant === 'zoom') return
+    this.io = new IntersectionObserver(entries => {
+      const e = entries[entries.length - 1]
+      if (!e) return
+      this.inView = e.isIntersecting && e.boundingClientRect.width >= 1 && e.boundingClientRect.height >= 1
+      this.rect = e.boundingClientRect as DOMRect
+      this.rectAt = now()
+      this.shownAt = -1e9
+    })
+    this.io.observe(c)
+    this.offs.push(() => {
+      this.io?.disconnect()
+      this.io = null
+    })
   }
 
   private canvasRect(): DOMRect | null {
     const t = now()
-    // while the ball is still dropping in, follow it every frame
-    if (!this.rect || t - this.rectAt > (introElapsedMs() < 1600 ? 0 : 250)) {
+    // while the ball is still dropping in, follow it every frame; later a scroll or a resize is
+    // picked up within half a second (emitters only need to be near the faces)
+    if (!this.rect || t - this.rectAt > (introElapsedMs() < 1600 ? 0 : 500)) {
       if (!this.canvas) return null
       this.rect = this.canvas.getBoundingClientRect()
       this.rectAt = t
@@ -764,27 +851,61 @@ export class BallController {
     }
     if (this.paused || !this.isShown()) {
       this.lastT = 0
+      this.acc = 0
       return
     }
     // spin in real time even when frames are slow (the ticker clamps dt at 50 ms)
     const real = this.lastT ? Math.min(200, Math.max(dt, t - this.lastT)) : dt
+    this.lastT = t
+    this.acc += real
     if (this.variant === 'mini') {
-      this.acc += real
-      this.lastT = t
       if (this.acc < 100) return
       const a = this.acc
       this.acc = this.acc > 200 ? 0 : this.acc - 100
       this.frame(t, a - this.acc)
       return
     }
-    this.lastT = t
-    this.frame(t, real)
+    // QA ROBUST#2: redraw only when the picture moves enough to be worth a raster (pace.ts)
+    const reduced = this.reduced || fxState.reduced
+    const tier = fxState.quality
+    const pace = ballPace(tier, reduced, { touch: this.touching(), busy: this.busy(t), dirty: this.dirty })
+    this.lite = pace.lite
+    if (pace.dpr !== this.tierDpr) {
+      this.tierDpr = pace.dpr
+      this.layoutCanvas()
+    }
+    if (!due(this.acc, pace.gap) || (pace.gap > 0 && !this.dirty && !oddSlot(t) && this.acc < pace.gap + 12)) {
+      this.skipped++
+      return
+    }
+    const step = this.acc
+    this.acc = 0
+    this.frame(t, step)
+  }
+
+  /** a finger on the ball, or a flick still turning faster than the idle spin */
+  private touching(): boolean {
+    return this.dragging || Math.abs(this.vel) > Math.abs(this.base) + 0.15
+  }
+
+  /** something on the ball animates faster than the idle turn */
+  private busy(t: number): boolean {
+    if (this.seek || this.hlMoving || this.flashLive || this.scene.flashAll > 0) return true
+    if (Math.abs(this.tilt - this.tiltTo) > 0.002) return true
+    if (this.pulses.length || this.outlines.length || this.rings.length) return true
+    if (this.deferred.length && this.deferred[0].at <= t + 20) return true
+    if (this.variant === 'hero') {
+      const d = fxState.drag
+      if (d.dir === 'right' && d.songId) return true
+    }
+    return fxState.gold > 0 || fxState.flash > 0.02
   }
 
   /** advance state by dtMs and draw */
   frame(t: number, dtMs: number): void {
     const ctx = this.ctx
     if (!ctx || !this.canvas) return
+    this.dirty = false
     const dt = Math.min(0.2, dtMs / 1000)
     // --- spin
     if (!this.dragging) {
@@ -829,7 +950,8 @@ export class BallController {
       paletteMix: 0.32,
       gold: fxState.gold,
       exposure: this.variant === 'zoom' ? 0.78 : 1,
-      lite: fxState.quality === 0,
+      lite: this.lite,
+      halo: this.halo ? false : true,
     }
     this.painter.draw(ctx, this.scene, f)
     this.frames++
@@ -871,8 +993,16 @@ export class BallController {
     sc.outline.fill(0)
     // white flashes decay
     const fdec = dt * 2.1
-    for (let i = 0; i < TILE_COUNT; i++) if (sc.flash[i] > 0) sc.flash[i] = Math.max(0, sc.flash[i] - fdec)
+    let live = false
+    for (let i = 0; i < TILE_COUNT; i++) {
+      if (sc.flash[i] > 0) {
+        sc.flash[i] = Math.max(0, sc.flash[i] - fdec)
+        live = true
+      }
+    }
+    this.flashLive = live
     if (sc.flashAll > 0) sc.flashAll = Math.max(0, sc.flashAll - dt * 1.6)
+    if (FOLLOWS_HIGHLIGHT.has(this.variant)) this.updateHighlight(dt)
     // pulses
     if (this.pulses.length) {
       if (this.pulses.some(p => t >= p.t0 + p.dur)) this.pulses = this.pulses.filter(p => t < p.t0 + p.dur)
@@ -982,6 +1112,73 @@ export class BallController {
     }
   }
 
+  // ------------------------------------------------------------ record chips (fxState.ballHighlight)
+
+  /** Follow the record screen's face-state chip: that state keeps its light, the rest dims. */
+  private updateHighlight(dt: number) {
+    const want = fxState.ballHighlight
+    if (want !== this.hl) {
+      this.hl = want
+      this.canvas?.setAttribute('data-highlight', want ?? '')
+      this.retargetHighlight(true)
+    }
+    const sc = this.scene
+    const k = this.reduced ? 1 : Math.min(1, dt / 0.22)
+    let moving = false
+    for (let i = 0; i < TILE_COUNT; i++) {
+      const d = this.muteTo[i] - sc.mute[i]
+      if (d === 0) continue
+      if (Math.abs(d) < 0.01) sc.mute[i] = this.muteTo[i]
+      else {
+        sc.mute[i] += d * k
+        moving = true
+      }
+    }
+    const dimTo = this.hl ? 1 : 0
+    if (sc.dim !== dimTo) {
+      sc.dim += (dimTo - sc.dim) * k
+      if (Math.abs(sc.dim - dimTo) < 0.01) sc.dim = dimTo
+      else moving = true
+    }
+    this.hlMoving = moving
+    // the chosen faces breathe softly while the others sleep
+    if (this.hl) {
+      const kind = STATE_KIND[this.hl]
+      const v = 0.12 + 0.1 * Math.sin(now() / 420)
+      for (let i = 0; i < TILE_COUNT; i++) if (sc.kind[i] === kind) sc.glow[i] = Math.max(sc.glow[i], v)
+    }
+  }
+
+  /** New dim targets for the current highlight; `show` also turns the nearest match to the front. */
+  private retargetHighlight(show: boolean) {
+    const hl = this.hl
+    const matches = highlightTargets(this.scene.kind, hl, this.muteTo)
+    this.hlMoving = true
+    if (!show || !hl || !matches.length) return
+    // the nearest match (deepest in front last frame) turns to the front; the others light up in a
+    // quick ripple from it
+    const pz = this.painter.pz
+    matches.sort((a, b) => pz[b] - pz[a])
+    if (this.variant !== 'mini') this.seekTile(matches[0], 620, 2400)
+    const t = now()
+    matches.slice(0, 24).forEach((tile, n) => {
+      this.pulses.push({ tile, t0: t + (this.reduced ? 0 : 160 + n * 45), dur: 760, kind: 'glow' })
+    })
+  }
+
+  /** frame pacing (tests) */
+  debugPace(): { frames: number; skipped: number; dpr: number; px: number } {
+    const c = this.canvas
+    return { frames: this.frames, skipped: this.skipped, dpr: this.dpr, px: c ? c.width * c.height : 0 }
+  }
+
+  /** tiles dimmed by the highlight right now (tests) */
+  debugDimmed(): number {
+    let n = 0
+    for (let i = 0; i < TILE_COUNT; i++) if (this.scene.mute[i] > 0.5) n++
+    return n
+  }
+
   private writeEmitters() {
     const rect = this.canvasRect()
     if (!rect) return
@@ -1021,6 +1218,12 @@ declare global {
       spin(variant?: Variant): ReturnType<BallController['debugSpin']> | null
       /** simulate the card drag preview that M3 writes into fxState.drag */
       drag(dir: 'up' | 'right' | 'left' | null, songId?: SongId, progress?: number): void
+      /** simulate the record chips (fxState.ballHighlight) */
+      highlight(state: FaceState | null): void
+      /** faces dimmed by the highlight right now */
+      dimmed(variant?: Variant): number | null
+      /** frame pacing: draws, skipped ticks, canvas dpr and backing size */
+      pace(variant?: Variant): { frames: number; skipped: number; dpr: number; px: number } | null
     }
   }
 }
@@ -1040,6 +1243,11 @@ if (typeof window !== 'undefined' && params.test) {
     drag: (dir, songId, progress = 0) => {
       fxState.drag = { dir, songId, progress }
     },
+    highlight: state => {
+      fxState.ballHighlight = state
+    },
+    dimmed: (v = 'record') => find(v)?.debugDimmed() ?? null,
+    pace: (v = 'hero') => find(v)?.debugPace() ?? null,
     darkPoint: (v = 'hero') => {
       // a front-facing song face that is not lit yet
       const c = find(v)

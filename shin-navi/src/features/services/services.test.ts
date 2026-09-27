@@ -260,7 +260,29 @@ describe('strings (G-3)', () => {
     expect(trIn({ key: 'services.order.price' }, 'ja')).toBe('価格は店舗の表示に従います（デモ）')
     expect(trIn({ key: 'services.entry.mock' }, 'ja')).toBe('模擬。実際の予約・決済にはつながりません')
     expect(trIn({ key: 'services.order.etaCard', vars: { n: 2 } }, 'ja')).toBe('今頼むと2曲後に届く目安（デモ）')
-    expect(trIn({ key: 'services.import.show' }, 'ja')).toBe('この1曲だけ部屋に見せる（10秒）')
+    // the show button: the words plus a small "10秒" chip (so no locale truncates it, ROBUST#12)
+    expect(trIn({ key: 'services.import.show' }, 'ja')).toBe('この1曲だけ部屋に見せる')
+    expect(trIn({ key: 'services.import.showSec' }, 'ja')).toBe('10秒')
+  })
+
+  it('says "1 song", not "1 songs" (singular .one siblings in every locale, ROBUST#16)', () => {
+    const ns = namespaceStrings('services') as unknown as Record<string, Record<string, string>>
+    const counted = Object.keys(ns.ja).filter(k => !k.endsWith('.one') && /\{n\}/.test(ns.en[k]) && /songs|guests/.test(ns.en[k]))
+    expect(counted.length).toBeGreaterThan(4)
+    for (const k of counted) for (const l of LOCALE_IDS) expect(ns[l][`${k}.one`], `${l}.${k}.one`).toBeTypeOf('string')
+    expect(trIn({ key: 'services.order.eta', vars: { n: 1 } }, 'en')).toBe('Arrives in about 1 song')
+    expect(trIn({ key: 'services.order.eta', vars: { n: 2 } }, 'en')).toBe('Arrives in about 2 songs')
+    expect(trIn({ key: 'services.order.etaCard', vars: { n: 1 } }, 'en')).toBe('Order now and it arrives in about 1 song (demo)')
+    expect(trIn({ key: 'services.import.cardLead', vars: { n: 1 } }, 'en')).toBe('1 favorite to sing here')
+    expect(trIn({ key: 'services.ota.peopleN', vars: { n: 1 } }, 'en')).toBe('1 guest')
+    expect(trIn({ key: 'services.order.eta', vars: { n: 1 } }, 'ja')).toBe('1曲後に届く目安')
+  })
+
+  it('card fronts stay short: the import lead fits one line (card-front contract)', () => {
+    for (const l of LOCALE_IDS) {
+      const lead = trIn({ key: 'services.import.cardLead', vars: { n: 5 } }, l)
+      expect(lead.length, `${l}: ${lead}`).toBeLessThanOrEqual(l === 'en' ? 26 : 18)
+    }
   })
 
   it('never uses streak, scarcity, countdown or reward words (D-15)', () => {

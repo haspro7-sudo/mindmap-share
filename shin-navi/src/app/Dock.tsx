@@ -1,7 +1,8 @@
 // The four doors (SPEC F-7): 探す / 歌う / 記録 / 注文. The record door is the mini mirror ball
 // itself. This is the only element in the app with backdrop-filter.
 import { motion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { introPending, introWait } from '../core/intro'
 import { common } from '../i18n/common'
 import { useNavi, naviApi } from '../core/store'
 import type { Tab } from '../core/types'
@@ -16,11 +17,24 @@ const ITEMS: { id: Tab; icon: IconName | null }[] = [
   { id: 'order', icon: 'order' },
 ]
 
+/**
+ * The dock joins the lane at 2.4 s (SPEC B-2, handshake 10): during the first seconds the eye
+ * stays on the ball and the rising card (QA OWNER#4). Short intro ≈0.65 s; reduced motion fades
+ * in with everything else. The fade is on the glass itself, so its backdrop blur never pops.
+ */
 export function Dock({ ball }: { ball: ReactNode }) {
   const t = common.useT()
   const tab = useNavi(s => s.ui.tab)
+  const [play] = useState(() => introPending('lane'))
   return (
-    <nav className="dock" data-anchor="dock" aria-label={t('dock.label')}>
+    <motion.nav
+      className="dock"
+      data-anchor="dock"
+      aria-label={t('dock.label')}
+      initial={play ? { opacity: 0, y: 12 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1], delay: play ? introWait('lane') : 0 }}
+    >
       {ITEMS.map(it => {
         const active = tab === it.id
         return (
@@ -43,6 +57,6 @@ export function Dock({ ball }: { ball: ReactNode }) {
           </motion.button>
         )
       })}
-    </nav>
+    </motion.nav>
   )
 }

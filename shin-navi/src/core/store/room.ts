@@ -186,7 +186,21 @@ export const createRoomSlice: StateCreator<NaviState, [], [], RoomSlice> = (set,
     const view = knowView(next, ids)
     const index = view.dots.filter(d => d !== 'empty').length - 1
     bus.emit({ type: 'know/answered', songId, member, a, index: Math.max(0, index) })
-    if (view.all && !before.all) bus.emit({ type: 'know/complete', songId, view })
+    if (view.all && !before.all) {
+      // Remember the moment (wrap page 3 "みんなの曲"), with the room size then: later arrivals
+      // may make it 3/4, but "青と夏 · 3人全員" happened.
+      if (view.size >= 2) {
+        set(st => ({
+          col: {
+            ...st.col,
+            nights: st.col.nights.map(n =>
+              n.id === st.session.nightId && !(n.allKnow ?? []).some(x => x.songId === songId) ? { ...n, allKnow: [...(n.allKnow ?? []), { songId, size: view.size, at: Date.now() }] } : n,
+            ),
+          },
+        }))
+      }
+      bus.emit({ type: 'know/complete', songId, view })
+    }
   },
 
   setMood(m) {

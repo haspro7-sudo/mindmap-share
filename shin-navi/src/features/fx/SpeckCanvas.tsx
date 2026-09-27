@@ -13,7 +13,7 @@ import { PaletteTracker } from './aurora'
 import { TIERS, type Tier } from './governor'
 import { SpeckField, syncCount } from './specks'
 import { cssToRgb, lighten } from './sprites'
-import { fxClock, fxSignals, phoneCovered } from './signals'
+import { fxPreview, fxSignals, phoneCovered, vsyncSlot } from './signals'
 import { fxDebug } from './debug'
 import { measureGeometry } from './BackgroundCanvas'
 import './fx.css'
@@ -119,7 +119,8 @@ function SpeckInner(): JSX.Element {
     let lastTarget = -1
     let growSince = 0
     let acc = 0
-    const off = ticker.add(dt => {
+    let since = 0
+    const off = ticker.add((dt, now) => {
       visClock += dt
       if (visClock > 500) {
         visClock = 0
@@ -137,10 +138,14 @@ function SpeckInner(): JSX.Element {
       const reduced = fxState.reduced
       const tier = (reduced ? 0 : fxState.quality) as Tier
       if (tier !== sizedTier) size()
-      // tier 1 paints at 30 fps (even frames; the aurora takes an odd one), tier 0 at 20 fps;
-      // the specks drift slowly and time still adds up
+      // tier 1 paints at 30 fps on even vsync slots (the mirror ball redraws on odd ones, see
+      // vsyncSlot), never more than two frames apart; tier 0 at 20 fps. The specks drift slowly
+      // and time still adds up.
       acc += dt
-      if (tier < 2 && fxClock.frame % (tier === 1 ? 2 : 3) !== 0 && !dirty) return
+      since++
+      if (!dirty && tier === 1 && since < 2 && (vsyncSlot(now) & 1) !== 0) return
+      if (!dirty && tier === 0 && since < 3) return
+      since = 0
       const step = acc
       acc = 0
       const spec = TIERS[tier]
@@ -161,7 +166,7 @@ function SpeckInner(): JSX.Element {
         syncCount(field.specks, target, emitter, 900, performance.now() - growSince > 1400)
       }
       field.initMotes(reduced ? 0 : spec.dust)
-      const palette = pal.update(fxState)
+      const palette = pal.update(fxState, fxPreview)
       const mirrors = Math.max(0, fxState.specksTarget - 12)
       field.step(step, reduced, reduced ? 0 : mirrors, streakOrigin, lighten(palette[1], 0.6), spec.streaks)
       const busy = field.rings.length > 0 || field.streaks.length > 0 || field.glows.length > 0

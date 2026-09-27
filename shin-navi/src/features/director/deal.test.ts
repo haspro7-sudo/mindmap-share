@@ -13,7 +13,8 @@ import '../../i18n/vocab'
 import '../../i18n/reason'
 import '../../i18n/core'
 import { seeded } from '../../lib/rng'
-import { deal, diversityViolations, fits, MIN_HAND, parseCardId, rankOf, type DirectorInput } from './deal'
+import { deal, diversityViolations, fits, MIN_HAND, parseCardId, rankOf, reserveBudget, type DirectorInput } from './deal'
+import { selReserveBudget } from '../../core/selectors'
 import { inputFrom, installDirector } from './installDirector'
 import { staticList } from './staticList'
 import { POLICY_MAP, POLICIES, WAYS, measure, tonightLit, evidenceFor } from './policyMap'
@@ -312,6 +313,200 @@ describe('round 1 order (C-2) and insertions (C-3)', () => {
   })
 })
 
+describe('fair share (QA OWNER#2): the dealer stops chaining reservations', () => {
+  const mineQueued = () => S().room.queue.filter(q => q.by === 'me' || q.with === 'me').length + (S().room.now && (S().room.now!.item.by === 'me' || S().room.now!.item.with === 'me') ? 1 : 0)
+
+  it('reserveBudget mirrors core selReserveBudget', async () => {
+    await freshNight('budget')
+    const check = () => expect(reserveBudget(inputFrom(S(), trig('refill')).room)).toEqual(selReserveBudget(S()))
+    check()
+    S().reserve('marigold', { by: 'me' })
+    check()
+    S().reserve('lemon', { by: 'saki' })
+    S().reserve('pretender', { by: 'me' })
+    check()
+    expect(selReserveBudget(S()).over).toBe(true)
+    S().memberJoin('jun')
+    for (const [id, by] of [['gurenge', 'minato'], ['idol', 'saki'], ['kiseki', 'minato'], ['hakujitsu', 'jun']] as const) S().reserve(id, { by })
+    check()
+    S().startNext()
+    check()
+  })
+
+  it('no つながる after a reservation once my share is full', async () => {
+    await freshNight('fair-link')
+    S().reserve('marigold', { by: 'me' })
+    S().reserve('pretender', { by: 'me' })
+    await settle()
+    expect(selReserveBudget(S()).over).toBe(true)
+    const top = S().deck.cards[0]
+    S().act(top.id, 'reserve', { navi: true })
+    await settle()
+    expect(S().deck.cards.some(c => c.rule === 'insert.link.afterReserve')).toBe(false)
+    // the pure dealer agrees
+    expect(deal(input(trig('reserved', { songId: top.songId }))).cards).toEqual([])
+  })
+
+  it('a keen user (primary on everything) keeps a fair share and meets other kinds of discovery', async () => {
+    const stats = { overDealt: 0, overReserveKinds: 0, afterReserveLinksWhileOver: 0, maxOverBudget: 0 }
+    const kindsWhileOver = new Set<string>()
+    for (let night = 0; night < 12; night++) {
+      await freshNight(`keen-${night}`)
+      const rand = seeded(`keen|${night}`)
+      if (night % 2) S().memberJoin('jun')
+      const seenIds = new Set<string>()
+      for (let step = 0; step < 50; step++) {
+        // the room: a song ends every few steps, roommates add one now and then
+        if (step % 4 === 3) {
+          if (S().room.now) S().finishNow({ claps: 10 })
+          S().startNext()
+        }
+        if (rand() < 0.2) {
+          const pool = Object.keys(SONG_BY_ID).filter(id => SONG_BY_ID[id].reservable && !S().room.queue.some(q => q.songId === id) && S().room.now?.item.songId !== id)
+          S().reserve(pool[Math.floor(rand() * pool.length)], { by: rand() < 0.5 ? 'minato' : 'saki' })
+        }
+        await settle()
+        const b = selReserveBudget(S())
+        stats.maxOverBudget = Math.max(stats.maxOverBudget, b.pending - b.budget)
+        const top = S().deck.cards[0]
+        if (b.over && !seenIds.has(top.id)) {
+          seenIds.add(top.id)
+          stats.overDealt++
+          kindsWhileOver.add(kv(top))
+          if (top.kind === 'song' || top.kind === 'link') stats.overReserveKinds++
+        }
+        // cards (handshake 5): song / link primary becomes "ボールにキープ" when over
+        let action: CardAction = 'pass'
+        let arg: Parameters<NaviState['act']>[2] = {}
+        if (top.kind === 'breather') action = 'oneMore'
+        else if (top.kind === 'song' || top.kind === 'link') action = b.over ? 'keep' : 'reserve'
+        else if (top.kind === 'ask') action = S().room.knowing[top.songId ?? ''] ? (b.over ? 'keep' : 'reserve') : 'ask'
+        else if (top.kind === 'shift') action = 'insert'
+        else if (top.kind === 'invite') action = 'accept'
+        else if (top.kind === 'gap') action = 'openArea'
+        else if (top.kind === 'coaster') action = 'rest'
+        if (action === 'keep' && top.kind === 'link') arg = { songId: top.options![0] }
+        S().act(top.id, action, arg)
+        if (S().ui.overlay) S().setOverlay(null)
+        if (S().ui.sheet) S().closeSheet()
+        if (S().room.prompt?.kind === 'shift') for (const m of ['minato', 'saki', 'jun'] as const) S().agreePrompt(m, true)
+        await settle()
+        // a link that was dealt as a reaction to a reservation made while the share was already full
+        const fresh = S().deck.cards.filter(c => c.rule === 'insert.link.afterReserve' && !seenIds.has(`link:${c.id}`))
+        for (const c of fresh) {
+          seenIds.add(`link:${c.id}`)
+          const before = { ...S().room, queue: S().room.queue.filter(q => q.songId !== c.songId) }
+          if (reserveBudget({ ...inputFrom(S(), trig('refill')).room, queue: before.queue }).over) stats.afterReserveLinksWhileOver++
+        }
+      }
+      expect(mineQueued(), `night ${night}: my pending songs`).toBeLessThanOrEqual(selReserveBudget(S()).budget + 2)
+    }
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.FAIR_STATS) console.log(JSON.stringify(stats), [...kindsWhileOver].join(','))
+    expect(stats.afterReserveLinksWhileOver).toBe(0)
+    expect(stats.overDealt).toBeGreaterThan(30)
+    // most of what I see once my share is full leads somewhere other than another reservation
+    expect(stats.overReserveKinds / stats.overDealt).toBeLessThan(0.3)
+    for (const k of ['ask', 'gap']) expect(kindsWhileOver.has(k), `${k} while over: ${[...kindsWhileOver].join(',')}`).toBe(true)
+    expect(['import', 'voice', 'coaster'].some(k => kindsWhileOver.has(k)), [...kindsWhileOver].join(',')).toBe(true)
+    // no pile-up: a keen user never gets more than a couple of songs past the fair share
+    expect(stats.maxOverBudget).toBeLessThanOrEqual(2)
+  }, 60_000)
+
+  it('the voice card offered while the share is full measures (no reservation) and says why', async () => {
+    await freshNight('fair-voice')
+    S().reserve('marigold', { by: 'me' })
+    S().reserve('pretender', { by: 'me' })
+    await settle()
+    let found: DeckCard | null = null
+    for (let i = 0; i < 20 && !found; i++) {
+      const top = S().deck.cards[0]
+      if (top.kind === 'voice') found = top
+      else {
+        S().act(top.id, top.kind === 'breather' ? 'oneMore' : 'pass')
+        await settle()
+        found = S().deck.cards.find(c => c.kind === 'voice') ?? null
+      }
+    }
+    expect(found, 'a voice card comes while my share is full').toBeTruthy()
+    expect(found!.songId).toBeUndefined()
+    expect(found!.reason.text.key).toBe('reason.voice')
+    checkCard(found!, 'fair voice')
+  })
+})
+
+describe('links and requests: once per round (QA OWNER#2, DEMO#15)', () => {
+  it('a つながる card only after the round\'s first reservation, at most once per round', async () => {
+    await freshNight('link-round')
+    const opener = S().deck.cards[0]
+    S().act(opener.id, 'reserve')
+    await settle()
+    expect(S().deck.cards[0].rule).toBe('insert.link.afterReserve')
+    S().act(S().deck.cards[0].id, 'pass')
+    await settle()
+    // a second reservation in the same round: no second link (even two reserves later)
+    for (let i = 0; i < 3; i++) {
+      const top = S().deck.cards.find(c => c.kind === 'song' || c.kind === 'ask')
+      if (!top) break
+      S().reserve(top.songId!, { by: 'saki' })
+      await settle()
+    }
+    const rs = deal(input(trig('reserved', { songId: 'marigold' })))
+    expect(rs.cards.some(c => c.kind === 'link')).toBe(false)
+  })
+
+  it('a request that arrives after this round already had one is not offered again', async () => {
+    await freshNight('req-round')
+    S().act(S().deck.cards[0].id, 'keep')
+    S().act(S().deck.cards[0].id, 'keep')
+    await settle()
+    S().openInvite({ variant: 'request', from: 'saki', songId: 'marigold' })
+    await settle()
+    const i = S().deck.cards.findIndex(c => c.kind === 'invite')
+    expect(i).toBe(1)
+    // dismissed with 「また今度」
+    S().act(S().deck.cards[0].id, 'pass')
+    await settle()
+    expect(S().deck.cards[0].kind).toBe('invite')
+    S().act(S().deck.cards[0].id, 'decline')
+    await settle()
+    S().openInvite({ variant: 'request', from: 'saki', songId: 'pretender' })
+    await settle()
+    expect(S().deck.cards.some(c => c.kind === 'invite' && c.variant === 'request'), 'no second request this round').toBe(false)
+  })
+
+  it('an invite the presenter fires goes on top, even after this round\'s request', async () => {
+    await freshNight('req-cue')
+    S().openInvite({ variant: 'request', from: 'saki', songId: 'marigold' })
+    await settle()
+    expect(S().deck.cards.findIndex(c => c.kind === 'invite')).toBe(1)
+    bus.emit({ type: 'presenter/cmd', cmd: { t: 'request' } })
+    S().openInvite({ variant: 'request', from: 'saki', songId: 'pretender' })
+    await settle()
+    const top = S().deck.cards[0]
+    expect(top).toMatchObject({ kind: 'invite', variant: 'request', songId: 'pretender' })
+    expect(top.rule).toBe('insert.invite.request.cue')
+    expect(top.reason.cause?.key).toBe('cause.request')
+    // one request per sender: the older one gave way
+    expect(S().deck.cards.filter(c => c.kind === 'invite' && c.variant === 'request')).toHaveLength(1)
+    // a twin star fired by the presenter too (the room sim answers the command with openInvite)
+    bus.emit({ type: 'presenter/cmd', cmd: { t: 'twin' } })
+    S().openInvite({ variant: 'twin', from: 'minato', songId: 'hakujitsu' })
+    await settle()
+    expect(S().deck.cards[0]).toMatchObject({ kind: 'invite', variant: 'twin', rule: 'insert.invite.twin.cue' })
+    expect(rankOf({ rule: 'insert.invite.twin.cue' })).toBeGreaterThan(rankOf({ rule: 'insert.voice.myTurn' }))
+    expect(rankOf({ rule: 'insert.invite.twin.cue' })).toBeLessThan(rankOf({ rule: 'insert.finale.minutes15' }))
+  })
+
+  it('in script mode every invite is the presenter\'s: it lands on top', async () => {
+    await freshNight('req-script')
+    S().setScript(true)
+    S().openInvite({ variant: 'twin', from: 'minato', songId: 'hakujitsu' })
+    await settle()
+    expect(S().deck.cards[0]).toMatchObject({ kind: 'invite', variant: 'twin' })
+    S().setScript(false)
+  })
+})
+
 describe('diversity (C-9) over 200 simulated nights', () => {
   it('never breaks the rules, keeps 3+ cards, and only deals reservable songs with reason keys', async () => {
     const rulesBroken: string[] = []
@@ -329,6 +524,16 @@ describe('diversity (C-9) over 200 simulated nights', () => {
       const seq: { kind: CardKind; rule: string }[] = []
       const offActed = bus.on('card/acted', e => {
         if (['reserve', 'keep', 'pass', 'insert', 'openArea', 'accept', 'decline', 'rest', 'putDown', 'oneMore'].includes(e.action)) seq.push({ kind: e.card.kind, rule: e.card.rule })
+      })
+      // per round: つながる at most once, Saki's request at most once (the sim fires no presenter cues)
+      const perRound = new Map<number, { link: number; request: number }>()
+      const offRound = bus.on('card/acted', e => {
+        if (!['reserve', 'keep', 'pass', 'accept', 'decline'].includes(e.action)) return
+        const r = S().deck.round
+        const row = perRound.get(r) ?? { link: 0, request: 0 }
+        if (e.card.kind === 'link') row.link++
+        if (e.card.kind === 'invite' && e.card.variant === 'request') row.request++
+        perRound.set(r, row)
       })
       const junAt = 4 + Math.floor(rand() * 20)
       const finaleAt = 30 + Math.floor(rand() * 10)
@@ -375,6 +580,11 @@ describe('diversity (C-9) over 200 simulated nights', () => {
         await settle()
       }
       offActed()
+      offRound()
+      for (const [r, row] of perRound) {
+        if (row.link > 1) rulesBroken.push(`night ${night} round ${r}: ${row.link} links`)
+        if (row.request > 1) rulesBroken.push(`night ${night} round ${r}: ${row.request} requests`)
+      }
       for (const c of dealt) checkCard(c, `night ${night}`)
       // C-11: the visa card on top of a join re-deal is the spec's explicit exception to "no repeat"
       const v = diversityViolations(seq.map(x => x.kind))

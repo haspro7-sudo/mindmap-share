@@ -1,4 +1,7 @@
-// M3 cards acceptance (SPEC L/M3 1-7; M-1 T01 card parts, T02, T03 frame/labels part, T10 redeal).
+// M3 cards acceptance (SPEC L/M3 1-7; M-1 T01 card parts, T02, T03 frame/labels part, T10 redeal)
+// + QA fix round 1: the bar always keeps its three buttons, the undo pill never covers the next
+// card, reasons only on the 3rd pass, intro rise/beam timing, peek teasers, card-front contract,
+// fair-share keep, visa stamp/title, link rows, label fit, script-mode arrow keys.
 export const name = 'cards'
 
 const Q = '?test=1&seed=test&reset=1'
@@ -34,6 +37,16 @@ const state = page => page.evaluate(() => {
 
 const mine = st => [...(st.now ? [{ songId: st.now }] : []), ...st.queue.filter(q => q.by === 'me')]
 
+/** Area of the intersection of two DOM rects (selectors), 0 when either is missing. */
+const overlap = (page, a, b) => page.evaluate(([a, b]) => {
+  const r1 = document.querySelector(a)?.getBoundingClientRect()
+  const r2 = document.querySelector(b)?.getBoundingClientRect()
+  if (!r1 || !r2) return -1
+  const w = Math.max(0, Math.min(r1.right, r2.right) - Math.max(r1.left, r2.left))
+  const h = Math.max(0, Math.min(r1.bottom, r2.bottom) - Math.max(r1.top, r2.top))
+  return Math.round(w * h)
+}, [a, b])
+
 /** Cards for tests that need a specific hand (the director keeps refilling behind them). */
 const R = key => ({ source: 'yomu', text: { key } })
 const card = (id, kind, extra = {}) => ({ id, kind, reason: R('reason.opener'), trigger: { type: 'enter', at: 0 }, rule: 'test.cards', dealtAt: 0, ...extra })
@@ -47,7 +60,7 @@ async function deal(page, cards) {
   await page.waitForTimeout(350)
 }
 
-export async function run({ openApp, assert, step }) {
+export async function run({ browser, url, openApp, assert, step }) {
   const noErrors = (errors, where) => assert.deepEqual(errors, [], `${where}: console/page errors\n${errors.join('\n')}`)
 
   await step('T01 cards: opener on top, ask + gap peeking, ghost hand at 3.2 s, one animated SongArt', async () => {
@@ -83,6 +96,10 @@ export async function run({ openApp, assert, step }) {
     if (item) assert.ok(item.tags.includes('navi'), `navi tag on the opener: ${item.tags}`)
     assert.equal(st.faces[opener], 'neon')
     await page.waitForSelector('[data-testid=undo-toast]')
+    await page.waitForTimeout(250)
+    assert.equal(await overlap(page, '[data-testid=undo-toast]', '[data-testid=card-top]'), 0, 'undo pill never covers the next card (reserve)')
+    const pill = await page.locator('[data-testid=undo-toast]').boundingBox()
+    assert.ok(pill.height <= 44, `undo pill is compact (${pill.height}px)`)
     await page.click('[data-testid=undo-button]')
     await page.waitForTimeout(400)
     st = await state(page)
@@ -114,6 +131,8 @@ export async function run({ openApp, assert, step }) {
     assert.equal(Object.keys(st.faces).length, faces, 'pass leaves no face')
     assert.ok(!st.cards.includes(leftId), 'passed card left the pile')
     assert.ok(await page.locator('[data-testid=undo-toast]').isVisible(), 'undo toast after a pass')
+    assert.equal(await overlap(page, '[data-testid=undo-toast]', '[data-testid=card-top]'), 0, 'undo pill never covers the next card (pass)')
+    assert.equal(await page.locator('[data-testid=pass-reason]').count(), 0, 'a single pass stays weightless (no reason chips)')
     noErrors(errors, 'T02 flicks')
     await context.close()
   })
@@ -227,7 +246,13 @@ export async function run({ openApp, assert, step }) {
     const back = await page.locator('.cback').textContent()
     assert.match(back, /なぜこの札？/)
     assert.match(back, /ナビの見立て（仮説）/)
-    assert.match(back, /test\.cards/, 'the rule is shown')
+    assert.doesNotMatch(back, /test\.cards/, 'the dealer rule id stays hidden while the lens is off (POLICY#3)')
+    assert.equal(await page.locator('[data-testid=card-top] [data-testid=navi-toggle]').count(), 1, 'the navi toggle moved to the evidence side')
+    await page.evaluate(() => window.__navi.api.getState().toggleLens())
+    await page.waitForTimeout(200)
+    assert.match(await page.locator('.cback').textContent(), /test\.cards/, 'the rule id shows with the planning lens on')
+    await page.evaluate(() => window.__navi.api.getState().toggleLens())
+    await page.waitForTimeout(200)
     await page.mouse.click(b.x + b.width / 2, b.y + 60)
     await page.waitForTimeout(500)
     assert.equal(await page.locator('[data-testid=card-top]').getAttribute('data-flipped'), '0')
@@ -367,6 +392,227 @@ export async function run({ openApp, assert, step }) {
     const sw = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))
     assert.ok(sw <= 360, `scrollWidth ${sw}`)
     noErrors(errors, 'small')
+    await context.close()
+  })
+
+  await step('intro (B-2): the opener rises at ~1.4 s with a beam from the ball; the bar waits for the lane', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ja-JP' })
+    await context.addInitScript(() => {
+      try { localStorage.clear() } catch {}
+      window.__probe = []
+      let mount = null
+      const t0 = performance.now()
+      const opacityOf = el => {
+        let op = 1
+        for (let e = el; e && e !== document.body; e = e.parentElement) op *= Number(getComputedStyle(e).opacity)
+        return op
+      }
+      const tick = () => {
+        if (mount == null && document.querySelector('[data-testid=app-root]')) mount = performance.now()
+        if (mount != null) {
+          const c = document.querySelector('[data-testid=card-top]')
+          const beam = document.querySelector('[data-testid=intro-beam]')
+          const bar = document.querySelector('[data-testid=btn-primary]')
+          window.__probe.push({ t: performance.now() - mount, op: c ? opacityOf(c) : null, beam: beam ? Number(getComputedStyle(beam).opacity) : 0, bar: bar ? opacityOf(bar) : null })
+        }
+        if (performance.now() - t0 < 4200) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const page = await context.newPage()
+    const errors = []
+    page.on('pageerror', e => errors.push(e.message))
+    await page.goto(new URL('?test=1&seed=test&reset=1', url).href)
+    await page.waitForTimeout(4000)
+    const pr = await page.evaluate(() => window.__probe)
+    const at = t => pr.find(r => r.t >= t)
+    assert.ok(at(1000) && (at(1000).op ?? 0) < 0.1, `card still hidden at 1.0 s: ${JSON.stringify(at(1000))}`)
+    assert.ok(at(2100) && at(2100).op > 0.9, `card risen by ~2.0 s: ${JSON.stringify(at(2100))}`)
+    const beamOn = pr.filter(r => r.beam > 0.3).map(r => r.t)
+    assert.ok(beamOn.length && beamOn[0] > 1000 && beamOn[0] < 1600, `beam falls at ~1.2-1.4 s (first bright frame ${Math.round(beamOn[0] ?? -1)} ms)`)
+    const bar = at(1800)
+    assert.ok(!bar || bar.bar == null || bar.bar < 0.1, `action bar still dark before the lane beat: ${JSON.stringify(bar)}`)
+    assert.ok(at(3300) && at(3300).bar > 0.9, `action bar faded in with the lane: ${JSON.stringify(at(3300))}`)
+    assert.deepEqual(errors, [])
+    await context.close()
+  })
+
+  await step('peeks (C-5): real silhouettes with localised teasers >= 12 px, lifted enough to read', async () => {
+    const { page, errors, context } = await openApp('phone', QI)
+    await page.waitForSelector('[data-testid=card-top]')
+    await deal(page, [card('p1', 'song', { songId: 'lemon' }), card('p2', 'ask', { songId: 'gurenge' }), card('p3', 'gap', { area: 'slow:J-POP' })])
+    const info = await page.evaluate(() => {
+      const top = document.querySelector('[data-testid=card-top]').getBoundingClientRect()
+      return [...document.querySelectorAll('[data-testid=card-peek]')].map(p => {
+        const tag = p.querySelector('.peek-edge [data-testid=peek-teaser]')
+        const r = p.getBoundingClientRect()
+        const text = tag?.textContent ?? ''
+        const fs = tag ? parseFloat(getComputedStyle(tag).fontSize) : 0
+        const sc = r.width / p.offsetWidth
+        return { lift: Math.round(top.top - r.top), text, px: +(fs * sc).toFixed(1), shown: p.getAttribute('data-teaser') }
+      })
+    })
+    assert.equal(info.length, 2)
+    assert.ok(info[0].lift >= 28, `first peek lifts ~30 px (${info[0].lift})`)
+    assert.ok(info[1].lift > info[0].lift + 16, `second peek stands higher (${info[1].lift})`)
+    assert.equal(info[0].text, '知ってる？', `ask teaser: ${info[0].text}`)
+    assert.ok(!/[A-Z]{3,}/.test(info[0].text + info[1].text), `no English kind codes: ${info.map(i => i.text)}`)
+    assert.ok(info[0].px >= 12, `teaser renders at >= 12 px (${info[0].px})`)
+    const label = await page.locator('[data-testid=card-top] .cs__label').textContent()
+    assert.equal(label.trim(), '今の1曲', `one localised kind label: ${label}`)
+    noErrors(errors, 'peeks')
+    await context.close()
+  })
+
+  await step('card fronts: no evidence chips / fine print on the front, fine print on the back', async () => {
+    const { page, errors, context } = await openApp('phone', QI)
+    await page.waitForSelector('[data-testid=card-top]')
+    await deal(page, [card('cf1', 'ask', { songId: 'gurenge' }), card('cf2', 'link', { songId: 'marigold', options: ['kimi-rock', 'suiheisen', 'dry-flower'] }), card('cf3', 'song', { songId: 'lemon' })])
+    const front = await page.locator('[data-testid=card-top] .cs__side--front').textContent()
+    assert.doesNotMatch(front, /答えた人の分だけ/, 'ask fine print left the front')
+    const b = await page.locator('[data-testid=card-top]').boundingBox()
+    await page.mouse.click(b.x + b.width / 2, b.y + 40)
+    await page.waitForTimeout(600)
+    assert.match(await page.locator('[data-testid=card-fine]').textContent(), /答えた人の分だけ数えます/, 'ask fine print on the back')
+    await page.click('[data-testid=btn-pass]')
+    await page.waitForTimeout(600)
+    const linkFront = await page.locator('[data-testid=card-top] .cs__side--front').textContent()
+    assert.doesNotMatch(linkFront, /タグのおすすめとは別枠/, 'link fine print left the front')
+    // ROBUST#10: the "just reserved" row never sits under the tiles or the diamond
+    for (const sel of ['[data-testid=link-option][data-song-id=kimi-rock]', '[data-testid=link-option][data-song-id=suiheisen]', '[data-testid=link-option][data-song-id=dry-flower]', '.link__center']) {
+      assert.equal(await overlap(page, '[data-testid=link-from]', sel), 0, `link-from clear of ${sel}`)
+    }
+    await page.click('[data-testid=btn-pass]')
+    await page.waitForTimeout(600)
+    assert.equal(await page.locator('[data-testid=card-top] .cs__side--front .chip').count(), 0, 'no evidence chips on the song front')
+    assert.equal(await page.locator('[data-testid=card-top] .cs__side--front [data-testid=navi-toggle]').count(), 0, 'navi toggle only on the opener front')
+    const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid=card-top] .cs__side--front *')].filter(e => e.childElementCount === 0 && e.textContent.trim() && getComputedStyle(e).visibility !== 'hidden' && parseFloat(getComputedStyle(e).fontSize) < 12).map(e => `${e.textContent.trim()}:${getComputedStyle(e).fontSize}`))
+    assert.deepEqual(small, [], 'minimum front font 12 px')
+    noErrors(errors, 'fronts')
+    await context.close()
+  })
+
+  await step('pass reasons only on the 3rd pass in a row; the breather dismisses the pill', async () => {
+    const { page, errors, context } = await openApp('phone', QI)
+    await page.waitForSelector('[data-testid=card-top]')
+    await deal(page, [card('r1', 'song', { songId: 'lemon' }), card('r2', 'song', { songId: 'pretender' }), card('r3', 'song', { songId: 'marigold' }), card('r4', 'song', { songId: 'gurenge' }), card('r5', 'breather'), card('r6', 'song', { songId: 'idol' })])
+    for (let i = 1; i <= 3; i++) {
+      await page.click('[data-testid=btn-pass]')
+      await page.waitForTimeout(450)
+      const chips = await page.locator('[data-testid=pass-reason]').count()
+      if (i < 3) assert.equal(chips, 0, `no reason chips after pass ${i}`)
+      else assert.equal(chips, 3, 'reason chips on the 3rd pass in a row')
+      assert.equal(await overlap(page, '[data-testid=undo-toast]', '[data-testid=card-top]'), 0, `pill clear of the card after pass ${i}`)
+      await page.waitForTimeout(300)
+    }
+    await page.click('[data-testid=pass-reason][data-reason=mood]')
+    await page.waitForTimeout(150)
+    assert.equal(await page.evaluate(() => window.__navi.get().col.passReasons.mood), 1, 'the optional reason is recorded')
+    await page.click('[data-testid=btn-pass]')
+    await page.waitForTimeout(500)
+    assert.equal(await page.locator('[data-testid=card-top]').getAttribute('data-kind'), 'breather')
+    assert.equal(await page.locator('[data-testid=undo-toast]').count(), 0, 'nothing sits over the breather')
+    noErrors(errors, 'reasons')
+    await context.close()
+  })
+
+  await step('my own turn: the bar keeps pass / primary / keep (btn-finish lives in the lane)', async () => {
+    const { page, errors, context } = await openApp('phone', `${QI}&speed=8`)
+    await page.waitForSelector('[data-testid=card-top][data-variant=opener]')
+    await page.waitForTimeout(400)
+    await page.click('[data-testid=btn-primary]')
+    await page.waitForFunction(() => window.__navi.get().room.now?.item.by === 'me', null, { timeout: 8000 })
+    await page.waitForTimeout(500)
+    assert.equal(await page.locator('.abar [data-testid=btn-finish]').count(), 0, 'no finish button in the action bar')
+    assert.ok(await page.locator('[data-testid=btn-pass]').isVisible(), 'pass stays')
+    assert.ok(await page.locator('[data-testid=btn-primary]').isVisible(), 'primary stays')
+    const kind = await page.locator('[data-testid=card-top]').getAttribute('data-kind')
+    if (['song', 'ask', 'link', 'voice'].includes(kind)) assert.ok(await page.locator('[data-testid=btn-keep]').isVisible(), 'keep stays')
+    noErrors(errors, 'my turn')
+    await context.close()
+  })
+
+  await step('fair share (handshake 5): over budget the primary keeps the song on the ball', async () => {
+    const { page, errors, context } = await openApp('phone', QI)
+    await page.waitForSelector('[data-testid=card-top]')
+    await page.evaluate(() => {
+      const s = window.__navi.api.getState()
+      for (const id of ['kanden', 'koi', 'suiheisen']) s.reserve(id, { by: 'me', source: 'search' })
+    })
+    await deal(page, [card('fs1', 'song', { songId: 'lemon' }), card('fs2', 'link', { songId: 'marigold', options: ['kimi-rock', 'dry-flower', 'idol'] }), card('fs3', 'gap', { area: 'slow:J-POP' })])
+    const over = await page.evaluate(() => {
+      const s = window.__navi.get()
+      const pending = s.room.queue.filter(q => q.by === 'me').length + (s.room.now?.item.by === 'me' ? 1 : 0)
+      return pending
+    })
+    assert.ok(over >= 3, `my pending songs ${over}`)
+    const p = page.locator('[data-testid=btn-primary]')
+    assert.equal(await p.getAttribute('data-action'), 'keep')
+    assert.match(await p.textContent(), /ボールにキープ/)
+    assert.match(await page.locator('[data-testid=budget-note]').textContent(), /出番待ち/)
+    const q0 = await page.evaluate(() => window.__navi.get().room.queue.length)
+    await p.click()
+    await page.waitForTimeout(600)
+    const st = await state(page)
+    assert.equal(st.faces.lemon, 'sketch', 'kept as a sketch face')
+    assert.equal(st.queue.length, q0, 'no new reservation')
+    assert.equal(await page.locator('[data-testid=btn-primary]').getAttribute('data-action'), 'keep', 'link primary is keep too')
+    noErrors(errors, 'fair share')
+    await context.close()
+  })
+
+  await step('script mode: -> on a focused card never throws it (DEMO#2)', async () => {
+    const { page, errors, context } = await openApp('phone', `${QI}&script=1`)
+    await page.waitForSelector('[data-testid=card-top]')
+    await deal(page, [card('k1', 'song', { songId: 'lemon' }), card('k2', 'song', { songId: 'pretender' }), card('k3', 'gap', { area: 'slow:J-POP' })])
+    await page.focus('[data-testid=card-top] .deck__drag')
+    await page.keyboard.press('ArrowRight')
+    await page.waitForTimeout(500)
+    assert.equal((await state(page)).faces.lemon, undefined, 'ArrowRight did not keep the card')
+    noErrors(errors, 'script keys')
+    await context.close()
+  })
+
+  await step('visa stamp never covers the title, 5 locales at 390 and 360 (ROBUST#4, DEMO#12)', async () => {
+    for (const kind of ['phone', 'small']) {
+      for (const loc of ['ja', 'en', 'zhHant', 'zhHans', 'ko']) {
+        const { page, errors, context } = await openApp(kind, `${QI}&locale=${loc}`)
+        await page.waitForSelector('[data-testid=card-top]')
+        for (const songId of ['plastic-love', 'zankoku']) {
+          const cid = `v-${kind}-${loc}-${songId}`
+          const to = loc === 'ja' ? 'ko' : loc
+          await deal(page, [card(cid, 'song', { variant: 'visa', songId, reason: { source: 'hou', text: { key: 'reason.visa', vars: { locale: { locale: to } } } } }), card(`${cid}-2`, 'song', { songId: 'lemon' }), card(`${cid}-3`, 'gap', { area: 'slow:J-POP' })])
+          assert.equal(await overlap(page, '[data-testid=visa-stamp]', '[data-testid=visa-title] .vtitle__lines'), 0, `${kind} ${loc} ${songId}: stamp clear of the title`)
+          if (loc === 'ja' && songId === 'zankoku') assert.match(await page.locator('[data-testid=visa-title]').textContent(), /잔혹한 천사의 테제/, 'ja viewer sees the title in the language it crosses into')
+        }
+        noErrors(errors, `visa ${kind} ${loc}`)
+        await context.close()
+      }
+    }
+  })
+
+  await step('action-bar labels fit at 360 in en and ko (ROBUST#12)', async () => {
+    for (const loc of ['en', 'ko']) {
+      const { page, errors, context } = await openApp('small', `${QI}&locale=${loc}`)
+      await page.waitForSelector('[data-testid=card-top]')
+      const hand = [card('l1', 'coaster'), card('l2', 'invite', { variant: 'request', from: 'saki', songId: 'marigold' }), card('l3', 'import'), card('l4', 'voice'), card('l5', 'song', { songId: 'lemon' })]
+      for (let i = 0; i < hand.length; i++) {
+        await deal(page, [hand[i], hand[(i + 1) % hand.length], hand[(i + 2) % hand.length]].map((c, k) => ({ ...c, id: `${c.id}-${loc}-${i}-${k}` })))
+        const cut = await page.evaluate(() => [...document.querySelectorAll('.abar .abar__label')].filter(e => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).map(e => e.textContent))
+        assert.deepEqual(cut, [], `${loc} ${hand[i].kind}: truncated labels ${cut}`)
+      }
+      noErrors(errors, `labels ${loc}`)
+      await context.close()
+    }
+  })
+
+  await step('ghost hand hides off the discover tab', async () => {
+    const { page, errors, context } = await openApp('phone', Q)
+    await page.waitForSelector('[data-testid=ghost-hand]', { timeout: 6000 })
+    await page.click('[data-testid=dock-record]')
+    await page.waitForTimeout(500)
+    assert.equal(await page.locator('[data-testid=ghost-hand]').count(), 0, 'no ghost hand over the record tab')
+    noErrors(errors, 'ghost')
     await context.close()
   })
 }

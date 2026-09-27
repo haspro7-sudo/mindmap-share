@@ -276,9 +276,9 @@ function FinaleBody({ card, setPrimary, act, active }: CardBodyProps) {
       ))}
 
       <div className="rm-fin__foot" style={{ top: h * (size.small ? 0.64 : 0.665) } as CSSProperties}>
+        {/* one reason line on the front; its cause is on the back (card-front contract) */}
         <div className="rm-fin__head" data-testid="card-reason">
           <span className="rm-fin__headtext">{trr(card.reason.text)}</span>
-          {card.reason.cause ? <span className="rm-fin__cause">{trr(card.reason.cause)}</span> : null}
         </div>
         <AnimatePresence mode="wait">
           <motion.div key={status} className="rm-fin__status" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>

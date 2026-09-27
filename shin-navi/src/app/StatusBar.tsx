@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { common } from '../i18n/common'
 import { LOCALES, useLocale } from '../i18n'
 import { useNavi, naviApi } from '../core/store'
-import { selMinutesLeft } from '../core/selectors'
+import { selMinutesLeft, selRoomUnlinked } from '../core/selectors'
+import { shellStrings } from '../i18n/shell'
 import { introPending, introWait, useIntroMode } from '../core/intro'
 import { Icon } from '../core/ui/Icon'
 import { sound } from '../core/sound'
@@ -14,6 +15,8 @@ const PULSE = LOCALES.map(l => l.short) // JA → EN → 繁 → 简 → KO
 
 export function StatusBar({ variant = 'phone', minimal = false }: { variant?: 'phone' | 'room'; minimal?: boolean }) {
   const t = common.useT()
+  const ts = shellStrings.useT()
+  const unlinked = useNavi(selRoomUnlinked)
   const locale = useLocale()
   const minutes = useNavi(selMinutesLeft)
   const muted = useNavi(s => s.session.muted)
@@ -44,7 +47,7 @@ export function StatusBar({ variant = 'phone', minimal = false }: { variant?: 'p
 
   const ids = !minimal
   return (
-    <header className={`status status--${variant}`} data-testid={ids ? 'status-bar' : undefined}>
+    <header className={`status status--${variant}${unlinked ? ' is-unlinked' : ''}`} data-testid={ids ? 'status-bar' : undefined} data-unlinked={unlinked ? '1' : '0'}>
       <button type="button" className="status__brand" data-testid={ids ? 'brand-label' : undefined} onClick={onBrand}>
         <span className="status__mark" aria-hidden="true" />
         <span className="status__brandtext">{t('brand')}</span>
@@ -53,10 +56,11 @@ export function StatusBar({ variant = 'phone', minimal = false }: { variant?: 'p
         <span className="status__roomline">
           <span className="status__live" aria-hidden="true" />
           <span className="status__roomno">{t('roomNo', { n: 12 })}</span>
-          {variant === 'room' ? <span className="status__joined">{t('joined')}</span> : null}
+          {variant === 'room' ? <span className="status__joined">{unlinked ? ts('unlinked') : t('joined')}</span> : null}
         </span>
+        {/* after 退室 the clock is frozen: say where we are instead of a stale countdown */}
         <span className="status__min" data-testid={ids ? 'minutes-left' : undefined}>
-          {t('minutesLeft', { m: minutes })}
+          {unlinked ? ts('left') : t('minutesLeft', { m: minutes })}
         </span>
       </div>
       {minimal ? null : (

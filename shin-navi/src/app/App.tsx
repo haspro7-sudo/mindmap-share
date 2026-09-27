@@ -1,14 +1,14 @@
 // Root: boots the store, installs the feature services once, and picks the shell by view mode.
 // Boot order (lead contract): loadPersisted → persistence, clock, test hook → feature installers.
 import { MotionConfig } from 'motion/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { naviApi, useNavi } from '../core/store'
 import { bus } from '../core/events'
 import { params } from '../core/params'
 import { loadPersisted, installPersistence } from '../core/storage'
 import { installClock } from '../core/clock'
 import { installTestHook } from '../core/testHook'
-import { LayoutProvider, useViewMode } from '../core/layout'
+import { LayoutProvider, useBox, useViewMode } from '../core/layout'
 import { INTRO_SCALE, INTRO_TIMELINE, restartIntro } from '../core/intro'
 import { fxState } from '../core/fxState'
 import { sound } from '../core/sound'
@@ -19,6 +19,8 @@ import { installRoomSim, PresenterPanel } from '../features/room'
 import { PhoneShell } from './PhoneShell'
 import { RoomShell } from './RoomShell'
 import { DualLayout } from './DualLayout'
+import { ErrorBoundary } from './ErrorBoundary'
+import { shellStrings } from '../i18n/shell'
 
 let booted = false
 /** Synchronous part of the boot: runs before the first render so the intro mode is final. */
@@ -52,7 +54,24 @@ function useServices(): void {
       offs.push(() => mq.removeEventListener?.('change', apply))
     }
 
-    // keyboard: L lens, S split, ? presenter, → next scripted event
+    // keyboard (script mode, capture phase): → and PageDown always mean "next event", wherever the
+    // focus is (a flipped card, the search field…) — presenter clickers send exactly these keys.
+    // PageUp is swallowed so a clicker's "back" never scrolls a sheet mid-demo.
+    const onScriptKey = (e: KeyboardEvent) => {
+      if (!api.getState().session.script || e.metaKey || e.ctrlKey || e.altKey) return
+      const next = e.key === 'ArrowRight' || e.key === 'PageDown'
+      if (!next && e.key !== 'PageUp') return
+      const el = e.target as HTMLElement | null
+      // an input with a selection being edited keeps its → (collapse the selection first)
+      if (e.key === 'ArrowRight' && el instanceof HTMLInputElement && el.selectionStart != null && el.selectionStart !== el.selectionEnd) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (next && !e.repeat) bus.emit({ type: 'presenter/cmd', cmd: { t: 'next' } })
+    }
+    window.addEventListener('keydown', onScriptKey, true)
+    offs.push(() => window.removeEventListener('keydown', onScriptKey, true))
+
+    // keyboard (bubble phase): L lens, S split, ? presenter, → next scripted event
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
@@ -61,7 +80,7 @@ function useServices(): void {
       if (e.key === 'l' || e.key === 'L') s.toggleLens()
       else if (e.key === 's' || e.key === 'S') s.toggleSplit()
       else if (e.key === '?') s.togglePresenter()
-      else if (e.key === 'ArrowRight') bus.emit({ type: 'presenter/cmd', cmd: { t: 'next' } })
+      else if (e.key === 'ArrowRight' && !s.session.script) bus.emit({ type: 'presenter/cmd', cmd: { t: 'next' } })
     }
     window.addEventListener('keydown', onKey)
     offs.push(() => window.removeEventListener('keydown', onKey))
@@ -82,16 +101,32 @@ function useServices(): void {
   }, [])
 }
 
-/** markIntroDone once the timeline reaches `done`; restarts when a new night starts. */
+/**
+ * The intro clock starts when the stage is first committed (just before its first paint), not at
+ * bundle evaluation: parsing and the first render of a 1.4 MB page must not eat into the 3-second
+ * choreography (QA OWNER#4 / DEMO#7). A new night (next visit) restarts it the same way.
+ * markIntroDone once the timeline reaches `done`.
+ */
 function useIntroClock(nightId: string, intro: 'full' | 'short' | 'none'): void {
-  const first = useRef(true)
-  useEffect(() => {
-    if (!first.current) restartIntro()
-    first.current = false
+  useLayoutEffect(() => {
+    restartIntro()
     const ms = INTRO_TIMELINE.done * INTRO_SCALE[intro]
     const id = setTimeout(() => naviApi.getState().markIntroDone(), ms)
     return () => clearTimeout(id)
+    // the intro mode is fixed per night
   }, [nightId])
+}
+
+/** A phone turned sideways keeps the phone view; this asks, once, to turn it back upright. */
+function RotateHint() {
+  const t = shellStrings.useT()
+  return (
+    <div className="rotate-hint" data-testid="rotate-hint" role="status">
+      <span className="rotate-hint__phone" aria-hidden="true" />
+      <div className="rotate-hint__title">{t('rotateTitle')}</div>
+      <div className="rotate-hint__body">{t('rotateBody')}</div>
+    </div>
+  )
 }
 
 function Root() {
@@ -114,6 +149,9 @@ function Root() {
     return () => clearInterval(id)
   }, [])
 
+  const box = useBox()
+  const sideways = view === 'phone' && !params.view && box.w > box.h && box.h < 500
+
   return (
     <div ref={ref} className="app-root" data-testid="app-root" data-view={view} data-phase={phase} data-intro={intro} data-reduced={reduced ? '1' : '0'} data-quality={String(fxState.quality)}>
       {/* a new night (next visit) remounts the shells so the entrance plays again */}
@@ -125,11 +163,12 @@ function Root() {
         <SplitView />
         <PresenterPanel />
       </div>
+      {sideways ? <RotateHint /> : null}
     </div>
   )
 }
 
-export function App() {
+function AppInner() {
   useState(boot)
   return (
     <MotionConfig reducedMotion="user">
@@ -137,5 +176,13 @@ export function App() {
         <Root />
       </LayoutProvider>
     </MotionConfig>
+  )
+}
+
+export function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
   )
 }

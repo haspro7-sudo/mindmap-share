@@ -10,7 +10,7 @@ import { naviApi, useNavi } from '../../core/store'
 import type { NaviState } from '../../core/store/types'
 import { selPeeks, selTopCard } from '../../core/selectors'
 import { usePhoneMetrics, useLayoutFrame } from '../../core/layout'
-import { introDelay, introPending, useIntroMode } from '../../core/intro'
+import { introPending, introWait, useIntroMode } from '../../core/intro'
 import { fxState } from '../../core/fxState'
 import { resolveTarget } from '../../core/targets'
 import type { TargetId } from '../../core/events'
@@ -21,7 +21,7 @@ import { SongTitle } from '../../core/ui/SongTitle'
 import { SONG_BY_ID } from '../../data/songs'
 import { useTr } from '../../i18n'
 import { CardShell, KindLabel } from './CardShell'
-import { FRAMES, PEEKS, frameOf, frameSize, kindKey } from './frames'
+import { FRAMES, PEEKS, PEEK_BOOST, frameOf, frameSize, kindKey, peeksFor } from './frames'
 import { LONG_MS, TAP_SLOP, VelocityTracker, classifyGesture, dragDirection, dragProgress, resist, tiltFor } from './gestures'
 import { S } from './strings'
 
@@ -80,6 +80,18 @@ function clearDrag() {
   fxState.drag.progress = 0
   fxState.drag.songId = undefined
   paintBar(null, 0)
+  deckCtl.deckEl?.classList.remove('is-drag-far')
+}
+
+/** Run fn after the next paint, `sec` seconds later (intro moments measured after the first paint). */
+function laterAfterPaint(fn: () => void, sec: () => number): () => void {
+  let id = 0
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => (id = window.setTimeout(fn, sec() * 1000))) : 0
+  if (!raf) id = window.setTimeout(fn, sec() * 1000)
+  return () => {
+    if (raf) cancelAnimationFrame(raf)
+    window.clearTimeout(id)
+  }
 }
 
 function paintBar(dir: 'up' | 'right' | 'left' | null, p: number) {
@@ -94,8 +106,13 @@ function paintBar(dir: 'up' | 'right' | 'left' | null, p: number) {
 
 // ---------------------------------------------------------------- variants
 
+const INTRO_POSE = { y: 80, scale: 0.92, opacity: 0 }
+
 const TOP_VARIANTS: Variants = {
   rest: { x: 0, y: 0, scale: 1, opacity: 1 },
+  /** first visit: the opener waits below its place, invisible, until the B-2 1.4 s beat */
+  held: INTRO_POSE,
+  heldShort: { opacity: 0 },
   exit: (id: string) => {
     switch (resolveExit(id)) {
       case 'handoff':
@@ -125,7 +142,7 @@ type Entrance = 'intro' | 'short' | 'promote' | 'insert' | 'undo-up' | 'undo-rig
 function entranceInitial(e: Entrance): Record<string, number> | false {
   switch (e) {
     case 'intro':
-      return { y: 80, scale: 0.92, opacity: 0 }
+      return INTRO_POSE
     case 'short':
       return { opacity: 0 }
     case 'promote':
@@ -149,9 +166,10 @@ function entranceTransition(e: Entrance, reduced: boolean) {
   if (reduced) return { duration: 0.3 }
   switch (e) {
     case 'intro':
-      return { ...SPRING.soft, delay: introDelay('cardRise') }
+      // B-2: the opener rises 1.4–1.9 s (y +80 → 0, scale 0.92 → 1); the release timer holds it until then
+      return { y: { type: 'spring', stiffness: 170, damping: 19 }, scale: { type: 'spring', stiffness: 170, damping: 19 }, opacity: { duration: 0.32, ease: 'easeOut' } } as const
     case 'short':
-      return { duration: 0.3, delay: introDelay('cardRise') }
+      return { duration: 0.3 }
     case 'redeal':
       return { duration: 0.16 }
     case 'insert':
@@ -236,6 +254,12 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
   const st = useRef<{ id: number; x0: number; y0: number; t0: number; moved: number; dragging: boolean; long: boolean; interactive: boolean; timer: number; ringTimer: number } | null>(null)
   const [ring, setRing] = useState<{ x: number; y: number; k: number } | null>(null)
   const [asking, setAsking] = useState(0)
+  // the intro entrance waits for its beat, measured after the first paint (robust to a late intro clock)
+  const [held, setHeld] = useState(() => (entrance === 'intro' || entrance === 'short') && !reduced)
+  useEffect(() => {
+    if (!held) return
+    return laterAfterPaint(() => setHeld(false), () => introWait('cardRise'))
+  }, [])
 
   const springBack = () => {
     animate(x, 0, { type: 'spring', stiffness: 520, damping: 30 })
@@ -321,6 +345,11 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
     if (dir === 'up') {
       const p: PrimarySpec | null = s.deck.primary
       if (!p || !p.enabled) return bump()
+      if (p.action === 'keep') {
+        // fair share (handshake 5): the primary keeps the song on the ball instead of reserving it
+        const songId = p.arg?.songId ?? songOfCard(s, c)
+        if (songId) return throwCard('keep', { songId }, 'flight', 'up', `face:${songId}`)
+      }
       if (p.action === 'reserve' || p.action === 'accept' || p.action === 'insert') {
         const songId = p.arg?.songId ?? songOfCard(s, c)
         if (songId && SONG_BY_ID[songId]?.reservable) return throwCard(p.action, { ...p.arg, songId }, 'flight', 'up', p.action === 'insert' ? 'lane:insert' : 'lane:next')
@@ -435,6 +464,8 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
     if (dir === 'right' && !keepable) dir = null
     if (dir === 'left' && card.kind === 'breather') dir = null
     const p = dir ? dragProgress(lx, ly, w, h) : 0
+    // anticipation: past 40 px the next card lifts a little and brightens (CSS, 150 ms)
+    deckCtl.deckEl?.classList.toggle('is-drag-far', Math.hypot(lx, ly) > 40)
     fxState.drag.dir = dir
     fxState.drag.progress = p
     fxState.drag.songId = songOfCard(naviApi.getState(), card)
@@ -489,6 +520,8 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return
     const map: Record<string, CommitDir | 'flip'> = { ArrowUp: 'up', ArrowRight: 'right', ArrowLeft: 'left', Enter: 'flip', ' ': 'flip' }
+    // script mode: → belongs to the presenter ("next beat"), even while a card has focus (DEMO#2)
+    if (naviApi.getState().session.script) delete map.ArrowRight
     const k = map[e.key]
     if (!k) return
     e.preventDefault()
@@ -525,15 +558,16 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
   const active = tabActive && !flipped && !hidden
 
   const base = entranceInitial(entrance)
-  const initial = base && entrance === 'promote' ? { ...base, y: promoteY - (1 - PEEKS[0].scale) * 0.6 * h } : base
+  const pk = peeksFor(small)[0]
+  const initial = base && entrance === 'promote' ? { ...base, y: promoteY - (1 - pk.scale) * 0.6 * h, scale: pk.scale } : base
   return (
     <motion.div
-      className={`deck__top${hidden ? ' is-hidden' : ''}`}
+      className={`deck__top${hidden ? ' is-hidden' : ''}${held ? ' is-held' : ''}`}
       style={{ top: topY, left: '50%', marginLeft: -w / 2, width: w, height: h }}
       custom={card.id}
       variants={TOP_VARIANTS}
       initial={initial === false ? false : initial}
-      animate="rest"
+      animate={held ? (entrance === 'short' ? 'heldShort' : 'held') : 'rest'}
       exit="exit"
       transition={entranceTransition(entrance, reduced)}
       data-testid="card-top"
@@ -602,32 +636,38 @@ function TopCard({ card, Body, small, topY, entrance, promoteY, hidden, scale }:
 
 // ---------------------------------------------------------------- peeks
 
-function PeekCard({ card, i, small, topY, intro, stackW }: { card: DeckCard; i: number; small: boolean; topY: number; intro: boolean; stackW: number }) {
+function PeekCard({ card, i, small, topY, intro, stackW, teaser }: { card: DeckCard; i: number; small: boolean; topY: number; intro: boolean; stackW: number; teaser: boolean }) {
   const frame = frameOf(card)
   const { w, h } = frameSize(frame, small)
-  const pose = PEEKS[i] ?? PEEKS[PEEKS.length - 1]
+  const poses = peeksFor(small)
+  const pose = poses[i] ?? poses[poses.length - 1]
   const y = topY - pose.lift
+  // intro: measured from now, so a peek that mounts a little late still lands on its beat
+  const [delay] = useState(() => (intro ? introWait('peeks') + i * 0.09 : 0))
   return (
     <motion.div
-      className="deck__peek"
-      style={{ left: (stackW - w) / 2, width: w, height: h, zIndex: 3 - i, transformOrigin: '50% 0%' }}
+      className={`deck__peek deck__peek--${i}`}
+      style={{ left: (stackW - w) / 2, width: w, height: h, zIndex: 3 - i, transformOrigin: '50% 0%', ['--pk-lift' as string]: `${PEEK_BOOST}px` } as CSSProperties}
       initial={intro ? { y: topY + 16, scale: pose.scale, opacity: 0 } : { y: topY + 6, scale: pose.scale * 0.96, opacity: 0 }}
       animate={{ y, scale: pose.scale, opacity: pose.opacity }}
       exit={{ opacity: 0, transition: { duration: 0 } }}
-      transition={intro ? { ...SPRING.soft, delay: introDelay('peeks') + i * 0.09 } : SPRING.soft}
+      transition={intro ? { ...SPRING.soft, delay } : SPRING.soft}
       data-testid="card-peek"
       data-kind={card.kind}
       data-variant={card.variant ?? ''}
+      data-teaser={teaser ? '1' : '0'}
       aria-hidden="true"
     >
-      <div className="peek-edge">
-        <CardShell card={card} frame={frame} w={w} h={h} small={small} role="peek" />
-      </div>
-      {i === 0 ? (
-        <div className="peek-full">
-          <CardShell card={card} frame={frame} w={w} h={h} small={small} role="peek" />
+      <div className={`peek-lift${teaser ? '' : ' no-teaser'}`}>
+        <div className="peek-edge">
+          <CardShell card={card} frame={frame} w={w} h={h} small={small} role="peek" peekScale={pose.scale} />
         </div>
-      ) : null}
+        {i === 0 ? (
+          <div className="peek-full">
+            <CardShell card={card} frame={frame} w={w} h={h} small={small} role="peek" peekScale={pose.scale} />
+          </div>
+        ) : null}
+      </div>
     </motion.div>
   )
 }
@@ -635,6 +675,9 @@ function PeekCard({ card, i, small, topY, intro, stackW }: { card: DeckCard; i: 
 // ---------------------------------------------------------------- redeal (C-11)
 
 const REDEAL_MS = 1250
+/** Height of the member-orb row under the hero horizon (stage's floor lights), in phone px. */
+const ORB_ROW = 30
+const ORB_ROW_SMALL = 26
 
 function TokenFace({ card }: { card: DeckCard }) {
   const spec = FRAMES[frameOf(card)]
@@ -655,7 +698,7 @@ function FlipSlot({ oldCard, newCard, i, small, topY, stackW, stackH }: { oldCar
   const order = 2 - i // back to front: the top card turns last
   const d0 = 0.12 + order * 0.12
   const half = 0.24
-  const pose = i === 0 ? { lift: 0, scale: 1, opacity: 1 } : PEEKS[i - 1]
+  const pose = i === 0 ? { lift: 0, scale: 1, opacity: 1 } : peeksFor(small)[i - 1]
   const slot = (c: DeckCard | undefined, phase: 'out' | 'in') => {
     if (!c) return null
     const frame = frameOf(c)
@@ -708,27 +751,35 @@ export function DeckView(p: { bodies: Record<CardKind, CardBodyComponent> }): JS
     }
   }, [])
   const [stackW, setStackW] = useState(m.small ? 328 : 358)
+  const [deckH, setDeckH] = useState(0)
 
   useLayoutEffect(() => {
     const el = stackRef.current
+    const dk = deckRef.current
     if (!el) return
-    const measure = () => setStackW(Math.round(el.clientWidth) || 358)
+    const measure = () => {
+      setStackW(Math.round(el.clientWidth) || 358)
+      if (dk) setDeckH(Math.round(dk.clientHeight))
+    }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(measure)
     ro.observe(el)
+    if (dk) ro.observe(dk)
     return () => ro.disconnect()
   }, [])
 
   // ---- entrance bookkeeping
-  const firstRender = useRef(true)
+  // the director deals the opener one commit after mount: the intro belongs to the first card
+  // that actually reaches the top, not to the first render (OWNER#4 / DEMO#7)
+  const hadTop = useRef(false)
   const prevVisible = useRef<string[]>([])
   const prevCards = useRef<DeckCard[]>([])
   const entranceRef = useRef<{ id: string; e: Entrance; py: number }>({ id: '', e: 'none', py: 0 })
   const prevTopY = useRef(0)
   if (top && entranceRef.current.id !== top.id) {
     let e: Entrance = 'none'
-    if (firstRender.current) {
+    if (!hadTop.current) {
       e = introMode === 'none' ? 'none' : introPending('cardRise') ? (introMode === 'short' ? 'short' : 'intro') : 'none'
     } else if (leftVia.has(top.id)) {
       const via = leftVia.get(top.id)!
@@ -737,10 +788,10 @@ export function DeckView(p: { bodies: Record<CardKind, CardBodyComponent> }): JS
       exitOf.delete(top.id)
     } else if (prevVisible.current[1] === top.id) e = 'promote'
     else e = 'insert'
+    hadTop.current = true
     const newTopY = stackH - frameSize(frameOf(top), small).h
-    entranceRef.current = { id: top.id, e, py: prevTopY.current - PEEKS[0].lift - newTopY }
+    entranceRef.current = { id: top.id, e, py: prevTopY.current - peeksFor(small)[0].lift - newTopY }
   }
-  firstRender.current = false
   const introPeeks = introMode !== 'none' && introPending('peeks')
 
   // ---- redeal
@@ -786,26 +837,34 @@ export function DeckView(p: { bodies: Record<CardKind, CardBodyComponent> }): JS
   }, [top?.id])
 
   // ---- intro light: a streak falls from the ball onto the rising first card (B-2 1.4 s)
-  const [beam, setBeam] = useState<{ h: number } | null>(null)
+  const [beam, setBeam] = useState<{ h: number; k: string } | null>(null)
+  const introId = entranceRef.current.e === 'intro' ? entranceRef.current.id : ''
   useEffect(() => {
-    if (entranceRef.current.e !== 'intro' || reduced) return
-    const at = Math.max(0, introDelay('cardRise') * 1000 - 220)
-    const id = window.setTimeout(() => {
-      const ball = resolveTarget('hero:ball')
-      const st = stackRef.current?.getBoundingClientRect()
-      if (!st) return
-      const topFrame = top ? frameSize(frameOf(top), small).h : stackH
-      const cardTop = st.top + (stackH - topFrame) * frameCtx.scale
-      const from = ball ? ball.top + ball.height * 0.72 : cardTop - 80 * frameCtx.scale
-      setBeam({ h: Math.max(30, (cardTop - from) / frameCtx.scale) })
-    }, at)
-    return () => window.clearTimeout(id)
-  }, [])
+    if (!introId || reduced) return
+    return laterAfterPaint(
+      () => {
+        const ball = resolveTarget('hero:ball')
+        const st = stackRef.current?.getBoundingClientRect()
+        if (!st) return
+        const cur = naviApi.getState().deck.cards[0]
+        const topFrame = cur ? frameSize(frameOf(cur), small).h : stackH
+        const cardTop = st.top + (stackH - topFrame) * frameCtx.scale
+        const from = ball ? ball.top + ball.height * 0.72 : cardTop - 80 * frameCtx.scale
+        setBeam({ h: Math.max(30, (cardTop - from) / frameCtx.scale), k: introId })
+      },
+      () => Math.max(0, introWait('cardRise') - 0.22),
+    )
+  }, [introId])
 
   const topFrame = top ? frameOf(top) : 'portrait'
   const topSize = frameSize(topFrame, small)
   const topY = stackH - topSize.h
   const Body = top ? p.bodies[top.kind] : null
+  // The peeks stand behind the floor lights (the orbs stay readable in front). The second peek's
+  // teaser only shows when it has a clear strip between the orb row and the first peek.
+  const poses = peeksFor(small)
+  const gap = m.hero - m.horizon + 2 + deckH - topSize.h
+  const secondTeaser = deckH > 0 && gap - (small ? ORB_ROW_SMALL : ORB_ROW) - poses[0].lift >= 16
   const anchor = top ? `card:${top.kind}${top.kind === 'song' && top.variant === 'visa' ? '.visa' : ''}` : undefined
 
   const newVisible = useMemo(() => [top, ...peeks], [top, peeks])
@@ -816,13 +875,15 @@ export function DeckView(p: { bodies: Record<CardKind, CardBodyComponent> }): JS
         <div className={`deck__peeks${redeal && !redeal.fading ? ' is-hidden' : ''}`} style={{ clipPath: `inset(-120px -60px ${Math.max(0, stackH - (topY + topSize.h))}px -60px)` }}>
           <AnimatePresence initial={false}>
             {peeks.map((c, i) => (
-              <PeekCard key={c.id} card={c} i={i} small={small} topY={topY} intro={introPeeks} stackW={stackW} />
+              <PeekCard key={c.id} card={c} i={i} small={small} topY={topY} intro={introPeeks} stackW={stackW} teaser={i === 0 || secondTeaser} />
             ))}
           </AnimatePresence>
         </div>
         {beam ? (
           <motion.div
+            key={beam.k}
             className="deck__beam"
+            data-testid="intro-beam"
             style={{ height: beam.h, bottom: stackH - topY }}
             initial={{ scaleY: 0, opacity: 0 }}
             animate={{ scaleY: [0, 1, 1], opacity: [0, 1, 0] }}

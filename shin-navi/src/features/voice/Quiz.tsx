@@ -4,7 +4,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { sound } from '../../core/sound'
-import { QUIZ, QUIZ_ORDER, FACTOR_COLOR, type QuizAnswers, type QuizKey } from './buildReading'
+import { useNavi } from '../../core/store'
+import { DEMO_ANSWERS, QUIZ, QUIZ_ORDER, FACTOR_COLOR, type QuizAnswers, type QuizKey } from './buildReading'
 import { V, type VoiceKey } from './strings'
 import './voice.css'
 
@@ -45,6 +46,8 @@ export type QuizProps = {
 
 export function Quiz({ fallback, reduced, onPreview, onDone }: QuizProps) {
   const t = V.useT()
+  // script mode (the presenter's demo): a quiet ring on the answers that give the scripted reading
+  const demo = useNavi(s => s.session.script)
   const [answers, setAnswers] = useState<Partial<QuizAnswers>>({})
   const [step, setStep] = useState(0)
   const [dir, setDir] = useState(1)
@@ -120,13 +123,15 @@ export function Quiz({ fallback, reduced, onPreview, onDone }: QuizProps) {
             <div className="vquiz__answers" role="group" aria-label={t(`q.${key}` as VoiceKey)}>
               {(QUIZ[key] as string[]).map(a => {
                 const on = answers[key] === a
+                const hint = demo && !answers[key] && DEMO_ANSWERS[key] === a
                 return (
                   <motion.button
                     key={a}
                     type="button"
-                    className={`vquiz__a${on ? ' is-on' : ''}`}
+                    className={`vquiz__a${on ? ' is-on' : ''}${hint ? ' is-demo' : ''}`}
                     data-testid="voice-a"
                     data-a={a}
+                    data-demo={hint ? '1' : undefined}
                     aria-pressed={on}
                     style={{ ['--c' as string]: PILLAR_OF[key].color } as CSSProperties}
                     whileTap={{ scale: 0.96 }}
