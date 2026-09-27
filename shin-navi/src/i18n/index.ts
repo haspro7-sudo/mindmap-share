@@ -134,7 +134,8 @@ function lookup(ns: string, key: string, l: Locale): string | undefined {
 }
 
 function resolve(ns: string, key: string, vars: Record<string, TextVar> | undefined, l: Locale): string {
-  const raw = lookup(ns, key, l)
+  // Singular: a sibling key `<key>.one` (defined in every locale) wins when vars.n === 1.
+  const raw = (vars?.n === 1 ? lookup(ns, `${key}.one`, l) : null) ?? lookup(ns, key, l)
   if (raw == null) return `${ns}.${key}`
   return format(raw, vars, l)
 }

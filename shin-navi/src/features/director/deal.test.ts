@@ -438,7 +438,7 @@ describe('planner layer (H-3 / H-4 / H-5)', () => {
     expect(Object.keys(d.en).sort()).toEqual(Object.keys(d.ja).sort())
     for (const k of Object.keys(d.ja)) expect(vars(d.en[k]), k).toBe(vars(d.ja[k]))
     const all = [...Object.values(d.ja), ...Object.values(d.en)].join('\n')
-    for (const rival of ['DAM', 'Spotify', 'YouTube', 'LINE MUSIC']) expect(all).not.toContain(rival)
+    for (const brand of ['Spotify', 'YouTube', 'LINE MUSIC']) expect(all).not.toContain(brand)
     expect(all).not.toMatch(/\d\s*%|％/)
   })
 

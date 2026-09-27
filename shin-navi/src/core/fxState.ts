@@ -1,6 +1,6 @@
 // Mutable per-frame effect state (SPEC K-7). NOT React state: canvases read it every frame,
 // store subscriptions (installFx) and gesture code write it. Never trigger renders from here.
-import type { AuroraKey, SongId } from './types'
+import type { AuroraKey, FaceState, SongId } from './types'
 
 export type FxQuality = 0 | 1 | 2
 export type DragDir = 'up' | 'right' | 'left' | null
@@ -31,6 +31,8 @@ export type FxState = {
   touch: { x: number; y: number; t: number } | null
   /** card drag preview: written by cards (M3), read by ball (M2) and lane (M6) */
   drag: { dir: DragDir; songId?: SongId; progress: number }
+  /** record screen: light only faces in this state (others dim to ~25%); null = all. Written by record, read by ball. */
+  ballHighlight: FaceState | null
 }
 
 export function freshFxState(): FxState {
@@ -48,6 +50,7 @@ export function freshFxState(): FxState {
     emitters: [],
     touch: null,
     drag: { dir: null, progress: 0 },
+    ballHighlight: null,
   }
 }
 

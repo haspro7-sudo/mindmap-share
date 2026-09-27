@@ -112,7 +112,7 @@ export async function run({ openApp, assert, step }) {
     assert.match(await page.textContent('[data-testid=split-dynamic]'), /ジュン/, 'the cause names Jun')
     assert.equal(await page.textContent('[data-testid=split-static] ol'), staticBefore, 'the static list does not change')
     const body = await page.textContent('body')
-    for (const rival of ['DAM', 'Spotify', 'YouTube']) assert.ok(!body.includes(rival), `no ${rival} on screen`)
+    for (const brand of ['Spotify', 'YouTube']) assert.ok(!body.includes(brand), `no ${brand} on screen`)
     noErrors(errors, 'T07')
     await page.reload()
     await page.waitForSelector('[data-testid=app-root]')

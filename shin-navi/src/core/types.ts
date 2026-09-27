@@ -230,6 +230,8 @@ export type Night = {
   stamped: boolean
   palette: [string, string, string]
   seeded?: boolean
+  /** songs whose know-tally became all-know tonight, with the room size at that moment (wrap page 3) */
+  allKnow?: { songId: SongId; size: number; at: number }[]
 }
 export type PinId = 'spark' | 'allKnow' | 'airRead' | 'crossing' | 'harmony' | 'answer' | 'importer' | 'polish' | 'hundred' | 'faces30'
 export const PIN_IDS: readonly PinId[] = ['spark', 'allKnow', 'airRead', 'crossing', 'harmony', 'answer', 'importer', 'polish', 'hundred', 'faces30']

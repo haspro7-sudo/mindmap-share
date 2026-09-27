@@ -2,7 +2,8 @@
 import type { NaviState } from './store/types'
 import type { DeckCard, KnowView, Member, Night, NowPlaying, Order, QueueItem, SongId, Face, MoodWordId, AuroraKey } from './types'
 import { presentMembers, isMine } from './store/room'
-import { auroraFor, knowView, roomMinutesLeft } from './rules'
+import { auroraFor, heatAfter, heatBucket, knowView, roomMinutesLeft } from './rules'
+import { SONG_BY_ID } from '../data/songs'
 
 export const selTopCard = (s: NaviState): DeckCard | undefined => s.deck.cards[0]
 
@@ -92,3 +93,31 @@ export const selReservedPos =
 
 /** Personal things (ball, imports, voice) are only shown on the phone view. */
 export const selPrivateAllowed = (s: NaviState): boolean => s.session.view !== 'room'
+
+/**
+ * Fair share of the queue (owner QA): how many of my songs are waiting or playing, and the budget
+ * max(2, ceil(queue length incl. NOW / people present)). When over, the dealer and the card bodies
+ * steer away from reserving (keep to the ball, ask, open an area…) without guilt wording.
+ */
+export const selReserveBudget = (s: NaviState): { pending: number; budget: number; over: boolean } => {
+  const pending = s.room.queue.filter(isMine).length + (s.room.now && isMine(s.room.now.item) ? 1 : 0)
+  const len = s.room.queue.length + (s.room.now ? 1 : 0)
+  const budget = Math.max(2, Math.ceil(len / Math.max(1, presentMembers(s).length)))
+  return { pending, budget, over: pending >= budget }
+}
+
+/** After 退室 (phase wrap/closed) the shared room screen is unlinked: nothing personal, no live queue of mine. */
+export const selRoomUnlinked = (s: NaviState): boolean => s.session.phase !== 'live'
+
+/**
+ * "ナビの見立て": where the room's air is heading given what is playing and the next two songs
+ * (projected heat with an average know share). null when nothing is playing or queued.
+ * The hero (mood word, aurora) previews it right after a reservation so every action moves the top half.
+ */
+export const selForecast = (s: NaviState): { bucket: AuroraKey; heat: number; rising: boolean } | null => {
+  const upcoming = [...(s.room.now ? [s.room.now.item] : []), ...s.room.queue.slice(0, 2)]
+  if (!upcoming.length) return null
+  let h = s.room.heat
+  for (const q of upcoming) h = heatAfter(h, { energy: SONG_BY_ID[q.songId]?.energy ?? 0.5, knowShare: 0.6, claps: 0 })
+  return { bucket: heatBucket(h) as AuroraKey, heat: h, rising: h > s.room.heat + 0.02 }
+}
