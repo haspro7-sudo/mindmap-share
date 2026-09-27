@@ -194,7 +194,7 @@ export const createRoomSlice: StateCreator<NaviState, [], [], RoomSlice> = (set,
           col: {
             ...st.col,
             nights: st.col.nights.map(n =>
-              n.id === st.session.nightId && !(n.allKnow ?? []).some(x => x.songId === songId) ? { ...n, allKnow: [...(n.allKnow ?? []), { songId, size: view.size, at: Date.now() }] } : n,
+              n.id === st.session.nightId && !(n.allKnow ?? []).some(x => x.songId === songId) ? { ...n, allKnow: [...(n.allKnow ?? []), { songId, size: view.size, at: Date.now(), members: [...ids] }] } : n,
             ),
           },
         }))

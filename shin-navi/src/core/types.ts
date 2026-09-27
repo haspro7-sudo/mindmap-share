@@ -78,7 +78,8 @@ export type AuroraKey = 'quiet' | 'mellow' | 'warm' | 'hot'
 
 // Cards
 export type CardKind = 'song' | 'ask' | 'shift' | 'link' | 'voice' | 'gap' | 'invite' | 'import' | 'coaster' | 'finale' | 'breather'
-export type CardVariant = 'opener' | 'visa' | 'request' | 'twin' | 'duet' | 'welcome'
+/** echo: the light voice card after tonight's full reading (one tap about the song just sung) */
+export type CardVariant = 'opener' | 'visa' | 'request' | 'twin' | 'duet' | 'welcome' | 'echo'
 export type CardFrame =
   | 'portrait'
   | 'passport'
@@ -231,7 +232,7 @@ export type Night = {
   palette: [string, string, string]
   seeded?: boolean
   /** songs whose know-tally became all-know tonight, with the room size at that moment (wrap page 3) */
-  allKnow?: { songId: SongId; size: number; at: number }[]
+  allKnow?: { songId: SongId; size: number; at: number; members?: MemberId[] }[]
 }
 export type PinId = 'spark' | 'allKnow' | 'airRead' | 'crossing' | 'harmony' | 'answer' | 'importer' | 'polish' | 'hundred' | 'faces30'
 export const PIN_IDS: readonly PinId[] = ['spark', 'allKnow', 'airRead', 'crossing', 'harmony', 'answer', 'importer', 'polish', 'hundred', 'faces30']

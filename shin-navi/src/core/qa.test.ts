@@ -218,7 +218,7 @@ describe('Night.allKnow (DEMO#4, handshake 3)', () => {
     S().askRoom('ao-to-natsu')
     for (const m of ['me', 'minato', 'saki'] as const) S().answerKnow('ao-to-natsu', m, 'know')
     const tonight = () => S().col.nights.find(n => n.id === S().session.nightId)!
-    expect(tonight().allKnow).toEqual([{ songId: 'ao-to-natsu', size: 3, at: expect.any(Number) }])
+    expect(tonight().allKnow).toEqual([{ songId: 'ao-to-natsu', size: 3, at: expect.any(Number), members: ['me', 'minato', 'saki'] }])
     // Jun joins: 3/4 now, but the moment stays
     S().memberJoin('jun')
     S().answerKnow('ao-to-natsu', 'jun', 'none')

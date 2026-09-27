@@ -7,6 +7,8 @@ import { SONG_BY_ID } from '../data/songs'
 import { palette } from '../lib/art'
 import { coreStrings } from '../i18n/core'
 import { uid } from './store/initial'
+import { isMine } from './store/room'
+import { selReserveBudget } from './selectors'
 
 export const UNDO_MS = 3000
 
@@ -58,6 +60,18 @@ function songFor(api: NaviApi, card: DeckCard, arg: ActArg): SongId | undefined 
   return arg.songId ?? api.getState().deck.selection[card.id] ?? card.songId ?? card.options?.[0]
 }
 
+/**
+ * Where 次に挟む lands: next in line, unless I am singing now or already over my fair share while a
+ * friend is waiting — then right after the next friend's song (owner QA: no cutting ahead of Saki).
+ */
+export function insertSlot(api: NaviApi): number {
+  const s = api.getState()
+  const q = s.room.queue
+  const other = q.findIndex(x => !isMine(x))
+  const nowMine = !!s.room.now && isMine(s.room.now.item)
+  return other >= 0 && (nowMine || selReserveBudget(s).over) ? other + 1 : 0
+}
+
 export function performCardAction(api: NaviApi, cardId: string, a: CardAction, arg: ActArg = {}): void {
   const s = api.getState()
   const card = s.deck.cards.find(c => c.id === cardId)
@@ -103,9 +117,10 @@ export function performCardAction(api: NaviApi, cardId: string, a: CardAction, a
       break
     }
     case 'keep': {
-      if (!songId || !KEEPABLE.has(card.kind)) return
+      // Invites can be kept for later too (a sealed face; the sender is never told).
+      if (!songId || !(KEEPABLE.has(card.kind) || card.kind === 'invite')) return
       const prevFace = s.col.faces[songId] ?? null
-      const r = s.faceEvent(songId, 'keep')
+      const r = s.faceEvent(songId, 'keep', { keyShift: arg.keyShift, mark: card.kind === 'invite' ? 'seal' : undefined })
       let linkAdded = false
       if (card.kind === 'link' && card.songId && songId !== card.songId) {
         api.getState().addLink(card.songId, songId)
@@ -125,7 +140,7 @@ export function performCardAction(api: NaviApi, cardId: string, a: CardAction, a
       break
     }
     case 'insert': {
-      if (!doReserve(['insert'], undefined, 0) || !songId) return
+      if (!doReserve(['insert'], undefined, insertSlot(api)) || !songId) return
       api.getState().setPrompt({ id: uid('p'), kind: 'shift', songIds: [songId], agree: {}, at: now })
       api.getState().addMarker('shift')
       remove = true
