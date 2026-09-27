@@ -63,6 +63,7 @@ export function StatusBar({ variant = 'phone', minimal = false }: { variant?: 'p
             type="button"
             className={`status__lang${pulse ? ' is-pulsing' : ''}`}
             data-testid="lang-button"
+            data-anchor="lang"
             aria-label={t('lang')}
             onClick={() => {
               sound.play('tap')

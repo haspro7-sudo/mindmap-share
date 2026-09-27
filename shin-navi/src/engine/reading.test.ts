@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SONGS, SONG_BY_ID } from '../data/songs'
-import { coOccur, knownBy, rangeFit, readRoom, targetEnergy, voiceType, songsForVoice, type Person } from './reading'
+import { coOccur, knownBy, moodTarget, rangeFit, readRoom, targetEnergy, voiceType, songsForVoice, type Person, type ReadContext } from './reading'
 import { karaokeNote, detectPitch } from '../lib/pitch'
 
 const me: Person = { id: 'me', generation: 20, likes: { 'J-POP': 0.9, アニメ: 0.7 } }
@@ -68,6 +68,47 @@ describe('reading engine', () => {
     expect(voiceType({ power: 0.95, care: 0.4, brightness: 0.5, groove: 0.3 })).toBe('power')
     expect(voiceType({ power: 0.2, care: 0.95, brightness: 0.9, groove: 0.2 })).toBe('clear')
     expect(songsForVoice('groove', [50, 70], 3)).toHaveLength(3)
+  })
+})
+
+describe('mood weighting (air mixer, SPEC C-9)', () => {
+  const base: ReadContext = { me, room, history: [SONG_BY_ID['marigold']], minutesLeft: 60, kept: new Set(), passed: new Set() }
+  const top = (ctx: ReadContext, n = 6) => readRoom(ctx).slice(0, n).map(r => r.song.id)
+  const avgEnergy = (ids: string[]) => ids.reduce((a, id) => a + SONG_BY_ID[id].energy, 0) / ids.length
+
+  it('reads exactly like before when no mood is given', () => {
+    const a = readRoom(base).map(r => [r.song.id, r.score])
+    const b = readRoom({ ...base, mood: undefined }).map(r => [r.song.id, r.score])
+    expect(a).toEqual(b)
+  })
+
+  it('blends the target energy with hype by the mixer weight', () => {
+    const t = targetEnergy(base.history, 60)
+    expect(moodTarget(base.history, 60)).toBe(t)
+    expect(moodTarget(base.history, 60, { hype: 1, fresh: 0.4, companion: 'friends', weight: 0.5 })).toBeCloseTo(t * 0.5 + 0.5, 5)
+    expect(moodTarget(base.history, 60, { hype: 0, fresh: 0.4, companion: 'friends', weight: 0.2 })).toBeCloseTo(t * 0.8, 5)
+  })
+
+  it('moving the mixer changes the top songs', () => {
+    const mellow = top({ ...base, mood: { hype: 0.05, fresh: 0.4, companion: 'friends', weight: 0.5 } })
+    const hype = top({ ...base, mood: { hype: 0.98, fresh: 0.4, companion: 'friends', weight: 0.5 } })
+    expect(mellow).not.toEqual(hype)
+    expect(avgEnergy(hype)).toBeGreaterThan(avgEnergy(mellow) + 0.2)
+  })
+
+  it('fresh trades "everyone knows it" for new encounters', () => {
+    const aware = (ids: string[]) => ids.reduce((a, id) => a + SONG_BY_ID[id].knownRate[20], 0) / ids.length
+    const known = top({ ...base, mood: { hype: 0.6, fresh: 0, companion: 'friends', weight: 0.2 } }, 10)
+    const fresh = top({ ...base, mood: { hype: 0.6, fresh: 1, companion: 'friends', weight: 0.2 } }, 10)
+    expect(known).not.toEqual(fresh)
+    expect(aware(fresh)).toBeLessThan(aware(known))
+  })
+
+  it('companion weights the hypothesis tags (date → duet / emotional)', () => {
+    const vibes = (ids: string[], v: string[]) => ids.filter(id => SONG_BY_ID[id].tags.hypothesis.some(x => v.includes(x))).length
+    const friends = top({ ...base, mood: { hype: 0.5, fresh: 0.4, companion: 'friends', weight: 0.2 } }, 10)
+    const date = top({ ...base, mood: { hype: 0.5, fresh: 0.4, companion: 'date', weight: 0.2 } }, 10)
+    expect(vibes(date, ['デュエット', 'エモい'])).toBeGreaterThan(vibes(friends, ['デュエット', 'エモい']))
   })
 })
 

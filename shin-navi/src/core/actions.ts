@@ -84,7 +84,7 @@ export function performCardAction(api: NaviApi, cardId: string, a: CardAction, a
     }
     noteFrame(api, card.kind, 'picked')
     if (card.kind === 'voice') api.getState().noteVoiceToReserve()
-    bus.emit({ type: 'fx/flight', from, to: insertAt === 0 ? 'lane:insert' : 'lane:next', kind: 'reserve', songId, color })
+    if (!arg.flightLaunched) bus.emit({ type: 'fx/flight', from, to: insertAt === 0 ? 'lane:insert' : 'lane:next', kind: 'reserve', songId, color })
     undo = { card, action: a, at: now, songId, prevFace: res.prevFace, queueItemId: res.item.id, linkAdded, noteAdded: res.noteAdded, prevFirstReserveMs: res.prevFirst, pinAdded: res.pinAdded }
     return true
   }
@@ -112,14 +112,14 @@ export function performCardAction(api: NaviApi, cardId: string, a: CardAction, a
         linkAdded = true
       }
       noteFrame(api, card.kind, 'picked')
-      bus.emit({ type: 'fx/flight', from, to: `face:${songId}`, kind: 'keep', songId, color })
+      if (!arg.flightLaunched) bus.emit({ type: 'fx/flight', from, to: `face:${songId}`, kind: 'keep', songId, color })
       undo = { card, action: a, at: now, songId, prevFace, linkAdded, noteAdded: r.from !== r.to }
       remove = true
       break
     }
     case 'pass': {
       if (arg.passReason) s.notePassReason(arg.passReason)
-      bus.emit({ type: 'fx/flight', from, to: 'hero:ball', kind: 'pass', songId, color })
+      if (!arg.flightLaunched) bus.emit({ type: 'fx/flight', from, to: 'hero:ball', kind: 'pass', songId, color })
       undo = { card, action: a, at: now, songId, prevFace: null }
       remove = true
       break
@@ -177,7 +177,7 @@ export function performCardAction(api: NaviApi, cardId: string, a: CardAction, a
       api.getState().noteImportSaved()
       const savedImports = api.getState().col.saved.filter(x => x.from === 'import').length
       if (savedImports >= 3) api.getState().earnPin('importer')
-      bus.emit({ type: 'fx/flight', from, to: `face:${songId}`, kind: 'import', songId, color })
+      if (!arg.flightLaunched) bus.emit({ type: 'fx/flight', from, to: `face:${songId}`, kind: 'import', songId, color })
       remove = !api.getState().col.imports.some(i => i.status === 'candidate')
       break
     }

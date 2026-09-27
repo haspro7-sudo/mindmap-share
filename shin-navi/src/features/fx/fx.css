@@ -1,0 +1,174 @@
+/* M1 fx: aurora wall, floor horizon, specks, bursts (SPEC B-2, K-11).
+   Only opacity and transform ever animate here. The canvases are sized in JS. */
+
+.fx-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* the wall itself: a faint violet wash from above, darker at the floor */
+  background:
+    radial-gradient(90% 55% at 50% 22%, rgba(52, 30, 120, 0.42) 0%, rgba(52, 30, 120, 0) 70%),
+    linear-gradient(180deg, rgba(20, 10, 46, 0) 0%, rgba(6, 3, 18, 0.35) 100%);
+}
+.fx-bg__canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.fx-bg[data-mode='static'] .fx-bg__canvas {
+  opacity: 0;
+}
+
+/* ---------- tier 0 / reduced motion: static gradients, one layer per palette */
+.fx-bg__static {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  --hy: var(--horizon-y, 64%);
+}
+.fx-bg[data-mode='static'] .fx-bg__static {
+  opacity: calc(0.9 + var(--fx-flash, 0) * 0.1);
+}
+.fx-static {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.8s ease-in-out;
+  background:
+    radial-gradient(58% 24% at 24% calc(var(--hy) - 90px), var(--c1) 0%, transparent 72%),
+    radial-gradient(54% 28% at 78% calc(var(--hy) - 130px), var(--c2) 0%, transparent 72%),
+    radial-gradient(80% 14% at 50% calc(var(--hy) - 24px), var(--c3) 0%, transparent 74%),
+    radial-gradient(70% 10% at 50% calc(var(--hy) + 30px), var(--c3) 0%, transparent 80%);
+}
+.fx-bg--room .fx-static {
+  background:
+    radial-gradient(34% 40% at 32% 50%, var(--c1) 0%, transparent 72%),
+    radial-gradient(34% 44% at 68% 42%, var(--c2) 0%, transparent 72%),
+    radial-gradient(60% 18% at 50% 82%, var(--c3) 0%, transparent 74%);
+}
+.fx-static--quiet {
+  --c1: rgba(59, 42, 143, 0.85);
+  --c2: rgba(30, 79, 168, 0.75);
+  --c3: rgba(91, 42, 122, 0.8);
+}
+.fx-static--mellow {
+  --c1: rgba(91, 108, 255, 0.7);
+  --c2: rgba(157, 140, 255, 0.6);
+  --c3: rgba(46, 242, 255, 0.45);
+}
+.fx-static--warm {
+  --c1: rgba(138, 107, 255, 0.72);
+  --c2: rgba(255, 61, 168, 0.6);
+  --c3: rgba(46, 242, 255, 0.45);
+}
+.fx-static--hot {
+  --c1: rgba(255, 61, 168, 0.7);
+  --c2: rgba(255, 181, 71, 0.6);
+  --c3: rgba(255, 106, 61, 0.6);
+}
+.fx-static--gold {
+  --c1: rgba(255, 211, 107, 0.75);
+  --c2: rgba(255, 181, 71, 0.65);
+  --c3: rgba(255, 240, 184, 0.6);
+  transition-duration: 0.25s;
+}
+.fx-bg[data-palette='quiet'] .fx-static--quiet,
+.fx-bg[data-palette='mellow'] .fx-static--mellow,
+.fx-bg[data-palette='warm'] .fx-static--warm,
+.fx-bg[data-palette='hot'] .fx-static--hot,
+.fx-bg[data-gold='1'] .fx-static--gold {
+  opacity: 1;
+}
+
+/* ---------- the floor horizon (B-2: drawn from the centre outwards, 0.3 s → 0.9 s) */
+.fx-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--horizon-y, 64%);
+  height: 0;
+  z-index: 2;
+  transform-origin: 50% 50%;
+  --fx-hz: #d9c8ff;
+}
+.fx-horizon__line {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: -0.5px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--fx-hz) 22%, #fff6d8 50%, var(--fx-hz) 78%, transparent 100%);
+  opacity: 0.8;
+}
+.fx-horizon__glow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -16px;
+  height: 32px;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 246, 216, 0.22) 0%, rgba(255, 246, 216, 0) 70%);
+}
+.fx-bg--room .fx-horizon__line {
+  left: 8%;
+  right: 8%;
+  opacity: 0.5;
+}
+@keyframes fx-horizon-in {
+  from {
+    transform: scaleX(0);
+    opacity: 0.3;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+@keyframes fx-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------- probes: read the shell's CSS variables as offsets (never visible) */
+.fx-probe {
+  position: absolute;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.fx-probe--ball {
+  top: var(--ball-cy, 0px);
+}
+.fx-probe--horizon {
+  top: var(--horizon-y, 0px);
+}
+
+/* ---------- speck and burst canvases */
+.fx-specks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.fx-burst {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}

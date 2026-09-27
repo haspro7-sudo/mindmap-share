@@ -27,7 +27,8 @@ export const createDeckSlice: StateCreator<NaviState, [], [], DeckSlice> = (set,
           next = cards
           break
       }
-      const replaced = mode === 'replace' || mode === 'top'
+      // Keep the flipped side and primary button when the top card did not actually change.
+      const replaced = (mode === 'replace' || mode === 'top') && next[0]?.id !== s.deck.cards[0]?.id
       return {
         deck: {
           ...s.deck,

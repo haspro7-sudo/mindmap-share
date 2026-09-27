@@ -36,7 +36,7 @@ export const reason = defineStrings('reason', {
     flow: 'Right now the room wants something {vibe}',
     trend: 'Sung a lot this week (sample data)',
     voiceFit: 'Likely to suit your range',
-    visa: 'A Japanese song loved in {locale} too',
+    visa: 'A Japanese song loved by {locale} speakers too',
     reunion: 'A face you have not sung in a while (last: {date})',
     brought: 'A song you brought',
     gap: '{tempo} × {genre} is still dark',
@@ -148,6 +148,7 @@ export const cause = defineStrings('cause', {
     locale: '{locale}で表示しているので',
     request: '{member}からリクエストが届いたので',
     enter: '入室したので',
+    interval: 'ひと区切りついたので',
   },
   en: {
     joined: 'Because {member} joined',
@@ -162,6 +163,7 @@ export const cause = defineStrings('cause', {
     locale: 'Because you are viewing in {locale}',
     request: 'Because {member} sent a request',
     enter: 'Because you just walked in',
+    interval: 'Because the round came to a pause',
   },
   zhHant: {
     joined: '因為{member}加入了',
@@ -176,6 +178,7 @@ export const cause = defineStrings('cause', {
     locale: '因為你用{locale}瀏覽',
     request: '因為{member}送來了點歌請求',
     enter: '因為剛進包廂',
+    interval: '因為告一段落了',
   },
   zhHans: {
     joined: '因为{member}加入了',
@@ -190,6 +193,7 @@ export const cause = defineStrings('cause', {
     locale: '因为你用{locale}浏览',
     request: '因为{member}送来了点歌请求',
     enter: '因为刚进包厢',
+    interval: '因为告一段落了',
   },
   ko: {
     joined: '{member} 님이 합류해서',
@@ -204,5 +208,6 @@ export const cause = defineStrings('cause', {
     locale: '{locale}로 보고 있어서',
     request: '{member} 님에게서 신청이 와서',
     enter: '방금 입실해서',
+    interval: '한 라운드가 끝나서',
   },
 })

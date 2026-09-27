@@ -39,6 +39,17 @@ export function targetEnergy(history: Song[], minutesLeft: number): number {
   return clamp(avg + 0.08, 0.3, 0.95)
 }
 
+export type Companion = 'friends' | 'family' | 'work' | 'date' | 'solo'
+
+/**
+ * The air mixer's answers (SPEC C-9). Optional so older callers keep the neutral reading.
+ * - hype 0..1: しっとり ⇄ アガる, blended into the target energy with `weight`
+ * - fresh 0..1: 知ってる ⇄ 新しい出会い, trades the "everyone knows it" bonus for novelty
+ * - companion: who you are with, weights the hypothesis (vibe) tags
+ * - weight: 0.5 for 20 room-minutes after the mixer was touched, otherwise 0.2
+ */
+export type MoodWeight = { hype: number; fresh: number; companion: Companion; weight: number }
+
 export type ReadContext = {
   me: Person
   room: Person[] // others in the room
@@ -48,6 +59,27 @@ export type ReadContext = {
   passed: Set<string>
   myRange?: [number, number] | null
   trending?: Set<string>
+  mood?: MoodWeight
+}
+
+/** Neutral point of the fresh axis: the default mood (fresh 0.4) reads exactly like no mood. */
+const FRESH_NEUTRAL = 0.4
+
+/** Hypothesis tags each companion type leans toward (a demo hypothesis, shown as such). */
+const COMPANION_VIBES: Record<Companion, Partial<Record<Vibe, number>>> = {
+  friends: { みんなで: 0.18, 盛り上がる: 0.12, 叫べる: 0.08 },
+  family: { 懐かしい: 0.45, みんなで: 0.2, しっとり: 0.08 },
+  work: { みんなで: 0.4, 懐かしい: 0.3, 盛り上がる: 0.1 },
+  date: { デュエット: 0.45, エモい: 0.3, しっとり: 0.12 },
+  solo: {},
+}
+
+/** Target energy after blending the flow of the night with the mixer (SPEC C-9). */
+export function moodTarget(history: Song[], minutesLeft: number, mood?: MoodWeight): number {
+  const t = targetEnergy(history, minutesLeft)
+  if (!mood) return t
+  const w = clamp(mood.weight, 0, 1)
+  return clamp(t * (1 - w) + clamp(mood.hype, 0, 1) * w, 0, 1)
 }
 
 const vibeText: Partial<Record<Vibe, string>> = {
@@ -62,10 +94,19 @@ const vibeText: Partial<Record<Vibe, string>> = {
 
 export function readRoom(ctx: ReadContext, pool: Song[] = SONGS): Scored[] {
   const everyone = [ctx.me, ...ctx.room]
-  const target = targetEnergy(ctx.history, ctx.minutesLeft)
+  const mood = ctx.mood
+  const target = moodTarget(ctx.history, ctx.minutesLeft, mood)
   const lastId = ctx.history.at(-1)?.id
   const recentIds = new Set(ctx.history.map(s => s.id))
   const co = lastId ? new Set(coOccur(lastId, 6).map(s => s.id)) : new Set<string>()
+  // Mixer weights. Without a mood (or at the neutral point) every weight equals the classic reading.
+  const w = mood ? clamp(mood.weight, 0, 1) : 0
+  const fresh = mood ? clamp(mood.fresh, 0, 1) : FRESH_NEUTRAL
+  const shareW = 1.6 * clamp(1 - (fresh - FRESH_NEUTRAL) * 1.35, 0.25, 1.8)
+  const noveltyW = 1.3 * Math.max(0, fresh - FRESH_NEUTRAL) / (1 - FRESH_NEUTRAL)
+  const energyW = 1.2 + 1.4 * w
+  const tasteW = mood?.companion === 'solo' ? 1.2 : 0.6
+  const vibeBoost = mood ? COMPANION_VIBES[mood.companion] : null
   const out: Scored[] = []
   for (const song of pool) {
     if (recentIds.has(song.id) || ctx.passed.has(song.id)) continue
@@ -77,7 +118,13 @@ export function readRoom(ctx: ReadContext, pool: Song[] = SONGS): Scored[] {
     const fit = ctx.myRange ? rangeFit(song, ctx.myRange).fit : 0.5
     const trend = ctx.trending?.has(song.id) ? 1 : 0
     const rand = mulberry32(hashString(song.id + ':' + ctx.history.length))() * 0.08
-    const score = share * 1.6 + energyFit * 1.2 + taste * 0.6 + roomTaste * 0.5 + fit * 0.4 + trend * 0.35 + (co.has(song.id) ? 0.45 : 0) + rand
+    let score = share * shareW + energyFit * energyW + taste * tasteW + roomTaste * 0.5 + fit * 0.4 + trend * 0.35 + (co.has(song.id) ? 0.45 : 0) + rand
+    if (noveltyW > 0) {
+      // "新しい出会い": less-known songs and songs that are not on my ball yet
+      const aware = everyone.reduce((a, p) => a + song.knownRate[p.generation] / 100, 0) / everyone.length
+      score += noveltyW * ((1 - aware) * 0.8 + (ctx.kept.has(song.id) ? 0 : 0.2))
+    }
+    if (vibeBoost) for (const v of song.tags.hypothesis) score += vibeBoost[v] ?? 0
     const reasons: Reason[] = []
     if (share >= 0.99) reasons.push({ kind: 'dare', text: `この部屋の${everyone.length}人全員が知ってる` })
     else if (share >= 0.74) reasons.push({ kind: 'dare', text: `${everyone.length}人中${kb.length}人が知ってる` })

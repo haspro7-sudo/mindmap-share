@@ -155,6 +155,8 @@ export type ActArg = {
   again?: boolean
   passReason?: 'unknown' | 'mood' | 'voice'
   fromRect?: DOMRectReadOnly
+  /** the caller already launched its own flight token; do not emit fx/flight */
+  flightLaunched?: boolean
 }
 export type PrimarySpec = { action: CardAction; label: TextRef; enabled: boolean; arg?: ActArg }
 export type CardBodyProps = {
