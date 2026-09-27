@@ -1,6 +1,7 @@
 // The voice reveal (SPEC I-4 #6): three light pillars — power (red), care (blue), brightness
 // (yellow) — rise to their values 150ms apart, lean together and fuse into a colour orb, and the
-// reading's name types itself out: "今回の声は{type}". Only transform and opacity move.
+// reading's name types itself out ("this time, the voice was {type}", voice.result). Only
+// transform and opacity move.
 // The same stage idles (dim breathing pillars) before a check and previews quiz answers.
 import { useEffect, useMemo, useRef, type CSSProperties, type Ref } from 'react'
 import { motion } from 'motion/react'
@@ -18,13 +19,13 @@ export type StagePhase = 'idle' | 'preview' | 'rise' | 'merge' | 'final'
 
 type Dims = { h: number; floor: number; maxH: number; gap: number; beam: number; orb: number; orbY: number }
 const DIMS: Record<'sheet' | 'sheetSmall' | 'card' | 'cardSmall', Dims> = {
-  sheet: { h: 214, floor: 36, maxH: 150, gap: 70, beam: 30, orb: 108, orbY: 0.5 },
-  sheetSmall: { h: 176, floor: 32, maxH: 118, gap: 62, beam: 26, orb: 90, orbY: 0.5 },
-  card: { h: 76, floor: 6, maxH: 66, gap: 24, beam: 11, orb: 50, orbY: 0.52 },
-  cardSmall: { h: 62, floor: 5, maxH: 54, gap: 21, beam: 10, orb: 42, orbY: 0.52 },
+  sheet: { h: 204, floor: 34, maxH: 146, gap: 84, beam: 28, orb: 112, orbY: 0.52 },
+  sheetSmall: { h: 170, floor: 30, maxH: 116, gap: 74, beam: 24, orb: 92, orbY: 0.52 },
+  card: { h: 100, floor: 8, maxH: 86, gap: 30, beam: 13, orb: 66, orbY: 0.55 },
+  cardSmall: { h: 80, floor: 7, maxH: 68, gap: 26, beam: 11, orb: 54, orbY: 0.55 },
 }
 
-const IDLE: PillarValues = { power: 0.36, care: 0.56, brightness: 0.44 }
+const IDLE: PillarValues = { power: 0.5, care: 0.76, brightness: 0.62 }
 /** A pillar never disappears completely: even a quiet factor keeps a stub of light. */
 const shown = (v: number) => 0.14 + 0.86 * Math.max(0, Math.min(1, v))
 
@@ -94,18 +95,25 @@ export function VoiceStage({ phase, values, type, variant, small, reduced, withS
         const riseT = instant ? { duration: reduced ? 0.25 : 0 } : phase === 'rise' ? { delay: i * RISE_STAGGER, duration: RISE_DUR, ease: [0.2, 1.28, 0.42, 1] as const } : { type: 'spring' as const, stiffness: 180, damping: 18 }
         const mergeT = instant ? { duration: reduced ? 0.25 : 0 } : { duration: 0.5, ease: [0.55, 0, 0.2, 1] as const }
         const from = phase === 'rise' && !reduced ? 0 : undefined
+        // merged: each column leans in and thins into a stream of light that pours into the orb
+        const feed = d.orbY
         return (
           <motion.div
             key={`${f.k}:${runId}`}
             className={`vst__col vst__col--${f.k}`}
             style={{ left: `calc(50% + ${dx}px - var(--beam) / 2)`, ['--c' as string]: f.c } as CSSProperties}
             initial={false}
-            animate={merged ? { x: -dx * 0.62, scaleX: 0.42, opacity: 0.42 } : { x: 0, scaleX: 1, opacity: phase === 'idle' ? 0.5 : 1 }}
+            animate={merged ? { x: -dx * 0.7, scaleX: 0.34, opacity: 0.85 } : { x: 0, scaleX: 1, opacity: phase === 'idle' ? 0.5 : 1 }}
             transition={mergeT}
           >
-            <motion.div className="vst__beam" initial={from != null ? { scaleY: 0 } : false} animate={{ scaleY: v }} transition={riseT} />
-            <motion.div className="vst__cap" initial={from != null ? { y: 0, opacity: 0 } : false} animate={{ y: -v * d.maxH, opacity: phase === 'idle' ? 0.5 : 1 }} transition={riseT} />
-            <motion.div className="vst__refl" initial={from != null ? { scaleY: 0 } : false} animate={{ scaleY: v }} transition={riseT} />
+            <motion.div className="vst__beam" initial={from != null ? { scaleY: 0 } : false} animate={{ scaleY: merged ? feed : v }} transition={merged ? mergeT : riseT} />
+            <motion.div
+              className="vst__cap"
+              initial={from != null ? { y: 0, opacity: 0 } : false}
+              animate={merged ? { y: -feed * d.maxH, opacity: 0, scale: 0.4 } : { y: -v * d.maxH, opacity: phase === 'idle' ? 0.5 : 1, scale: 1 }}
+              transition={merged ? mergeT : riseT}
+            />
+            <motion.div className="vst__refl" initial={from != null ? { scaleY: 0 } : false} animate={{ scaleY: merged ? feed : v }} transition={merged ? mergeT : riseT} />
           </motion.div>
         )
       })}
@@ -129,7 +137,8 @@ export function VoiceStage({ phase, values, type, variant, small, reduced, withS
       >
         <span className="vst__halo" />
         <VoiceOrb reading={values ?? null} size={d.orb} className="vst__core" />
-        <span className="vst__sheen" />
+        <span className="vst__facets" />
+        <span className="vst__spec" />
       </motion.div>
       {merged && !instant ? <Burst key={`b:${runId}`} size={d.orb} top={orbTop} /> : null}
     </div>
@@ -141,6 +150,7 @@ function Burst({ size, top }: { size: number; top: number }) {
   const R = size * 1.05
   return (
     <div className="vst__burst" style={{ top, width: size, height: size, marginLeft: -size / 2 }}>
+      <motion.span className="vst__flash" initial={{ scale: 0.3, opacity: 0 }} animate={{ scale: [0.3, 1.5, 1.9], opacity: [0, 0.95, 0] }} transition={{ delay: POP_DELAY, duration: 0.55, times: [0, 0.3, 1], ease: 'easeOut' }} />
       <motion.span className="vst__ring" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: [0.5, 2.3], opacity: [0.95, 0] }} transition={{ delay: POP_DELAY + 0.08, duration: 0.8, ease: 'easeOut' }} />
       {SPARKS.map((s, i) => (
         <motion.span
@@ -157,8 +167,9 @@ function Burst({ size, top }: { size: number; top: number }) {
 }
 
 /**
- * "今回の声は{type}" — the prefix fades in and the type name types out one glyph at a time
- * (CSS animation delays, no re-render per glyph). Never "あなたは…タイプ".
+ * voice.result ("this time, the voice was {type}"): the prefix fades in and the type name types
+ * out one glyph at a time (CSS animation delays, no re-render per glyph). Never "you are a …
+ * type": the reading describes this one time, not the person.
  */
 export function TypeLine({ type, play, delayMs = 0, reduced, compact, className }: { type: VoiceTypeId; play: boolean; delayMs?: number; reduced?: boolean; compact?: boolean; className?: string }) {
   const t = V.useT()
@@ -180,12 +191,12 @@ export function TypeLine({ type, play, delayMs = 0, reduced, compact, className 
         {pre}
       </span>
       <span className="vtl__name" aria-hidden="true">
+        {/* each glyph carries the caret while it is the newest one, so the caret walks with the type */}
         {glyphs.map((g, i) => (
-          <span key={i} className="vtl__g" style={st(delayMs + 180 + i * step)}>
+          <span key={i} className={`vtl__g${i === glyphs.length - 1 ? ' is-last' : ''}`} style={st(delayMs + 180 + i * step)}>
             {g}
           </span>
         ))}
-        {animated ? <span className="vtl__caret" style={{ animationDelay: `${delayMs + 120}ms, ${delayMs + 260 + glyphs.length * step + 700}ms` }} /> : null}
       </span>
       {post ? (
         <span className="vtl__post" style={st(delayMs + 180 + glyphs.length * step)} aria-hidden="true">

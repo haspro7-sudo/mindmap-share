@@ -37,7 +37,7 @@ import { ANSWER_BUBBLE_KEYS, drawAnswer, knowProbability } from './knowModel'
 import { allPairs, pairName } from './pairNames'
 import { installRoomSim } from './installRoomSim'
 import { SCRIPT, runNext } from './script'
-import { findTwin, memberKnows, pickMemberSong, scoreFor, useSim } from './sim'
+import { findTwin, junWants, memberKnows, pickMemberSong, scoreFor, useSim } from './sim'
 import './strings'
 
 const api = naviApi
@@ -276,12 +276,43 @@ describe('reservations (E-3)', () => {
     expect(mine.score).toBeLessThanOrEqual(96)
   })
 
-  it('script mode: nobody reserves or walks in on their own', async () => {
+  it('script mode: nothing moves on its own before my first song; nobody walks in', async () => {
     await freshNight('quiet', { script: true, speed: 8 })
-    reserveAsMe(api, 'marigold')
     await run(16_000, 250)
-    expect(S().room.queue.filter(q => q.by !== 'me').length).toBe(0)
+    expect(S().room.queue.length).toBe(0)
     expect(S().room.members.jun.present).toBe(false)
+  })
+
+  it('script mode: after my first song only the scripted set-up follows (Minato, then Saki’s slow pair)', async () => {
+    await freshNight('quiet2', { script: true, speed: 8 })
+    reserveAsMe(api, 'marigold')
+    await run(400, 50) // 3.2 s of sim time: Minato has not reacted yet
+    expect(S().room.queue.filter(q => q.by !== 'me').length).toBe(0)
+    await run(16_000, 250)
+    const q = S().room.queue
+    expect(q.filter(x => x.by === 'minato').length).toBe(1)
+    expect(q.filter(x => x.by === 'saki').map(x => x.songId)).toEqual(['lemon', 'dry-flower'])
+    expect(q.filter(x => x.by === 'jun').length).toBe(0)
+    expect(S().room.now).toBeNull() // songs never start by themselves in script mode
+    expect(S().room.members.jun.present).toBe(false)
+    expect(useSim.getState().scriptPos).toBe(3)
+    expect(runNext(api)).toBe('jun-join') // the presenter's first → (T03)
+  })
+
+  it('Jun reserves when his turn is two or more songs away (at most two waiting)', async () => {
+    await freshNight('jun-turn')
+    const s = () => S()
+    fire({ t: 'join', id: 'jun' })
+    expect(junWants(s())).toBe(true) // nothing of his yet
+    S().reserve('gurenge', { by: 'jun' })
+    expect(junWants(s())).toBe(false) // his song is next
+    S().reserve('lemon', { by: 'saki' })
+    S().reserve('idol', { by: 'minato', insertAt: 0 })
+    expect(junWants(s())).toBe(false) // one song away
+    S().reserve('marigold', { by: 'saki', insertAt: 0 })
+    expect(junWants(s())).toBe(true) // now two songs away
+    S().reserve('zankoku', { by: 'jun' })
+    expect(junWants(s())).toBe(false) // two waiting is enough
   })
 
   it('Saki picks gentle songs, Jun songs known in Korean', () => {
@@ -320,6 +351,35 @@ describe('agreement and votes (E-5)', () => {
     expect(total).toBe(80)
     expect(agreed / total).toBeGreaterThan(0.72)
     expect(agreed / total).toBeLessThan(0.97)
+  })
+
+  it('someone who walks in or goes home mid-decision never leaves a proposal or a vote hanging', async () => {
+    await freshNight('mid-join')
+    S().reserve('idol', { by: 'me', insertAt: 0, tags: ['insert'] })
+    S().setPrompt({ id: 'pj', kind: 'shift', songIds: ['idol'], agree: {}, at: 0 })
+    fire({ t: 'join', id: 'jun' })
+    await run(2600)
+    expect(S().room.prompt).toBeNull()
+
+    await freshNight('mid-leave')
+    S().reserve('idol', { by: 'me', insertAt: 0, tags: ['insert'] })
+    fire({ t: 'join', id: 'jun' })
+    S().setPrompt({ id: 'pl', kind: 'shift', songIds: ['idol'], agree: {}, at: 0 })
+    S().agreePrompt('minato', true)
+    S().agreePrompt('saki', true)
+    fire({ t: 'leave', id: 'jun' }) // the only one who had not answered goes home
+    expect(S().room.prompt).toBeNull()
+
+    await freshNight('fin-join')
+    const options = ['kick-back', 'lemon', 'marigold']
+    S().setPrompt({ id: 'pfj', kind: 'finale', songIds: options, votes: {}, at: 0 })
+    S().votePrompt('me', 'lemon')
+    bus.emit({ type: 'card/acted', card: card({ id: 'fin2', kind: 'finale', options }), action: 'vote', arg: { songId: 'lemon' } })
+    fire({ t: 'join', id: 'jun' })
+    await run(5200)
+    expect(S().room.prompt).toBeNull()
+    expect(useSim.getState().votes.pfj?.map(v => v.member).sort()).toEqual(['jun', 'minato', 'saki'])
+    expect(S().room.queue.at(-1)?.tags).toContain('finale')
   })
 
   it('finale: after my vote the room votes by taste in 0.6–3 s; the fullest lantern is fixed last in gold', async () => {
@@ -539,6 +599,16 @@ describe('script mode: eleven steps, each builds its state', () => {
     offAny()
     // nobody moved on their own in between
     expect(S().room.sung.length).toBe(3)
+  })
+
+  it('a → press beats the automatic set-up step to it (no double booking)', async () => {
+    await freshNight('beat', { script: true, speed: 8 })
+    reserveAsMe(api, 'marigold')
+    expect(runNext(api)).toBe('minato-reserve')
+    await run(4000, 250)
+    expect(S().room.queue.filter(q => q.by === 'minato').length).toBe(1)
+    expect(S().room.queue.filter(q => q.by === 'saki').length).toBe(2)
+    expect(runNext(api)).toBe('jun-join')
   })
 
   it('a step the presenter already caused by hand is skipped (no wasted → press)', async () => {

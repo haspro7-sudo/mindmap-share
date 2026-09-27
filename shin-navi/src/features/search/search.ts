@@ -125,6 +125,11 @@ function index(): Prepared[] {
   return INDEX
 }
 
+/** Build the search index ahead of time (called when the app is idle, so opening the sheet is instant). */
+export function warmSearch(): void {
+  index()
+}
+
 /** Characters of q appear in order in v, not spread out too far (e.g. 残酷天使 in 残酷な天使). */
 function inOrder(q: string, v: string): boolean {
   if (q.length < 2) return false
@@ -297,6 +302,8 @@ export function matchRange(text: string, q: string): [number, number] | null {
  * The search bar cycles through them; the sheet offers them as one-tap tries.
  */
 export const TRY_QUERIES: readonly string[] = ['zankoku', '잔혹한', '紅蓮', 'よるにかける', 'Into the Night', '米津']
+/** The short ones the search bar cycles through (they fit its little window). */
+export const BAR_TICKS: readonly string[] = ['zankoku', '잔혹한', '紅蓮', 'yoru ni', '米津']
 
 /** Hypothesis tags ("ナビの見立て") in the order the filter row shows them. */
 export const VIBE_ORDER: readonly Vibe[] = ['盛り上がる', 'しっとり', 'みんなで', 'エモい', 'ノれる', '泣ける', '叫べる', '懐かしい', 'かっこいい', 'かわいい', 'デュエット', '1曲目向き', 'ラスト向き']

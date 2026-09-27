@@ -48,7 +48,6 @@ export function takenSongs(s: NaviState): Set<SongId> {
 }
 
 export const queuedBy = (s: NaviState, id: MemberId): number => s.room.queue.filter(q => q.by === id).length
-export const hasSongOf = (s: NaviState, id: MemberId): boolean => queuedBy(s, id) > 0 || s.room.now?.item.by === id
 export const others = (s: NaviState): Member[] => presentMembers(s).filter(m => m.id !== 'me')
 const person = (m: Member): Person => ({ id: m.id, generation: m.generation, likes: m.likes })
 
@@ -64,12 +63,42 @@ export function membersMayReserve(s: NaviState): boolean {
   return mine || s.metrics.firstReserveMs != null || s.session.simMs >= OPENER_GRACE_MS
 }
 
-/** E-3 Minato: keeps the queue (NOW excluded) at 2 songs or more. */
-export const minatoWants = (s: NaviState): boolean => s.room.members.minato.present && s.room.queue.length < 2 && queuedBy(s, 'minato') < 2
-/** E-3 Jun: once he is here, he keeps one song of his own in the queue. */
-export const junWants = (s: NaviState): boolean => s.room.members.jun.present && !hasSongOf(s, 'jun')
-/** E-3 Saki: every second song, as long as she has fewer than two waiting. */
-export const sakiWants = (s: NaviState): boolean => s.room.members.saki.present && queuedBy(s, 'saki') < 2
+/** Who sings last in line right now (the queue's tail, or NOW when the queue is empty). */
+export function lastInLine(s: NaviState): MemberId | null {
+  return s.room.queue.at(-1)?.by ?? s.room.now?.item.by ?? null
+}
+/**
+ * Roommates take turns: nobody books two songs back to back behind their own, unless the room
+ * would otherwise fall silent (nothing playing, nothing waiting).
+ */
+export function wouldTakeTurn(s: NaviState, id: MemberId): boolean {
+  const silent = !s.room.now && !s.room.queue.length
+  return silent || lastInLine(s) !== id
+}
+
+/** E-3 Minato: keeps the queue (NOW excluded) at 2 songs or more — quick, but in turn. */
+export const minatoWants = (s: NaviState): boolean =>
+  s.room.members.minato.present && s.room.queue.length < 2 && queuedBy(s, 'minato') < 2 && wouldTakeTurn(s, 'minato')
+
+/** Songs until this member's next turn (0 = singing now), or null when they have none waiting. */
+export function turnIn(s: NaviState, id: MemberId): number | null {
+  if (s.room.now?.item.by === id) return 0
+  const i = s.room.queue.findIndex(q => q.by === id)
+  return i < 0 ? null : i + (s.room.now ? 1 : 0)
+}
+/**
+ * E-3 Jun: once he is here, he reserves whenever his own turn is two or more songs away (or he
+ * has none waiting), up to two songs in the queue so the traveller never floods the lane.
+ */
+export function junWants(s: NaviState): boolean {
+  if (!s.room.members.jun.present || !wouldTakeTurn(s, 'jun')) return false
+  const t = turnIn(s, 'jun')
+  if (t == null) return true
+  // a second song only while the lane is short, so everyone else's turn does not drift away
+  return t >= 2 && queuedBy(s, 'jun') < 2 && s.room.queue.length < 5
+}
+/** E-3 Saki: every second song, as long as she has fewer than two waiting (and in turn). */
+export const sakiWants = (s: NaviState): boolean => s.room.members.saki.present && queuedBy(s, 'saki') < 2 && wouldTakeTurn(s, 'saki')
 
 // ---------------------------------------------------------------- song choice (E-3)
 

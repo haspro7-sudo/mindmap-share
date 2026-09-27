@@ -95,30 +95,58 @@ export type AuroraFrame = {
   k: number
   /** brightness multiplier (1 + 0.4 · flash) */
   bright: number
+  /** 0..1 gold flush (everyone knows): the wall glows like lamplight */
+  gold?: number
+  /** 0..1 how much of the floor (horizon seam, reflection) shows — 0 away from the hero */
+  floor?: number
   heat: number
   colors: Palette3
   spec: TierSpec
   variant: 'phone' | 'room'
 }
 
-type Blob = { x: number; y: number; rx: number; ry: number; sx: number; sy: number; fx: number; fy: number; ph: number; a: number; c: 0 | 1 | 2 }
 
-// y is relative to the horizon (negative = above), rx relative to the width
+/** Mean relative luminance 0..1 of a palette (bright palettes are drawn a little softer). */
+export function paletteLum(p: Palette3): number {
+  let l = 0
+  for (const c of p) l += (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255
+  return l / 3
+}
+
+type Blob = { x: number; y: number; rx: number; ry: number; ax: number; fx: number; ay: number; fy: number; ph: number; a: number; c: 0 | 1 | 2 }
+
+// y is relative to the horizon (negative = above), rx relative to the width. Frequencies are per
+// unit of flow time (seconds × 0.5 + heat): at a quiet 0.7 the masses drift ~10 px/s.
 const BLOBS: Blob[] = [
-  { x: 0.24, y: -92, rx: 0.62, ry: 150, sx: 0.13, sy: 20, fx: 0.13, fy: 0.21, ph: 0, a: 0.95, c: 0 },
-  { x: 0.76, y: -128, rx: 0.56, ry: 175, sx: 0.12, sy: 26, fx: 0.11, fy: 0.17, ph: 2.1, a: 0.85, c: 1 },
-  { x: 0.5, y: -36, rx: 0.78, ry: 105, sx: 0.2, sy: 12, fx: 0.07, fy: 0.29, ph: 4.2, a: 0.8, c: 2 },
+  { x: 0.22, y: -96, rx: 0.6, ry: 150, ax: 0.16, fx: 0.23, ay: 18, fy: 0.37, ph: 0, a: 0.9, c: 0 },
+  { x: 0.78, y: -134, rx: 0.56, ry: 172, ax: 0.15, fx: 0.19, ay: 22, fy: 0.31, ph: 2.1, a: 0.85, c: 1 },
+  { x: 0.5, y: -40, rx: 0.8, ry: 110, ax: 0.2, fx: 0.13, ay: 12, fy: 0.43, ph: 4.2, a: 0.8, c: 2 },
 ]
 
+/** One sprite placement of the wall, kept so the floor can mirror it. */
+type Placed = { img: HTMLCanvasElement; x: number; y: number; w: number; h: number; a: number; shear: number; op: GlobalCompositeOperation }
+
+/**
+ * The wall. Three layers, all pre-rendered sprites:
+ * 1. three radial colour masses (dark palettes glow additively, bright ones mix with screen so
+ *    they never burn to white), drifting and breathing on sines, plus the ball's own halo;
+ * 2. aurora curtains standing on the horizon (lighter): a crest of light travels along the band,
+ *    each curtain sways around its foot, and a second, differently tinted copy slides over it so
+ *    the rays shimmer;
+ * 3. the glossy floor: every placement above is drawn again mirrored and squashed below the
+ *    horizon (never a copy of the canvas onto itself — that forces a flush and costs ~4 ms),
+ *    dissolving with depth, and a bright seam along the horizon.
+ */
 export class AuroraPainter {
   private blob = softDot(256)
   private curtain = curtainSprite(128, 320)
   private ramp = rampSprite(64)
   private blobTint: Tint[]
   private curtainTint: Tint[]
+  private placed: Placed[] = []
 
   constructor() {
-    this.blobTint = [0, 1, 2].map(() => new Tint(this.blob, 0.5, 0.3))
+    this.blobTint = [0, 1, 2].map(() => new Tint(this.blob, 0.5, 0.2))
     this.curtainTint = [0, 1, 2].map(() => new Tint(this.curtain, 1))
   }
 
@@ -129,88 +157,98 @@ export class AuroraPainter {
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, w, h)
     if (f.k <= 0) return
-    const A = easeOut(f.k) * f.bright * (1.05 + 0.3 * heat)
-    const rise = (1 - easeOut(f.k)) * 80
+    const e = easeOut(f.k)
+    const lum = paletteLum(f.colors)
+    const gold = Math.min(1, (f.gold ?? 0) * 1.7)
+    const A = e * f.bright * (1.12 - 0.45 * lum) * (1 + 0.35 * gold)
+    // Both blend passes are weighted by the palette's luminance, so a crossfade never jumps.
+    // The gold flush is additive on purpose: lamplight, a little white-hot in the middle.
+    const wAdd = Math.max(gold * 0.85, Math.min(1, Math.max(0, (0.5 - lum) / 0.22)))
+    const rise = (1 - e) * 80
     const room = f.variant === 'room'
     const blobs = this.blobTint.map((tn, i) => tn.set(f.colors[i]))
     const curtains = this.curtainTint.map((tn, i) => tn.set(f.colors[i]))
-    ctx.globalCompositeOperation = 'lighter'
-
-    type Placed = { img: HTMLCanvasElement; x: number; y: number; w: number; h: number; a: number; shear: number }
-    const placed: Placed[] = []
     const vScale = room ? Math.max(1, (hy - 40) / 300) : 1
+    const placed = this.placed
+    placed.length = 0
 
-    // 1. colour masses floating above the floor
-    for (let i = 0; i < Math.min(spec.blobs, BLOBS.length); i++) {
-      const b = BLOBS[i]
-      const cx = w * b.x + Math.sin(t * b.fx + b.ph) * w * b.sx
-      const cy = hy + b.y * vScale + Math.sin(t * b.fy + b.ph * 1.3) * b.sy + rise
-      const rx = w * b.rx * (1 + 0.08 * Math.sin(t * 0.17 + b.ph)) * (room ? 0.75 : 1)
-      const ry = b.ry * vScale * (0.85 + 0.35 * heat) * (1 + 0.1 * Math.sin(t * 0.23 + b.ph))
-      const a = A * b.a * (0.78 + 0.22 * Math.sin(t * 0.31 + b.ph))
-      placed.push({ img: blobs[b.c], x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2, a, shear: 0 })
-    }
-
-    // 2. curtains rising from the horizon, swaying
-    const n = spec.curtains
-    for (let j = 0; j < n; j++) {
-      const u = (j + 0.5) / n
-      const x = w * (0.06 + 0.88 * u) + Math.sin(t * 0.19 + j * 1.7) * w * 0.07
-      const hh = (170 + 80 * Math.sin(t * 0.27 + j * 2.1)) * (0.8 + 0.5 * heat) * vScale
-      const ww = (room ? 130 : 58) + (room ? 40 : 26) * Math.sin(t * 0.33 + j)
-      const pulse = 0.5 + 0.5 * Math.sin(t * 0.41 + j * 1.3)
-      const a = A * (0.42 + 0.6 * pulse * pulse)
-      const shear = 0.18 * Math.sin(t * 0.23 + j * 0.9)
-      placed.push({ img: curtains[j % 3], x: x - ww / 2, y: hy - hh + rise, w: ww, h: hh, a, shear })
-    }
-
-    // x' = x + shear·(y − bottom) sways a curtain around its foot
-    const Q = 0.42
-    const drawOne = (p: Placed) => {
+    const put = (p: Placed) => {
+      if (p.a <= 0.004) return
+      placed.push(p)
+      ctx.globalCompositeOperation = p.op
       ctx.globalAlpha = Math.min(1, p.a)
+      // x' = x + shear·(y − foot) sways a curtain around its foot
       if (p.shear) ctx.setTransform(res, 0, p.shear * res, res, -p.shear * (p.y + p.h) * res, 0)
       ctx.drawImage(p.img, p.x, p.y, p.w, p.h)
       if (p.shear) ctx.setTransform(res, 0, 0, res, 0, 0)
     }
+    const mass = (img: HTMLCanvasElement, x: number, y: number, mw: number, mh: number, a: number) => {
+      if (wAdd > 0.01) put({ img, x, y, w: mw, h: mh, a: a * wAdd, shear: 0, op: 'lighter' })
+      if (wAdd < 0.99) put({ img, x, y, w: mw, h: mh, a: a * (1 - wAdd), shear: 0, op: 'screen' })
+    }
 
-    for (const p of placed) drawOne(p)
+    // 1. colour masses floating above the floor, and the ball's halo on the wall
+    for (let i = 0; i < Math.min(spec.blobs, BLOBS.length); i++) {
+      const b = BLOBS[i]
+      const cx = w * b.x + Math.sin(t * b.fx + b.ph) * w * b.ax + Math.sin(t * b.fx * 2.3 + b.ph * 1.7) * w * 0.04
+      const cy = hy + b.y * vScale + Math.sin(t * b.fy + b.ph * 1.3) * b.ay + rise
+      const rx = w * b.rx * (1 + 0.12 * Math.sin(t * 0.29 + b.ph)) * (room ? 0.75 : 1)
+      const ry = b.ry * vScale * (0.85 + 0.3 * heat) * (1 + 0.12 * Math.sin(t * 0.34 + b.ph))
+      mass(blobs[b.c], cx - rx, cy - ry, rx * 2, ry * 2, A * b.a * (0.75 + 0.25 * Math.sin(t * 0.47 + b.ph)))
+    }
+    const halo = f.br * 2.3 * (1 + 0.05 * Math.sin(t * 0.8))
+    mass(blobs[1], f.bx - halo, f.by - halo, halo * 2, halo * 2, A * 0.5)
+    mass(blobs[0], f.bx - halo * 1.5, f.by - halo * 0.9, halo * 3, halo * 1.8, A * 0.3)
 
-    // 3. the ball's own halo on the wall
-    const halo = f.br * 2.3
-    ctx.globalAlpha = Math.min(1, A * 0.55)
-    ctx.drawImage(blobs[1], f.bx - halo, f.by - halo, halo * 2, halo * 2)
-    ctx.globalAlpha = Math.min(1, A * 0.3)
-    ctx.drawImage(blobs[0], f.bx - halo * 1.5, f.by - halo * 0.9, halo * 3, halo * 1.8)
+    // 2. curtains rising from the horizon: a crest of light travels along them
+    const n = spec.curtains
+    for (let j = 0; j < n; j++) {
+      const u = (j + 0.5) / n
+      const ph = t * 1.15 - u * 5.5
+      const crest = 0.5 + 0.5 * Math.sin(ph)
+      const x = w * (0.05 + 0.9 * u) + Math.sin(t * 0.31 + j * 1.7) * w * 0.06 + Math.sin(ph * 0.5 + j) * 6
+      const hh = (165 + 70 * Math.sin(t * 0.37 + j * 2.1)) * (0.8 + 0.45 * heat) * (0.78 + 0.3 * crest) * vScale
+      const ww = (room ? 130 : 60) + (room ? 40 : 24) * Math.sin(t * 0.4 + j)
+      const a = A * (0.28 + 0.72 * crest * crest) * (0.95 + 0.3 * wAdd)
+      const shear = 0.2 * Math.sin(t * 0.45 + j * 0.9)
+      const top = hy - hh + rise
+      put({ img: curtains[j % 3], x: x - ww / 2, y: top, w: ww, h: hh, a, shear, op: 'lighter' })
+      // the shimmer: a narrower copy in the next colour sliding across the rays
+      const sx = Math.sin(t * 1.9 + j * 2.3) * ww * 0.16
+      put({ img: curtains[(j + 1) % 3], x: x - ww * 0.4 + sx, y: top + hh * 0.12, w: ww * 0.8, h: hh * 0.88, a: a * 0.45, shear: shear * 1.3, op: 'lighter' })
+    }
 
-    // 4. the floor: the wall mirrored and squashed below the horizon (one self-copy of the
-    //    band above the floor, like a glossy floor) + a bright band along the horizon
-    const cvs = ctx.canvas as HTMLCanvasElement | undefined
-    if (hy < h && cvs && typeof cvs.width === 'number') {
-      const band = Math.min(hy, 220)
-      const sy = Math.max(0, Math.floor((hy - band) * res))
-      const sh = Math.max(1, Math.floor(hy * res) - sy)
-      if (sh > 1 && sy + sh <= cvs.height) {
-        ctx.setTransform(1, 0, 0, -Q, 0, hy * res * (1 + Q))
-        ctx.globalAlpha = 0.34
-        ctx.drawImage(cvs, 0, sy, cvs.width, sh, 0, sy, cvs.width, sh)
-        ctx.setTransform(res, 0, 0, res, 0, 0)
-        // the reflection dissolves with depth instead of ending in an edge
-        ctx.globalCompositeOperation = 'destination-out'
-        ctx.globalAlpha = 1
-        const depth = band * Q
-        ctx.drawImage(this.ramp, 0, hy + 2, w, depth)
-        ctx.fillStyle = '#000'
-        ctx.fillRect(0, hy + depth, w, h - hy - depth)
-        ctx.globalCompositeOperation = 'lighter'
+    // 3. the floor: the wall mirrored and squashed below the horizon, fading with depth
+    const Q = 0.42
+    const fl = f.floor ?? 1
+    if (hy < h && fl > 0.01) {
+      const top = hy - 230 // only what stands close to the floor shows in it
+      for (const p of placed) {
+        if (p.y + p.h < top) continue
+        ctx.globalCompositeOperation = p.op
+        ctx.globalAlpha = Math.min(1, p.a * 0.34 * fl)
+        // y' = hy + (hy − y)·Q, with the curtain's sway around its foot
+        ctx.setTransform(res, 0, p.shear * res, -Q * res, -p.shear * (p.y + p.h) * res, hy * (1 + Q) * res)
+        ctx.drawImage(p.img, p.x, p.y, p.w, p.h)
       }
+      ctx.setTransform(res, 0, 0, res, 0, 0)
+      // the reflection dissolves with depth instead of ending in an edge
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.globalAlpha = 1
+      const depth = 230 * Q
+      ctx.drawImage(this.ramp, 0, hy + 2, w, depth)
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, hy + depth, w, h - hy - depth)
+      ctx.globalCompositeOperation = 'lighter'
       const fall = Math.min(260, h - hy)
-      ctx.globalAlpha = Math.min(1, A * 0.45)
+      ctx.globalAlpha = Math.min(1, A * 0.4 * fl)
       ctx.drawImage(blobs[2], -w * 0.2, hy, w * 1.4, fall * 0.55)
     }
-    ctx.globalAlpha = Math.min(1, A * 0.9)
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.globalAlpha = Math.min(1, A * (0.3 + 0.55 * fl))
     ctx.drawImage(blobs[2], -w * 0.15, hy - 30, w * 1.3, 60)
-    ctx.globalAlpha = Math.min(1, A * 0.55)
-    ctx.drawImage(this.blob, w * 0.1, hy - 7, w * 0.8, 14)
+    ctx.globalAlpha = Math.min(1, A * 0.42 * fl)
+    ctx.drawImage(this.blob, w * 0.12, hy - 6, w * 0.76, 12)
     ctx.globalAlpha = 1
     ctx.globalCompositeOperation = 'source-over'
   }

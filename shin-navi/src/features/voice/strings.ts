@@ -10,7 +10,7 @@ export const V = defineStrings('voice', {
     'card.mic': '3秒ハミング',
     'card.micSub': '任意',
     'card.quiz': '3つの質問で',
-    'card.quizSub': 'タップで答える',
+    'card.quizSub': 'タップだけ',
     'card.noRec': '録音は保存しません',
     'primary.measure': '声を見る',
     reserveKey: '{k}で予約',

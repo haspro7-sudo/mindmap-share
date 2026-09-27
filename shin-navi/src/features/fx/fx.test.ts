@@ -6,6 +6,7 @@ import * as audio from '../../lib/audio'
 import { blendPalette, PaletteTracker, PALETTE_RGB, GOLD_RGB, auroraIntro, introProgress } from './aurora'
 import { syncCount, project, placement, makeSpeck, ARC, LAP_MS, OMEGA, type Speck } from './specks'
 import { BurstSystem, PRESET_PARTICLES } from './bursts'
+import { cssToRgb } from './sprites'
 import { flowSpeed, installFx, syncFxState } from './installFx'
 import { installSound, shouldDuck } from './installSound'
 import { fxSignals } from './signals'
@@ -135,25 +136,59 @@ const optsFor = (n: SfxName) => (n === 'faceChime' ? { note: 79 } : n === 'knowT
 describe('governor (K-11 tiers)', () => {
   afterEach(() => setFrameTimeProvider(null))
 
-  it('steps 2 → 1 → 0 on slow frames and back up on fast frames (frameTimeAvg swapped)', () => {
-    const g = createGovernor({ graceMs: 0, cooldownMs: 1000, sustainMs: 500, probeMs: 0 })
-    let avg = 25
-    setFrameTimeProvider(() => avg)
+  /** A page whose frame time depends on the tier: `base` (everything else) + the effects' cost. */
+  const sim = (g: ReturnType<typeof createGovernor>, cost: Record<0 | 1 | 2, number>) => {
+    const load = { base: 0 }
+    setFrameTimeProvider(() => load.base + cost[g.tier])
     let t = 0
-    const run = (ms: number) => {
+    const run = (ms: number, base = load.base) => {
+      load.base = base
       for (let e = 0; e < ms; e += 250) g.update((t += 250), ticker.frameTimeAvg(), false)
       return g.tier
     }
+    return run
+  }
+
+  it('steps 2 → 1 → 0 while the effects are what makes frames slow, and back up when they are fast (frameTimeAvg swapped)', () => {
+    const g = createGovernor({ graceMs: 0, probeMs: 0 })
+    const run = sim(g, { 2: 14, 1: 8, 0: 0 })
     expect(g.tier).toBe(2)
-    expect(run(250)).toBe(2) // one slow sample is not enough
-    expect(run(750)).toBe(1)
-    expect(run(2000)).toBe(0)
-    expect(run(3000)).toBe(0) // nothing below 0
-    avg = 10
-    expect(run(2500)).toBe(0) // 13 ms must hold for 3 s
-    expect(run(1000)).toBe(1)
-    expect(run(4500)).toBe(2)
-    expect(run(5000)).toBe(2)
+    expect(run(250, 14)).toBe(2) // 28 ms: one slow sample is not enough
+    expect(run(1000)).toBe(1) // sustained → down (22 ms)
+    expect(run(2250)).toBe(1) // cooldown + verdict: the step bought 6 ms, it stays
+    expect(run(1500)).toBe(0) // still > 19 → down again (14 ms)
+    expect(run(6000)).toBe(0) // 14 ms is fine; 13 ms is not reached → stays
+    expect(g.log.map(e => `${e.from}>${e.to}`)).toEqual(['2>1', '1>0'])
+    // the load goes away: < 13 ms for 3 s → up, and up again
+    expect(run(3250, 3)).toBe(1)
+    expect(run(5250)).toBe(2) // cooldown + 3 s fast; 17 ms at tier 2 sits between the thresholds
+    expect(run(8000)).toBe(2)
+  })
+
+  it('gives the tier back when a step down bought no frames (the page is slow for other reasons)', () => {
+    const g = createGovernor({ graceMs: 0, probeMs: 0 })
+    const run = sim(g, { 2: 1.4, 1: 0.8, 0: 0 })
+    expect(run(1250, 23)).toBe(1) // 24.4 ms → down to 1 (23.8)
+    expect(run(2500)).toBe(2) // verdict: 0.6 ms is nothing → restored
+    expect(g.log.at(-1)?.why).toBe('blameless')
+    expect(run(14000)).toBe(2) // held: the same slowness does not cost the sparkle again
+    // clearly worse than when it was tried (+4 ms): allowed to try again, and this time it pays
+    const g2 = createGovernor({ graceMs: 0, probeMs: 0 })
+    const run2 = sim(g2, { 2: 9, 1: 3, 0: 0 })
+    expect(run2(1250, 16)).toBe(1) // 25 → 19 ms: a real gain
+    expect(run2(3000)).toBe(1)
+  })
+
+  it('judges a step by medians: one fast moment in the verdict window does not make it look useful', () => {
+    const g = createGovernor({ graceMs: 0, probeMs: 0 })
+    let t = 0
+    let n = 0
+    const cost = { 2: 1.4, 1: 0.8, 0: 0 } as const
+    for (; t < 1250; t += 250) g.update(t, 23 + cost[g.tier], false)
+    expect(g.tier).toBe(1)
+    for (; t < 4000; t += 250) g.update(t, ++n === 7 ? 9 : 23 + cost[g.tier], false) // one lucky sample
+    expect(g.tier).toBe(2)
+    expect(g.log.at(-1)?.why).toBe('blameless')
   })
 
   it('pins tier 0 under reduced motion, whatever the frame time', () => {
@@ -162,6 +197,8 @@ describe('governor (K-11 tiers)', () => {
     expect(g.tier).toBe(0)
     expect(TIERS[0].auroraRes).toBe(0)
     expect(TIERS[0].specks).toBe(20)
+    expect([TIERS[2].specks, TIERS[2].dust, TIERS[1].specks, TIERS[1].dust]).toEqual([60, 120, 40, 60])
+    expect([TIERS[2].auroraRes, TIERS[1].auroraRes, TIERS[2].blobs, TIERS[1].blobs]).toEqual([0.5, 0.4, 3, 2])
   })
 
   it('ignores the entrance (grace) and does not flap between tiers', () => {
@@ -170,7 +207,7 @@ describe('governor (K-11 tiers)', () => {
     expect(g.tier).toBe(2)
     const changes: number[] = []
     let last = g.tier
-    for (let t = 2500; t < 4000; t += 250) {
+    for (let t = 2500; t < 12000; t += 250) {
       g.update(t, 40, false)
       if (g.tier !== last) changes.push(t)
       last = g.tier
@@ -179,19 +216,19 @@ describe('governor (K-11 tiers)', () => {
     for (let i = 1; i < changes.length; i++) expect(changes[i] - changes[i - 1]).toBeGreaterThanOrEqual(1000)
   })
 
-  it('on a 60 Hz screen, re-probes a lost tier later and backs off when the probe fails', () => {
+  it('backs off a promotion that fails at once, and re-probes a lost tier on a 60 Hz screen', () => {
     const g = createGovernor({ graceMs: 0, probeMs: 10000, sustainMs: 250 })
-    let t = 0
-    const run = (ms: number, avg: number) => {
-      for (let e = 0; e < ms; e += 250) g.update((t += 250), avg, false)
-      return g.tier
-    }
-    expect(run(1000, 24)).toBe(1)
-    expect(run(9000, 16.7)).toBe(1) // not yet
-    expect(run(4500, 16.7)).toBe(2) // probed back up
-    expect(run(1500, 24)).toBe(1) // probe failed
-    expect(run(14000, 16.7)).toBe(1) // waits twice as long now
-    expect(run(8000, 16.7)).toBe(2)
+    const run = sim(g, { 2: 8, 1: 0, 0: 0 })
+    expect(run(750, 16)).toBe(1) // 24 ms → down to 1 (16 ms): a real gain
+    expect(run(9000, 16.7)).toBe(1) // steady at the vsync ceiling, not long enough yet
+    expect(run(1000)).toBe(2) // probed back up ≈10 s after the drop
+    expect(run(3000)).toBe(1) // 24.7 ms at tier 2 again: the probe failed
+    run(40000)
+    const probes = g.log.filter(e => e.why === 'probe').map(e => e.at)
+    const drops = g.log.filter(e => e.why === 'slow').map(e => e.at)
+    expect(probes.length).toBeGreaterThanOrEqual(2)
+    expect(probes[0] - drops[0]).toBeGreaterThanOrEqual(10000)
+    expect(probes[1] - drops[1]).toBeGreaterThanOrEqual(2 * 10000) // waits twice as long
   })
 })
 
@@ -251,6 +288,26 @@ describe('sound synth (I-5)', () => {
     const thr = capture(() => audio.play('throw')).trace[0].gain
     const pas = capture(() => audio.play('pass')).trace[0].gain
     expect(pas).toBeCloseTo(thr / 2, 5)
+  })
+
+  it('keeps the first-tap chord until a touch activation resumes the context (pointerdown is not one)', async () => {
+    ctx = new FakeCtx()
+    ctx.state = 'suspended'
+    audio.__setAudioFactory(() => ctx as unknown as BaseAudioContext)
+    ctx.resume = () => Promise.resolve() // the pointerdown: creation allowed, resume refused
+    audio.unlock()
+    audio.__traceStart()
+    audio.play('lightOn')
+    expect(audio.awaitingResume()).toBe(true)
+    await Promise.resolve()
+    expect(audio.__traceStop().length).toBe(0) // nothing heard yet
+    ctx.resume = FakeCtx.prototype.resume // the pointerup: resume works
+    audio.__traceStart()
+    audio.unlock()
+    await new Promise(r => setTimeout(r, 0))
+    const tr = audio.__traceStop()
+    expect(tr.some(e => e.sfx === 'lightOn')).toBe(true)
+    expect(audio.awaitingResume()).toBe(false)
   })
 
   it('is silent while muted and ducks by 12 dB', () => {
@@ -333,20 +390,39 @@ describe('fxState sync, palette crossfade and flow speed', () => {
   })
 
   it('crossfades the palette when the air changes, and halves the flow for one song after a rest', () => {
-    const s = naviApi.getState()
-    syncFxState(s)
+    const s0 = naviApi.getState()
+    syncFxState(s0)
     expect(fxState.aurora).toBe('quiet')
     naviApi.setState(st => ({ room: { ...st.room, heat: 0.9, moodWord: 'peak' } }))
-    syncFxState(naviApi.getState())
+    const s1 = naviApi.getState()
+    syncFxState(s1, s0)
     expect(fxState.aurora).toBe('hot')
     expect(fxState.auroraFrom).toBe('quiet')
     expect(fxState.auroraT).toBe(0)
     expect(fxState.speed).toBeCloseTo(1.4, 5)
     naviApi.getState().restOneSong()
-    syncFxState(naviApi.getState())
+    const s2 = naviApi.getState()
+    syncFxState(s2, s1)
     expect(fxState.speed).toBeCloseTo(0.7, 5)
-    const st = naviApi.getState()
-    expect(flowSpeed({ room: { ...st.room, restUntil: 0 }, session: st.session })).toBeCloseTo(1.4, 5)
+    expect(flowSpeed({ room: { ...s2.room, restUntil: 0 }, session: s2.session })).toBeCloseTo(1.4, 5)
+  })
+
+  it('never snaps a live preview back on unrelated store changes (the mixer writes fxState too)', () => {
+    const s0 = naviApi.getState()
+    syncFxState(s0)
+    // the mood mixer previews a hot, fast wall
+    fxState.aurora = 'hot'
+    fxState.auroraT = 1
+    fxState.heat = 0.95
+    fxState.speed = 1.45
+    // a clock tick changes the store, but not the air
+    naviApi.setState(st => ({ session: { ...st.session, simMs: st.session.simMs + 250 } }))
+    syncFxState(naviApi.getState(), s0)
+    expect([fxState.aurora, fxState.auroraT, fxState.heat, fxState.speed]).toEqual(['hot', 1, 0.95, 1.45])
+    // at boot (no previous state) the wall snaps to the room without a fade
+    naviApi.setState(st => ({ room: { ...st.room, heat: 0.55, moodWord: 'warming' } }))
+    syncFxState(naviApi.getState())
+    expect([fxState.aurora, fxState.auroraFrom, fxState.auroraT]).toEqual(['warm', 'warm', 1])
   })
 
   it('blends palettes smoothly, flushes gold, and never jumps when retargeted mid-fade', () => {
@@ -421,6 +497,17 @@ describe('specks', () => {
     expect(list.length).toBe(13) // adopted, not added
     expect(syncCount(list, 5, () => null, 900)).toBe(5)
     expect(list.filter(s => s.dying).length).toBe(8)
+  })
+})
+
+describe('colours', () => {
+  it('reads the hex and hsl colours the app hands over (area colours are hsl)', () => {
+    expect(cssToRgb('#FF3DA8')).toEqual([255, 61, 168])
+    expect(cssToRgb('hsl(0 100% 50%)')).toEqual([255, 0, 0])
+    expect(cssToRgb('hsl(120, 100%, 25%)')).toEqual([0, 128, 0])
+    const [r, g, b] = cssToRgb('hsl(330 85% 62%)')
+    expect(r).toBeGreaterThan(200)
+    expect(b).toBeGreaterThan(g)
   })
 })
 

@@ -14,4 +14,6 @@ export const fxDebug = {
   /** palette the background painted last, and the gold weight */
   palette: '',
   bgMode: '' as '' | 'canvas' | 'static',
+  /** ms spent inside the paint calls (sum since load; test mode only) */
+  cost: { bg: 0, specks: 0, burst: 0 },
 }

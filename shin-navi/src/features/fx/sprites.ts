@@ -13,6 +13,25 @@ export function hexToRgb(hex: string): RGB {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
+/** '#rgb' / '#rrggbb' / 'hsl(h s% l%)' / 'hsl(h, s%, l%)' → RGB (white when unreadable). */
+export function cssToRgb(css: string): RGB {
+  const c = css.trim()
+  if (c.startsWith('#')) return hexToRgb(c)
+  const m = /^hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/i.exec(c)
+  if (!m) return [255, 255, 255]
+  const h = (((+m[1] % 360) + 360) % 360) / 360
+  const sat = Math.min(1, +m[2] / 100)
+  const l = Math.min(1, +m[3] / 100)
+  const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat
+  const p = 2 * l - q
+  const ch = (t: number) => {
+    const x = t < 0 ? t + 1 : t > 1 ? t - 1 : t
+    const v = x < 1 / 6 ? p + (q - p) * 6 * x : x < 1 / 2 ? q : x < 2 / 3 ? p + (q - p) * (2 / 3 - x) * 6 : p
+    return Math.round(v * 255)
+  }
+  return [ch(h + 1 / 3), ch(h), ch(h - 1 / 3)]
+}
+
 export const rgbCss = (c: RGB, a = 1): string => (a >= 1 ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`)
 
 export const mixRgb = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
@@ -63,6 +82,29 @@ export function speckDot(px = 48): HTMLCanvasElement {
     grad.addColorStop(0.2, 'rgba(255,255,255,0.55)')
     grad.addColorStop(0.42, 'rgba(255,255,255,0.18)')
     grad.addColorStop(0.7, 'rgba(255,255,255,0.05)')
+    grad.addColorStop(1, 'rgba(255,255,255,0)')
+    g.fillStyle = grad
+    g.fillRect(0, 0, px, px)
+    return c
+  })
+}
+
+/**
+ * A mirror-ball spot on a wall: a crisp round core (a quarter of the radius) with a thin soft
+ * edge and a faint halo. Reads as a light spot, not a star.
+ */
+export function spotDot(px = 64): HTMLCanvasElement {
+  return once(`spot|${px}`, () => {
+    const c = mk(px)
+    const g = c.getContext('2d')!
+    const r = px / 2
+    const grad = g.createRadialGradient(r, r, 0, r, r, r)
+    grad.addColorStop(0, 'rgba(255,255,255,1)')
+    grad.addColorStop(0.2, 'rgba(255,255,255,0.97)')
+    grad.addColorStop(0.27, 'rgba(255,255,255,0.62)')
+    grad.addColorStop(0.36, 'rgba(255,255,255,0.24)')
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.08)')
+    grad.addColorStop(0.8, 'rgba(255,255,255,0.02)')
     grad.addColorStop(1, 'rgba(255,255,255,0)')
     g.fillStyle = grad
     g.fillRect(0, 0, px, px)
@@ -215,6 +257,26 @@ export function glowSprite(color: string, px = 64): HTMLCanvasElement {
     g.globalCompositeOperation = 'lighter'
     g.globalAlpha = 0.85
     g.drawImage(speckDot(px), px * 0.3, px * 0.3, px * 0.4, px * 0.4)
+    return c
+  })
+}
+
+/** An ink drop: a solid colour disc with a soft rim (painted with source-over, not light). */
+export function inkSprite(color: string, px = 32): HTMLCanvasElement {
+  return once(`ink|${color}|${px}`, () => {
+    const c = mk(px)
+    const g = c.getContext('2d')!
+    const r = px / 2
+    const grad = g.createRadialGradient(r, r, 0, r, r, r)
+    grad.addColorStop(0, 'rgba(255,255,255,1)')
+    grad.addColorStop(0.62, 'rgba(255,255,255,0.95)')
+    grad.addColorStop(0.8, 'rgba(255,255,255,0.4)')
+    grad.addColorStop(1, 'rgba(255,255,255,0)')
+    g.fillStyle = grad
+    g.fillRect(0, 0, px, px)
+    g.globalCompositeOperation = 'source-in'
+    g.fillStyle = color
+    g.fillRect(0, 0, px, px)
     return c
   })
 }

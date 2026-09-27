@@ -1,7 +1,7 @@
-// The voice card body (arch frame, SPEC C-8 ⑤). Before a check: "今夜の声を見てみる？", the two
-// paths and "録音は保存しません" under three dim pillars. After: the pillars fused into tonight's
-// colour orb, "今回の声は{type}", the evidence line and one song with its key; the primary turns
-// into a key-attached reserve ("−2で予約") and a right flick keeps that song.
+// The voice card body (arch frame, SPEC C-8 (5)). Before a check: "see your voice tonight?", the
+// two paths and "nothing is recorded" under three breathing pillars. After: the pillars fused into
+// tonight's colour orb, "this time, the voice was {type}", the evidence line and one song with its
+// key; the primary turns into a key-attached reserve ("-2 reserve") and a right flick keeps it.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { motion } from 'motion/react'
 import type { CardBodyComponent, CardBodyProps, VoiceReading } from '../../core/types'
@@ -78,7 +78,7 @@ function VoiceBody({ card, active, act, setPrimary }: CardBodyProps) {
     if (reduced) return setShownPhase('final')
     setRunId(x => x + 1)
     setShownPhase('rise')
-    const id = window.setTimeout(() => setShownPhase('merge'), RISE_MS + 120)
+    const id = window.setTimeout(() => setShownPhase('merge'), RISE_MS + 20)
     return () => clearTimeout(id)
   }, [reading?.at, sheetOpen, active, reduced])
 
@@ -135,7 +135,7 @@ function VoiceBody({ card, active, act, setPrimary }: CardBodyProps) {
   return (
     <div className={`vc vc--after${small ? ' is-small' : ''}`} data-private="1" data-testid="voice-card-result" data-type={reading.type} style={{ ['--tc' as string]: tc } as CSSProperties}>
       <VoiceStage variant="card" small={small} phase={shownPhase} values={reading} type={reading.type} labels={false} reduced={reduced} runId={runId} className="vc__stage" />
-      <TypeLine type={reading.type} play={shownPhase !== 'final'} delayMs={RISE_MS + 380} reduced={reduced} compact key={`tl:${runId}`} />
+      <TypeLine type={reading.type} play={shownPhase !== 'final'} delayMs={RISE_MS + 320} reduced={reduced} compact key={`tl:${runId}`} />
       <div className="vc__ev" data-testid="card-reason">
         {trr(reading.evidence)}
       </div>

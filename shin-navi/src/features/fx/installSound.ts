@@ -78,6 +78,18 @@ export function installSound(api: NaviApi): () => void {
   installSoundImpl(impl)
 
   const offs: (() => void)[] = []
+  // On touch screens the first pointerdown (where the App unlocks) is not a user activation;
+  // pointerup / touchend / click are. Resume there, and the waiting lights-on chord plays.
+  if (typeof window !== 'undefined') {
+    const resume = () => {
+      if (api.getState().session.audioOn && audio.awaitingResume()) audio.unlock()
+    }
+    const evs = ['pointerup', 'touchend', 'click', 'keydown'] as const
+    for (const ev of evs) window.addEventListener(ev, resume, { capture: true, passive: true })
+    offs.push(() => {
+      for (const ev of evs) window.removeEventListener(ev, resume, { capture: true })
+    })
+  }
   const timers = new Set<ReturnType<typeof setTimeout>>()
   const later = (ms: number, fn: () => void) => {
     const id = setTimeout(() => {

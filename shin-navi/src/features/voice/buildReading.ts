@@ -30,6 +30,17 @@ const RANGE_OF: Record<QuizAnswers['high'], [number, number]> = { easy: [54, 76]
 export const DEFAULT_RANGE: [number, number] = [50, 71]
 
 /**
+ * A 3-second hum only shows the few notes that were hummed, and people hum low and easy. The
+ * singing range we fit songs against is therefore widened around it: a little below the lowest
+ * hummed note and at least an octave and a half above it.
+ */
+export function singingRange(hum: [number, number]): [number, number] {
+  const lo = Math.round(Math.min(hum[0], hum[1])) - 2
+  const hi = Math.max(Math.round(Math.max(hum[0], hum[1])) + 6, lo + 18)
+  return [lo, hi]
+}
+
+/**
  * Three answers → power (迫力), care (丁寧さ), brightness (明るさ) and groove, plus a range.
  * Every one of the four types is reachable (voice.test.ts walks all 27 combinations).
  */
@@ -120,6 +131,7 @@ export function evidenceFor(type: VoiceTypeId, f: Features, src: { capture: Capt
 
 export type Suggestion = { songId: SongId; keyShift: number; fit: number }
 
+
 /**
  * Songs to try with this voice (engine songsForVoice), each with the key shift from rangeFit.
  * Reservable songs only, nothing already queued, and big key jumps sink to the back so the
@@ -140,7 +152,8 @@ export function suggestionsFor(type: VoiceTypeId, range: [number, number], exclu
 /**
  * Build tonight's reading from a hum (capture) or three answers (quiz).
  * The mic path wins when a capture exists; a hum too short for a range still reads its
- * features, with a neutral range for the key.
+ * features, with a neutral range for the key. Nothing of the audio is kept: only the four
+ * factor values and a note range end up in the reading.
  */
 export function buildReading(src: { capture: CaptureResult | null; quiz?: QuizAnswers }, ctx: { nightId: string; now: number; exclude: SongId[] }): VoiceReading {
   const q = src.quiz ? quizToFeatures(src.quiz) : null
@@ -148,7 +161,9 @@ export function buildReading(src: { capture: CaptureResult | null; quiz?: QuizAn
   const f: Features = cap
     ? { power: r2(clamp01(cap.features.power)), care: r2(clamp01(cap.features.care)), brightness: r2(clamp01(cap.features.brightness)), groove: r2(clamp01(cap.features.groove)) }
     : q ?? { power: 0.5, care: 0.5, brightness: 0.5, groove: 0.5 }
-  const measured: [number, number] | null = cap ? cap.range : q ? q.range : null
+  // reading.range is the singing range every key suggestion in the app fits against (card back,
+  // face detail): a hum is widened around the hummed notes, the quiz range is used as is.
+  const measured: [number, number] | null = cap ? (cap.range ? singingRange(cap.range) : null) : q ? q.range : null
   const type = voiceType(f)
   const pick = suggestionsFor(type, measured ?? DEFAULT_RANGE, ctx.exclude, 1)[0]
   return {

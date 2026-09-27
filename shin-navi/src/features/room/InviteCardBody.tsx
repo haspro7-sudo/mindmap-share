@@ -107,9 +107,14 @@ function TicketMeta({ card }: { card: CardBodyProps['card'] }) {
 
 // ---------------------------------------------------------------- request
 
-function RequestStub({ from }: { from: MemberId }) {
+function RequestStub({ from, active }: { from: MemberId; active: boolean }) {
   const trr = useTr()
   const reduced = useNavi(s => s.ui.reduced)
+  // the wax seal presses onto the stub the first time the ticket is on top
+  const [stamped, setStamped] = useState(reduced)
+  useEffect(() => {
+    if (active && !stamped) setStamped(true)
+  }, [active])
   const color = useNavi(s => s.room.members[from]?.color ?? '#FF6FB1')
   const id = `rq-${from}`
   return (
@@ -124,15 +129,23 @@ function RequestStub({ from }: { from: MemberId }) {
         </text>
       </svg>
       <span className="rm-stub__name">{trr(memberRef(from))}</span>
-      <svg className="rm-stub__seal" width="30" height="30" viewBox="0 0 30 30">
+      <motion.svg
+        className="rm-stub__seal"
+        width="30"
+        height="30"
+        viewBox="0 0 30 30"
+        initial={false}
+        animate={stamped ? { scale: 1, rotate: 0, opacity: 1 } : { scale: 1.9, rotate: -24, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 520, damping: 17, delay: stamped && active ? 0.32 : 0 }}
+      >
         <path d="M15 1.8l2.6 2.1 3.3-.5 1.3 3.1 3.1 1.3-.5 3.3 2.1 2.6-2.1 2.6.5 3.3-3.1 1.3-1.3 3.1-3.3-.5L15 28.2l-2.6-2.1-3.3.5-1.3-3.1-3.1-1.3.5-3.3L3.1 15l2.1-2.6-.5-3.3 3.1-1.3 1.3-3.1 3.3.5z" />
         <path className="rm-stub__sealnote" d="M13.2 18.6a1.9 1.9 0 1 1-1.3-1.8V10l6.2-1.4v6.9a1.9 1.9 0 1 1-1.3-1.8V10.9l-3.6.8z" />
-      </svg>
+      </motion.svg>
     </div>
   )
 }
 
-function RequestBody({ card, setPrimary }: CardBodyProps) {
+function RequestBody({ card, setPrimary, active }: CardBodyProps) {
   const t = R.useT()
   const size = useCardSize()
   const song = card.songId ? SONG_BY_ID[card.songId] : undefined
@@ -157,7 +170,7 @@ function RequestBody({ card, setPrimary }: CardBodyProps) {
         </div>
         <TicketMeta card={card} />
       </div>
-      <RequestStub from={from} />
+      <RequestStub from={from} active={active} />
       <div className="rm-inv__holo" aria-hidden="true" />
     </div>
   )
@@ -374,8 +387,23 @@ function DuetBody({ card, setPrimary, act, active }: CardBodyProps) {
       style={{ ['--va' as string]: VOICE_COLOR[theirType], ['--vb' as string]: VOICE_COLOR[mineType] } as CSSProperties}
     >
       <div className="rm-inv__main">
+        {/* the formula as two lights (the reason line, read out whole for screen readers) */}
+        <div className="rm-duo" data-testid="card-reason">
+          <span className="rm-vh">{trr(card.reason.text)}</span>
+          <span className="rm-duo__who" aria-hidden="true">
+            <i style={{ ['--c' as string]: VOICE_COLOR[theirType] } as CSSProperties} />
+            {trr(memberRef(partner))}
+          </span>
+          <span className="rm-duo__x" aria-hidden="true">
+            ×
+          </span>
+          <span className="rm-duo__who" aria-hidden="true">
+            <i style={{ ['--c' as string]: VOICE_COLOR[mineType] } as CSSProperties} />
+            {trr(memberRef('me'))}
+          </span>
+          {card.reason.cause ? <span className="rm-reason__cause">{trr(card.reason.cause)}</span> : null}
+        </div>
         <div className="rm-inv__pair">{pair}</div>
-        <ReasonRow reason={card.reason} className="rm-inv__formula" />
         <div className="rm-inv__songlabel">{t('inv.duet.song')}</div>
         <SongTitle songId={song.id} variant="card" max={size.small ? 19 : 21} min={14} className="rm-inv__title rm-inv__title--mid" />
         <div className="rm-inv__artist">{song.artist}</div>

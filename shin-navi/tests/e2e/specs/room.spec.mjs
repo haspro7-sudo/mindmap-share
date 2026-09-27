@@ -61,6 +61,14 @@ export async function run({ openApp, assert, step }) {
     })
     assert.deepEqual(order, ['minato', 'saki'])
     noErrors(errors, 'B-2')
+    // in English the first card is a visa card (C-10); the friends still light its dots on cue
+    const en = await open('phone', `${Q}&locale=en`)
+    await en.page.waitForTimeout(2400)
+    const top = await S(en.page, () => window.__navi.get().deck.cards[0])
+    assert.equal(top.variant, 'visa')
+    const k = await en.page.locator('[data-testid=card-top] [data-testid=know-dots]').first().getAttribute('data-knows')
+    assert.equal(k, '2', `two dots on the first visa card at 2.4 s (got ${k})`)
+    noErrors(en.errors, 'B-2 en')
   })
 
   // ---------------------------------------------------------------- E-14: the presenter panel
@@ -131,6 +139,11 @@ export async function run({ openApp, assert, step }) {
       if (c) s.act(c.id, c.kind === 'invite' && c.variant !== 'twin' ? 'decline' : c.kind === 'breather' ? 'oneMore' : 'pass')
     })
     await page.keyboard.press('?')
+    // every bubble the floor says during the demo is a positive line from the room namespace
+    await S(page, () => {
+      window.__bubbles = new Set()
+      window.__navi.api.subscribe(s => s.room.bubbles.forEach(b => window.__bubbles.add(`${b.member}|${b.text.key}`)))
+    })
     // my opener goes in first (a thrown card)
     await look()
     await page.click('[data-testid=btn-primary]')
@@ -145,10 +158,12 @@ export async function run({ openApp, assert, step }) {
       await page.click('[data-testid=pp-next]')
       await page.waitForTimeout(350)
     }
-    await next('minato-reserve')
-    assert.ok(await S(page, () => window.__navi.get().room.queue.some(q => q.by === 'minato')), 'Minato reserved')
-    await next('saki-mellow')
+    // steps 2–3 are the room's own reaction to my first song: Minato, then Saki's slow pair
+    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.some(q => q.by === 'minato')), 'Minato reserved on his own')
+    assert.ok(await waitFor(page, () => window.__navi.get().room.queue.filter(q => q.by === 'saki').length === 2), 'Saki queued her pair')
     assert.deepEqual(await S(page, () => window.__navi.get().room.queue.filter(q => q.by === 'saki').map(q => q.songId)), ['lemon', 'dry-flower'])
+    assert.equal(await S(page, () => window.__navi.get().room.now), null, 'nothing starts by itself in script mode')
+    await page.waitForTimeout(200)
     await next('jun-join')
     assert.equal(await page.locator('[data-shell=phone] [data-testid=member-orb][data-member=jun]').first().getAttribute('data-present'), '1')
     await page.waitForTimeout(1500)
@@ -184,6 +199,9 @@ export async function run({ openApp, assert, step }) {
     await next('exit')
     assert.equal(await S(page, () => window.__navi.get().session.phase), 'wrap')
     assert.equal(await page.locator('[data-testid=pp-next]').getAttribute('data-step'), '', 'script complete')
+    const said = await S(page, () => [...window.__bubbles])
+    assert.ok(said.length >= 2, `the floor talks during the demo (${said.join(', ')})`)
+    for (const b of said) assert.match(b, /^(minato|saki|jun)\|(room\.bubble\.(know|chorus|agree|queued|cheer|clap|hello|twinYes|duetYes|reqYes)\d?|core\.[\w.]+)$/, `positive bubble only: ${b}`)
     for (const k of ['song', 'invite', 'shift', 'voice', 'coaster', 'finale']) assert.ok(kinds.has(k), `saw ${k} (${[...kinds].join(',')})`)
     assert.ok(kinds.size >= 6, `kinds ${[...kinds].join(',')}`)
     assert.ok(labels.size >= 5, `primary labels ${[...labels].join(' / ')}`)

@@ -167,10 +167,19 @@ export const SCRIPT: ScriptStep[] = [
 
 export const SCRIPT_IDS = SCRIPT.map(s => s.id)
 
+/** Everything a member has in the room tonight (waiting, singing, sung). */
+function itemsBy(s: NaviState, id: string): QueueItem[] {
+  return [...s.room.queue, ...(s.room.now ? [s.room.now.item] : []), ...s.room.sung.map(e => e.item)].filter(q => q.by === id)
+}
+
 /** A step whose outcome is already on screen (the presenter did it by hand) is skipped. */
 export function stepDone(s: NaviState, id: string): boolean {
   const now = s.room.now
   switch (id) {
+    case 'minato-reserve':
+      return itemsBy(s, 'minato').length > 0
+    case 'saki-mellow':
+      return itemsBy(s, 'saki').filter(q => isMellow(q.songId)).length >= 2
     case 'jun-join':
       return s.room.members.jun.present
     case 'my-turn':
@@ -197,6 +206,19 @@ export function nextStepIndex(s: NaviState, pos: number): number {
 export function runNext(api: NaviApi): string | null {
   const i = nextStepIndex(api.getState(), useSim.getState().scriptPos)
   if (i >= SCRIPT.length) return null
+  return runAt(api, i)
+}
+
+/**
+ * The two quiet set-up steps (Minato's song after my first one, then Saki's slow pair) happen
+ * as the room's own reaction in script mode, so the presenter's first → is Jun's arrival (T03,
+ * SPEC N). They run only when they are exactly the next step; a → press beats them to it.
+ */
+export function autoStep(api: NaviApi, id: string): string | null {
+  const s = api.getState()
+  if (!s.session.script || s.session.phase !== 'live') return null
+  const i = nextStepIndex(s, useSim.getState().scriptPos)
+  if (SCRIPT[i]?.id !== id) return null
   return runAt(api, i)
 }
 

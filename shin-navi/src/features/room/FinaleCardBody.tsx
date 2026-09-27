@@ -21,21 +21,31 @@ const ORDER: MemberId[] = ['me', 'minato', 'saki', 'jun']
 type Slot = { songId: SongId; cx: number; top: number; w: number; h: number; centre: boolean }
 
 /** Lantern boxes inside the triptych (fractions of the card, matching the frame's arches). */
-function layout(w: number, h: number, options: SongId[]): Slot[] {
-  const pos = [
-    { cx: 0.5, top: 0.165, lw: 0.2, lh: 0.29, centre: true },
-    { cx: 0.14, top: 0.255, lw: 0.15, lh: 0.215, centre: false },
-    { cx: 0.86, top: 0.255, lw: 0.15, lh: 0.215, centre: false },
-  ]
+function layout(w: number, h: number, options: SongId[], small: boolean): Slot[] {
+  // on the 290×260 card the lanterns hang a little higher and smaller so two-line titles and
+  // the headline below never meet
+  const pos = small
+    ? [
+        { cx: 0.5, top: 0.15, lw: 0.19, lh: 0.265, centre: true },
+        { cx: 0.14, top: 0.232, lw: 0.145, lh: 0.195, centre: false },
+        { cx: 0.86, top: 0.232, lw: 0.145, lh: 0.195, centre: false },
+      ]
+    : [
+        { cx: 0.5, top: 0.165, lw: 0.2, lh: 0.29, centre: true },
+        { cx: 0.14, top: 0.255, lw: 0.15, lh: 0.215, centre: false },
+        { cx: 0.86, top: 0.255, lw: 0.15, lh: 0.215, centre: false },
+      ]
   return options.slice(0, 3).map((songId, i) => ({ songId, cx: pos[i].cx * w, top: pos[i].top * h, w: pos[i].lw * w, h: pos[i].lh * h, centre: pos[i].centre }))
 }
 
-function Lantern({ slot, fill, votes, total, mine, selected, winner, dim, sway, onPick, disabled, index }: {
+function Lantern({ slot, fill, votes, total, voters, mine, selected, winner, dim, sway, onPick, disabled, index }: {
   slot: Slot
   dim: boolean
   fill: number
   votes: number
   total: number
+  /** colours of the people whose vote landed here, in arrival order */
+  voters: string[]
   mine: boolean
   selected: boolean
   winner: boolean
@@ -50,7 +60,14 @@ function Lantern({ slot, fill, votes, total, mine, selected, winner, dim, sway, 
   const cls = `rm-lantern${slot.centre ? ' is-centre' : ''}${selected ? ' is-selected' : ''}${winner ? ' is-winner' : ''}${fill > 0 ? ' is-lit' : ''}${dim ? ' is-dim' : ''}`
   return (
     <>
-      <div className={cls} style={{ left: slot.cx - slot.w / 2, top: slot.top, width: slot.w, height: slot.h }} aria-hidden="true">
+      <motion.div
+        className={cls}
+        style={{ left: slot.cx - slot.w / 2, top: slot.top, width: slot.w, height: slot.h }}
+        aria-hidden="true"
+        initial={sway ? { y: -34 } : false}
+        animate={{ y: 0 }}
+        transition={{ type: 'spring', stiffness: 120, damping: 11, delay: 0.1 + index * 0.13 }}
+      >
         <span className="rm-lantern__string" />
         <div className={`rm-lantern__sway${sway ? ' is-sway' : ''}`} style={{ animationDelay: `${-index * 1.3}s` }}>
           <motion.span
@@ -72,13 +89,22 @@ function Lantern({ slot, fill, votes, total, mine, selected, winner, dim, sway, 
           </motion.span>
           <span className="rm-lantern__cap rm-lantern__cap--bottom" />
           <span className="rm-lantern__tassel" />
+          <span className="rm-lantern__minewrap">
+            <AnimatePresence>
+              {mine ? (
+                <motion.span key="mine" className="rm-lantern__mine" initial={{ opacity: 0, scale: 0.5, y: 6 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 18 }}>
+                  {t('fin.yours')}
+                </motion.span>
+              ) : null}
+            </AnimatePresence>
+          </span>
         </div>
         <AnimatePresence>
           {winner ? (
             <motion.span key="rays" className="rm-lantern__rays" initial={{ opacity: 0, scale: 0.4, rotate: -20 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 0.7, ease: 'easeOut' }} />
           ) : null}
         </AnimatePresence>
-      </div>
+      </motion.div>
       <button
         type="button"
         className={`rm-lantern__hit${selected ? ' is-selected' : ''}`}
@@ -94,10 +120,9 @@ function Lantern({ slot, fill, votes, total, mine, selected, winner, dim, sway, 
         <span className={`rm-lantern__title${slot.centre ? ' is-centre' : ''}`}>{title}</span>
         <span className="rm-lantern__pips" aria-label={`${votes}/${total}`}>
           {Array.from({ length: total }, (_, i) => (
-            <i key={i} className={i < votes ? 'is-on' : ''} />
+            <i key={i} className={i < voters.length ? 'is-on' : ''} style={i < voters.length ? ({ ['--c' as string]: voters[i] } as CSSProperties) : undefined} />
           ))}
         </span>
-        {mine ? <span className="rm-lantern__mine">{t('fin.yours')}</span> : null}
       </button>
     </>
   )
@@ -143,54 +168,87 @@ function FinaleBody({ card, setPrimary, act, active }: CardBodyProps) {
   }, [voteKey])
   useEffect(() => {
     if (!decided) return
-    const id = setTimeout(() => {
+    const glow = setTimeout(() => {
       fxState.gold = 1
       bus.emit({ type: 'fx/flash', strength: 0.6 })
       if (audio) sound.play('knowChord')
     }, 450)
-    return () => clearTimeout(id)
+    // the winning lantern's light flies to the end of the lane just as the room fixes it there
+    const fly = setTimeout(() => {
+      const el = size.ref.current?.querySelector('.rm-lantern.is-winner .rm-lantern__body')
+      if (el) bus.emit({ type: 'fx/flight', from: el.getBoundingClientRect(), to: 'lane:end', kind: 'reserve', songId: decided, color: '#FFD36B' })
+    }, 1420)
+    return () => {
+      clearTimeout(glow)
+      clearTimeout(fly)
+    }
   }, [decided])
 
   if (!options.length) return <div className="rm-fin" ref={size.ref} />
   const { w, h } = size
-  const slots = layout(w, h, options)
+  const slots = layout(w, h, options, size.small)
   const count = (id: SongId) => Object.values(votes).filter(v => v === id).length
-  const lightY = h * 0.905
+  const lightY = h * (size.small ? 0.925 : 0.905)
   const lightX = (i: number, n: number) => w / 2 + (i - (n - 1) / 2) * 22
   const voters = ORDER.filter(id => present.some(p => p.id === id))
+  // who voted, in the order the votes landed (mine first, then the room's threads)
+  const arrival = [...new Set<MemberId>([...(prompt?.votes?.me ? (['me'] as MemberId[]) : []), ...ORDER.filter(id => prompt?.votes?.[id]), ...(flights ?? []).map(f => f.member)])]
   const status = decided ? t('fin.decided') : myVote ? t('fin.gathering') : t('fin.pick')
 
   return (
     <div className={`rm-fin${size.small ? ' is-small' : ''}${decided ? ' is-decided' : ''}`} ref={size.ref} data-testid="finale-body" data-voted={myVote ? '1' : '0'} data-decided={decided ?? ''}>
-      {/* threads of light: each vote travels from its person's light up to a lantern */}
+      {/* threads of light: each vote rides up from its person's light as a comet and fills a
+          lantern; the trail then fades, so nothing is left crossing the words at rest */}
       <svg className="rm-fin__threads" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
-        <defs>
-          <linearGradient id={`fin-g-${card.id}`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0" stopColor="#FFF6D8" stopOpacity="0.2" />
-            <stop offset="1" stopColor="#FFD36B" />
-          </linearGradient>
-        </defs>
-        {voters.map((id, i) => {
-          const v = votes[id]
-          const slot = v ? slots.find(s => s.songId === v) : undefined
-          if (!slot) return null
-          const x0 = lightX(i, voters.length)
-          const y0 = lightY - 6
-          const x1 = slot.cx
-          const y1 = slot.top + slot.h + 4
-          const color = present.find(p => p.id === id)?.color ?? '#FFD36B'
-          const d = `M${x0},${y0} Q${(x0 + x1) / 2 + (x1 > x0 ? -18 : 18)},${(y0 + y1) / 2 + 10} ${x1},${y1}`
-          const draw = reduced ? { pathLength: 1, opacity: 0.4 } : { pathLength: 0, opacity: 1 }
-          return (
-            <g key={`${id}:${v}`}>
-              <motion.path d={d} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round" initial={{ ...draw, opacity: 0 }} animate={{ pathLength: 1, opacity: [0, 0.3, 0.08] }} transition={{ pathLength: { duration: 0.5, ease: 'easeOut' }, opacity: { duration: 1.8, times: [0, 0.3, 1] } }} />
-              <motion.path d={d} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" initial={draw} animate={{ pathLength: 1, opacity: [1, 1, 0.35] }} transition={{ pathLength: { duration: 0.5, ease: 'easeOut' }, opacity: { duration: 1.8, times: [0, 0.4, 1] } }} />
-              {reduced ? null : (
-                <motion.circle cx={x1} cy={y1} r={9} fill="none" stroke={color} strokeWidth={1.5} initial={{ scale: 0.2, opacity: 0 }} animate={{ scale: [0.2, 1.6], opacity: [0, 1, 0] }} transition={{ delay: 0.45, duration: 0.6, times: [0, 0.2, 1] }} />
-              )}
-            </g>
-          )
-        })}
+        {reduced
+          ? null
+          : voters.map((id, i) => {
+              const v = votes[id]
+              const slot = v ? slots.find(s => s.songId === v) : undefined
+              if (!slot) return null
+              const x0 = lightX(i, voters.length)
+              const y0 = lightY - 6
+              const x1 = slot.cx
+              const y1 = slot.top + slot.h + 2
+              const color = present.find(p => p.id === id)?.color ?? '#FFD36B'
+              const d = `M${x0},${y0} Q${(x0 + x1) / 2 + (x1 > x0 ? -26 : 26)},${(y0 + y1) / 2 + 14} ${x1},${y1}`
+              return (
+                <g key={`${id}:${v}`}>
+                  <motion.path
+                    d={d}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                    initial={{ pathLength: 0, opacity: 0.85 }}
+                    animate={{ pathLength: 1, opacity: [0.85, 0.85, 0] }}
+                    transition={{ pathLength: { duration: 0.5, ease: 'easeOut' }, opacity: { duration: 1.5, times: [0, 0.4, 1] } }}
+                  />
+                  <motion.path
+                    d={d}
+                    fill="none"
+                    stroke="#FFF8E4"
+                    strokeWidth={3.2}
+                    strokeLinecap="round"
+                    initial={{ pathLength: 0.14, pathOffset: 0, opacity: 1 }}
+                    animate={{ pathOffset: 0.86, opacity: [1, 1, 0] }}
+                    transition={{ pathOffset: { duration: 0.5, ease: 'easeOut' }, opacity: { duration: 0.62, times: [0, 0.8, 1] } }}
+                  />
+                  <motion.circle
+                    cx={x1}
+                    cy={y1}
+                    r={10}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.5}
+                    style={{ transformOrigin: `${x1}px ${y1}px` }}
+                    initial={{ scale: 0.2, opacity: 0 }}
+                    animate={{ scale: [0.2, 1.8], opacity: [0, 1, 0] }}
+                    transition={{ delay: 0.42, duration: 0.6, times: [0, 0.2, 1] }}
+                  />
+                </g>
+              )
+            })}
       </svg>
 
       {slots.map((slot, i) => (
@@ -201,6 +259,7 @@ function FinaleBody({ card, setPrimary, act, active }: CardBodyProps) {
           fill={decided === slot.songId ? 1 : count(slot.songId) / total}
           votes={count(slot.songId)}
           total={total}
+          voters={arrival.filter(id => votes[id] === slot.songId).map(id => present.find(p => p.id === id)?.color ?? '#FFD36B')}
           mine={myVote === slot.songId}
           selected={!myVote && sel === slot.songId}
           winner={decided === slot.songId}
@@ -216,7 +275,7 @@ function FinaleBody({ card, setPrimary, act, active }: CardBodyProps) {
         />
       ))}
 
-      <div className="rm-fin__foot" style={{ top: h * 0.665 } as CSSProperties}>
+      <div className="rm-fin__foot" style={{ top: h * (size.small ? 0.64 : 0.665) } as CSSProperties}>
         <div className="rm-fin__head" data-testid="card-reason">
           <span className="rm-fin__headtext">{trr(card.reason.text)}</span>
           {card.reason.cause ? <span className="rm-fin__cause">{trr(card.reason.cause)}</span> : null}

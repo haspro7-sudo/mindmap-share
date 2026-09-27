@@ -2,6 +2,8 @@
 // y = fresh (知ってる 0 → 新しい出会い 1). The pad is a 5×5 grid: crossing a cell plays one
 // C-major-pentatonic note; the four corners are the four aurora palettes.
 import type { AuroraKey } from '../../core/types'
+import { SONGS, type Song } from '../../data/songs'
+import { popularity } from './search'
 
 export const CELLS = 5
 const PENTA = [0, 2, 4, 7, 9]
@@ -49,3 +51,45 @@ export const previewHeat = (hype: number): number => 0.12 + 0.83 * clamp01(hype)
 
 /** Aurora flow speed while previewing (fxState.speed; the room uses 0.5 + heat). */
 export const previewSpeed = (hype: number, fresh: number): number => 0.35 + 1.45 * clamp01(hype) + 0.3 * clamp01(fresh)
+
+// ---------------------------------------------------------------- the song constellation
+// Every reservable song is a star on the pad: x = how much it lifts the room (energy), y = how
+// new it is likely to be (1 − how widely it is known). Both are ranks, not raw values, so the
+// catalogue (mostly well-known, upbeat songs) spreads over the whole pad instead of piling into
+// one corner. This is Navi's read (a hypothesis), shown as such.
+
+export type Star = { id: string; hype: number; fresh: number; genre: Song['genre'] }
+
+/** 0..1, deterministic, small: keeps equal ranks from lining up on a grid. */
+function jitter(id: string, salt: number): number {
+  let h = 2166136261 ^ salt
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619)
+  return ((h >>> 0) % 1000) / 1000 - 0.5
+}
+
+let STARS: Star[] | null = null
+
+export function songStars(songs: readonly Song[] = SONGS): Star[] {
+  if (songs === SONGS && STARS) return STARS
+  const list = songs.filter(s => s.reservable)
+  const n = list.length
+  const byEnergy = [...list].sort((a, b) => a.energy - b.energy || a.id.localeCompare(b.id))
+  const byFresh = [...list].sort((a, b) => popularity(b) - popularity(a) || a.id.localeCompare(b.id))
+  const rx = new Map(byEnergy.map((s, i) => [s.id, i]))
+  const ry = new Map(byFresh.map((s, i) => [s.id, i]))
+  const pad = 0.05
+  const out = list.map(s => ({
+    id: s.id,
+    genre: s.genre,
+    hype: clamp01(pad + (1 - 2 * pad) * (((rx.get(s.id) ?? 0) + 0.5 + 0.8 * jitter(s.id, 1)) / n)),
+    fresh: clamp01(pad + (1 - 2 * pad) * (((ry.get(s.id) ?? 0) + 0.5 + 0.8 * jitter(s.id, 2)) / n)),
+  }))
+  if (songs === SONGS) STARS = out
+  return out
+}
+
+/** The n stars closest to (hype, fresh), measured on a pad of the given width/height ratio. */
+export function nearestStars(stars: readonly Star[], hype: number, fresh: number, n = 3, aspect = 1.3): Star[] {
+  const d = (s: Star) => (s.hype - hype) ** 2 * aspect * aspect + (s.fresh - fresh) ** 2
+  return [...stars].sort((a, b) => d(a) - d(b)).slice(0, n)
+}

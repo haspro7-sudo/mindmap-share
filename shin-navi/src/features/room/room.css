@@ -358,6 +358,7 @@
   margin-top: 8px;
 }
 .rm-inv__status {
+  text-wrap: balance;
   margin-top: 9px;
   font-size: 12px;
   font-weight: 700;
@@ -523,6 +524,53 @@
 }
 .rm-inv.is-small .rm-inv__pair {
   font-size: 19px;
+}
+/* visually hidden, still read aloud */
+.rm-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.rm-duo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.rm-duo__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 3px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.rm-duo__who i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #fff 0 16%, var(--c) 58%, color-mix(in srgb, var(--c) 40%, transparent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.rm-duo__x {
+  font: 900 12px/1 var(--font-en);
+  color: var(--ink-faint);
+}
+.rm-duo .rm-reason__cause {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+.rm-inv--duet .rm-inv__pair {
+  margin-top: 8px;
 }
 .rm-inv__formula {
   margin-top: 4px;
@@ -828,17 +876,35 @@
   box-shadow: inset 0 0 0 1px rgba(255, 211, 107, 0.4);
 }
 .rm-lantern__pips i.is-on {
-  background: #ffd36b;
-  box-shadow: 0 0 0 1px rgba(255, 243, 196, 0.6);
+  background: radial-gradient(circle at 38% 34%, #fff 0 18%, var(--c, #ffd36b) 60%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #ffd36b) 55%, transparent);
+}
+/* my vote: a small gold tag that hangs on the lantern itself */
+.rm-lantern__minewrap {
+  position: absolute;
+  left: -40%;
+  right: -40%;
+  top: 30%;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
 }
 .rm-lantern__mine {
-  margin-top: 3px;
-  padding: 1px 6px;
+  padding: 2px 6px 2px;
   border-radius: 999px;
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 900;
+  line-height: 1.15;
+  white-space: nowrap;
   color: #2a1603;
   background: linear-gradient(90deg, #fff1c2, #ffd36b);
+  box-shadow:
+    0 0 0 1px rgba(255, 243, 196, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.rm-lantern.is-centre .rm-lantern__mine {
+  font-size: 10px;
 }
 .rm-fin__foot {
   position: absolute;
@@ -848,6 +914,15 @@
   text-align: center;
   pointer-events: none;
 }
+/* a soft pool of night behind the words, so a passing thread never cuts through them */
+.rm-fin__foot::before {
+  content: '';
+  position: absolute;
+  inset: -10px 6px -8px;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(11, 6, 32, 0.78), rgba(11, 6, 32, 0.5) 60%, rgba(11, 6, 32, 0));
+}
 .rm-fin__head {
   display: flex;
   flex-direction: column;
@@ -855,6 +930,8 @@
   gap: 1px;
 }
 .rm-fin__headtext {
+  text-wrap: balance;
+  line-height: 1.2;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: 0.01em;
@@ -1196,6 +1273,64 @@
   50% {
     transform: scale(1.35);
   }
+}
+.pp__live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.pp__livedot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.pp__livedot.is-on {
+  box-shadow: 0 0 8px var(--c);
+  animation: pp-rec 1.6s ease-in-out infinite;
+}
+.pp__livenow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 700 11px/1.2 var(--font-body);
+  color: #fff;
+}
+.pp__livemeta {
+  flex: none;
+  color: rgba(223, 232, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.pp__livemeta small {
+  font-size: 9px;
+  opacity: 0.7;
+}
+.pp__heat {
+  flex: none;
+  width: 42px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.pp__heat i {
+  display: block;
+  height: 100%;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #3b2a8f, #8a6bff, #ff3da8, #ffb547);
+  transition: transform 0.6s ease;
+}
+[data-reduced='1'] .pp__livedot.is-on {
+  animation: none;
 }
 .pp__sec {
   margin-top: 13px;

@@ -15,7 +15,8 @@ import './voice.css'
 export const HUM_SECONDS = 3
 const LO = 40 // E2
 const HI = 84 // C6
-const GUIDES = [45, 57, 69] // A2 A3 A4 (mid1A / mid2A / hiA)
+/** semitones shown at once (the window glides to follow the voice) */
+const SPAN = 18
 
 type Pt = { t: number; m: number | null; rms: number }
 type Spark = { x: number; y: number; vx: number; vy: number; life: number; max: number; c: number }
@@ -119,44 +120,35 @@ export function MicCapture({ small, reduced, onDone, onUnavailable, onQuiz, onCa
     let W = 0
     let H = 0
     let dpr = 1
-    let bg: HTMLCanvasElement | null = null
     let grad: CanvasGradient | null = null
-    let bgLocale: Locale | null = null
     const sparks: Spark[] = []
     let shownSec = -1
+    // the pitch window follows the voice: a 2-octave view whose centre glides to the recent pitch
+    let center = 57
+    let seeded = false
 
+    // size comes from a ResizeObserver, never from a per-frame layout read
+    let cw = canvas.clientWidth
+    let ch = canvas.clientHeight
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(es => {
+            const r = es[0]?.contentRect
+            if (r) {
+              cw = r.width
+              ch = r.height
+            }
+          })
+        : null
+    ro?.observe(canvas)
     const layout = () => {
-      const r = canvas.getBoundingClientRect()
-      const cw = canvas.clientWidth || r.width
-      const ch = canvas.clientHeight || r.height
       if (!cw || !ch) return false
       dpr = Math.min(2, window.devicePixelRatio || 1)
-      if (cw === W && ch === H && bg && bgLocale === loc.current) return true
+      if (cw === W && ch === H && grad) return true
       W = cw
       H = ch
       canvas.width = Math.round(W * dpr)
       canvas.height = Math.round(H * dpr)
-      // static background: note guides, drawn once per size / language
-      bg = document.createElement('canvas')
-      bg.width = canvas.width
-      bg.height = canvas.height
-      const b = bg.getContext('2d')!
-      b.scale(dpr, dpr)
-      b.font = '600 10px ui-monospace, Menlo, monospace'
-      b.textBaseline = 'middle'
-      for (const g of GUIDES) {
-        const y = yOf(g)
-        b.strokeStyle = 'rgba(167,155,201,0.16)'
-        b.setLineDash([2, 5])
-        b.lineWidth = 1
-        b.beginPath()
-        b.moveTo(46, y)
-        b.lineTo(W - 12, y)
-        b.stroke()
-        b.fillStyle = 'rgba(167,155,201,0.55)'
-        b.fillText(noteName(g, loc.current), 10, y)
-      }
-      bgLocale = loc.current
       grad = ctx.createLinearGradient(46, 0, W - 12, 0)
       grad.addColorStop(0, '#FF4D4D')
       grad.addColorStop(0.5, '#C77DFF')
@@ -164,20 +156,51 @@ export function MicCapture({ small, reduced, onDone, onUnavailable, onQuiz, onCa
       return true
     }
     const xOf = (tt: number) => 46 + (Math.min(HUM_SECONDS, tt) / HUM_SECONDS) * (W - 58)
+    const top = 48
     const yOf = (m: number) => {
-      const k = (Math.max(LO, Math.min(HI, m)) - LO) / (HI - LO)
-      return H - 18 - k * (H - 40)
+      const bottom = H - 22
+      const k = (m - center) / SPAN + 0.5
+      return Math.max(top - 10, Math.min(bottom + 8, bottom - k * (bottom - top)))
     }
 
     const draw = (dt: number) => {
-      if (!layout() || !bg) return
+      if (!layout()) return
       const L = live.current
       const now = performance.now()
       const tt = L.startedAt ? (now - L.startedAt) / 1000 : 0
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(bg, 0, 0)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+      // follow the voice
+      if (L.recent.length) {
+        const target = Math.max(LO + SPAN / 2, Math.min(HI - SPAN / 2, median(L.recent)))
+        if (!seeded) {
+          center = target
+          seeded = true
+        } else center += (target - center) * Math.min(1, dt / 520)
+      }
+
+      // note guides (C and A of every octave in view), labelled in the reader's notation
+      ctx.font = '600 10px ui-monospace, Menlo, monospace'
+      ctx.textBaseline = 'middle'
+      ctx.lineWidth = 1
+      ctx.setLineDash([2, 5])
+      for (let m = Math.ceil(center - SPAN / 2); m <= center + SPAN / 2; m++) {
+        const pc = ((m % 12) + 12) % 12
+        if (pc !== 9 && pc !== 0) continue
+        const y = yOf(m)
+        if (y < top - 4 || y > H - 16) continue
+        const strong = pc === 9
+        ctx.strokeStyle = strong ? 'rgba(167,155,201,0.2)' : 'rgba(167,155,201,0.09)'
+        ctx.beginPath()
+        ctx.moveTo(46, y)
+        ctx.lineTo(W - 12, y)
+        ctx.stroke()
+        ctx.fillStyle = strong ? 'rgba(167,155,201,0.62)' : 'rgba(167,155,201,0.34)'
+        ctx.fillText(noteName(m, loc.current), 8, y)
+      }
+      ctx.setLineDash([])
 
       // progress rail + sweep cursor
       const px = xOf(tt)
@@ -194,12 +217,16 @@ export function MicCapture({ small, reduced, onDone, onUnavailable, onQuiz, onCa
 
       // the trail: three strokes (wide haze, glow, bright core) with additive light
       const pts = L.pts
+      // a smooth ribbon through the voiced frames (midpoint quadratic curves), broken at silences
       const path = () => {
         ctx.beginPath()
+        let px0 = 0
+        let py0 = 0
         let open = false
         for (let i = 0; i < pts.length; i++) {
           const p = pts[i]
           if (p.m == null) {
+            if (open) ctx.lineTo(px0, py0)
             open = false
             continue
           }
@@ -208,8 +235,11 @@ export function MicCapture({ small, reduced, onDone, onUnavailable, onQuiz, onCa
           if (!open) {
             ctx.moveTo(x, y)
             open = true
-          } else ctx.lineTo(x, y)
+          } else ctx.quadraticCurveTo(px0, py0, (px0 + x) / 2, (py0 + y) / 2)
+          px0 = x
+          py0 = y
         }
+        if (open) ctx.lineTo(px0, py0)
       }
       if (pts.length > 1 && grad) {
         ctx.lineJoin = 'round'
@@ -287,7 +317,11 @@ export function MicCapture({ small, reduced, onDone, onUnavailable, onQuiz, onCa
         ring.current.style.opacity = (0.25 + k * 0.75).toFixed(3)
       }
     }
-    return ticker.add(draw)
+    const off = ticker.add(draw)
+    return () => {
+      off()
+      ro?.disconnect()
+    }
   }, [reduced])
 
   return (

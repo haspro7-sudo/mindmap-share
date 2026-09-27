@@ -12,8 +12,8 @@ import { params } from '../../core/params'
 import { PaletteTracker } from './aurora'
 import { TIERS, type Tier } from './governor'
 import { SpeckField, syncCount } from './specks'
-import { hexToRgb, lighten } from './sprites'
-import { fxClock, fxSignals } from './signals'
+import { cssToRgb, lighten } from './sprites'
+import { fxClock, fxSignals, phoneCovered } from './signals'
 import { fxDebug } from './debug'
 import { measureGeometry } from './BackgroundCanvas'
 import './fx.css'
@@ -37,9 +37,11 @@ function SpeckInner(): JSX.Element {
     let scale = 1
 
     let sizedTier = -1
+    let ballR = 98
     const size = () => {
       const g = measureGeometry(host, variant, probeH.current, probeB.current)
-      field.setBox({ w: g.w, h: g.h, cx: g.bx, cy: g.by, hy: g.hy })
+      field.setBox({ w: g.w, h: g.h, cx: g.bx, cy: g.by, hy: g.hy, spot: Math.max(1, Math.min(1.6, Math.min(g.w, g.h) / 600)) })
+      ballR = g.br
       // DPR ≤ 1.5 (K-11), lower on the lower tiers
       const q = fxState.reduced ? 0 : fxState.quality
       sizedTier = q
@@ -92,12 +94,12 @@ function SpeckInner(): JSX.Element {
 
     const offSig = fxSignals.on(s => {
       if (s.type === 'lightsOn') {
-        field.lightsOn(pal.shown)
+        if (!fxState.reduced) field.lightsOn(pal.shown, ballR)
         dirty = true
       } else if (s.type === 'spawn') {
         const p = local(s.x, s.y)
         if (!inside(p)) return
-        const c = lighten(hexToRgb(s.color.startsWith('#') ? s.color : '#FFF6D8'), 0.35)
+        const c = lighten(cssToRgb(s.color), 0.35)
         if (!fxState.reduced) field.spawnAt(p.x, p.y, s.keep)
         if (s.streak && fxState.quality > 0) field.streak(p.x, p.y, c)
         field.ring(p.x, p.y, { color: c, r1: 46, a: 0.5, dur: 520 })
@@ -115,6 +117,7 @@ function SpeckInner(): JSX.Element {
     let visible = true
     let redrawClock = 0
     let lastTarget = -1
+    let growSince = 0
     let acc = 0
     const off = ticker.add(dt => {
       visClock += dt
@@ -122,7 +125,7 @@ function SpeckInner(): JSX.Element {
         visClock = 0
         visible = cv.offsetParent !== null
       }
-      if (!visible) return
+      if (!visible || (variant === 'phone' && phoneCovered(performance.now()))) return
       rectClock += dt
       if (rectClock > 1000) {
         rectClock = 0
@@ -145,17 +148,23 @@ function SpeckInner(): JSX.Element {
       if (!started && (performance.now() >= startAt || !throwNow)) {
         started = true
         syncCount(field.specks, target, throwNow ? emitter : () => null, throwNow ? 600 : 0)
+        if (throwNow && !reduced) field.throwPulse(ballR, pal.shown[1])
         lastTarget = target
-      } else if (started && target !== lastTarget) {
-        syncCount(field.specks, target, emitter, 900)
-        lastTarget = target
-        dirty = true
+      } else if (started) {
+        // the count follows the target every frame. A growth waits a moment for the specks the
+        // levelled-up faces are throwing (adopted), then fills the rest from the ball.
+        if (target !== lastTarget) {
+          if (target > lastTarget) growSince = performance.now()
+          lastTarget = target
+          dirty = true
+        }
+        syncCount(field.specks, target, emitter, 900, performance.now() - growSince > 1400)
       }
       field.initMotes(reduced ? 0 : spec.dust)
       const palette = pal.update(fxState)
       const mirrors = Math.max(0, fxState.specksTarget - 12)
       field.step(step, reduced, reduced ? 0 : mirrors, streakOrigin, lighten(palette[1], 0.6), spec.streaks)
-      const busy = field.rings.length > 0 || field.streaks.length > 0
+      const busy = field.rings.length > 0 || field.streaks.length > 0 || field.glows.length > 0
       if (reduced && !dirty && !busy) {
         // reduced motion: specks stand still; repaint only when something changed
         redrawClock += step
@@ -163,6 +172,7 @@ function SpeckInner(): JSX.Element {
         redrawClock = 0
       }
       dirty = false
+      const c0 = params.test ? performance.now() : 0
       field.draw(ctx, {
         dpr,
         k: started ? 1 : 0,
@@ -174,6 +184,7 @@ function SpeckInner(): JSX.Element {
       })
       if (params.test) {
         fxDebug.frames.specks++
+        fxDebug.cost.specks += performance.now() - c0
         fxDebug.specks = field.count()
         fxDebug.streaks = field.streaks.length
       }

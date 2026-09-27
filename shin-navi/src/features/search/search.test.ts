@@ -2,9 +2,9 @@
 // mapping, and the i18n rule that feature JSX carries no Japanese literals (SPEC G-2).
 import { describe, expect, it } from 'vitest'
 import { normalize, kanaToRomaji, looseLatin, editDistance } from './normalize'
-import { searchSongs, matchRange, fieldText, passesFilters } from './search'
+import { searchSongs, matchRange, fieldText, passesFilters, popularity } from './search'
 import { SONG_BY_ID, SONGS, decadeOf } from '../../data/songs'
-import { auroraAt, cellOf, noteForCell, zoneOf, CELLS } from './mixerMath'
+import { auroraAt, cellOf, noteForCell, zoneOf, CELLS, songStars, nearestStars } from './mixerMath'
 
 const top = (q: string, o?: Parameters<typeof searchSongs>[1]) => searchSongs(q, o)[0]?.song.id
 
@@ -175,4 +175,44 @@ describe('i18n: no Japanese literals in M8 JSX (SPEC G-2)', () => {
       expect(bad, `${path}: ${bad?.join(' ')}`).toBeNull()
     })
   }
+})
+
+describe('mixer constellation', () => {
+  it('places every reservable song once, spread over the whole pad', () => {
+    const stars = songStars()
+    const reservable = SONGS.filter(s => s.reservable)
+    expect(stars.length).toBe(reservable.length)
+    expect(new Set(stars.map(s => s.id)).size).toBe(stars.length)
+    for (const s of stars) {
+      expect(s.hype).toBeGreaterThanOrEqual(0)
+      expect(s.hype).toBeLessThanOrEqual(1)
+      expect(s.fresh).toBeGreaterThanOrEqual(0)
+      expect(s.fresh).toBeLessThanOrEqual(1)
+    }
+    // every quadrant of the pad has songs (ranks, not raw values)
+    const q = [0, 0, 0, 0]
+    for (const s of stars) q[(s.hype < 0.5 ? 0 : 1) + (s.fresh < 0.5 ? 0 : 2)]++
+    for (const n of q) expect(n).toBeGreaterThan(10)
+    // deterministic
+    expect(songStars()).toBe(stars)
+  })
+
+  it('follows the axes: calm songs to the left, well-known songs at the bottom', () => {
+    const stars = songStars()
+    const by = new Map(stars.map(s => [s.id, s]))
+    const calm = [...SONGS].filter(s => s.reservable).sort((a, b) => a.energy - b.energy)[0]
+    const loud = [...SONGS].filter(s => s.reservable).sort((a, b) => b.energy - a.energy)[0]
+    expect(by.get(calm.id)!.hype).toBeLessThan(by.get(loud.id)!.hype)
+    const known = [...SONGS].filter(s => s.reservable).sort((a, b) => popularity(b) - popularity(a))[0]
+    expect(by.get(known.id)!.fresh).toBeLessThan(0.1)
+  })
+
+  it('finds the nearest songs to the puck', () => {
+    const stars = songStars()
+    const near = nearestStars(stars, 0.95, 0.05, 3)
+    expect(near).toHaveLength(3)
+    for (const s of near) expect(s.hype > 0.6 && s.fresh < 0.4).toBe(true)
+    const far = nearestStars(stars, 0.05, 0.95, 3)
+    for (const s of far) expect(s.hype < 0.4 && s.fresh > 0.6).toBe(true)
+  })
 })

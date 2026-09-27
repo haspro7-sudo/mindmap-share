@@ -15,6 +15,7 @@ import { selTonight } from '../../core/selectors'
 import { params } from '../../core/params'
 import { SONG_BY_ID } from '../../data/songs'
 import { BurstSystem } from './bursts'
+import { hexToRgb, lighten, rgbCss } from './sprites'
 import { fxDebug } from './debug'
 import './fx.css'
 
@@ -31,7 +32,8 @@ function colorsFor(preset: BurstPreset, at: TargetId | { x: number; y: number })
     for (const q of s.room.queue) if (q.by === 'me' && (!last || q.addedAt >= last.addedAt)) last = q
     if (last) return [songColor(last.songId), '#FFD36B', '#FFE9A8']
   }
-  if (preset === 'stamp') return selTonight(s).palette
+  // tonight's colours, lifted so the ink reads on the dark calendar
+  if (preset === 'stamp') return selTonight(s).palette.map(c => rgbCss(lighten(hexToRgb(c), 0.28)))
   return undefined
 }
 
@@ -74,6 +76,8 @@ function BurstInner(): JSX.Element {
       if (!sys.busy) {
         ctx.setTransform(1, 0, 0, 1, 0, 0)
         ctx.clearRect(0, 0, cv.width, cv.height)
+        // asleep: not even composited until the next burst
+        cv.style.visibility = 'hidden'
         off?.()
         off = null
       }
@@ -98,7 +102,10 @@ function BurstInner(): JSX.Element {
       if (q.x < -40 || q.y < -40 || q.x > w + 40 || q.y > h + 40) return
       sys.fire(preset, q.x, q.y, { colors: colorsFor(preset, at), reduced: fxState.reduced, lite: fxState.quality === 0 })
       if (params.test) fxDebug.bursts++
-      if (!off) off = ticker.add(loop, 20)
+      if (!off) {
+        cv.style.visibility = 'visible'
+        off = ticker.add(loop, 20)
+      }
     }
 
     const pinTo = new Map<string, number>()
@@ -127,7 +134,7 @@ function BurstInner(): JSX.Element {
     }
   }, [])
 
-  return <canvas ref={ref} className="fx-burst" aria-hidden="true" />
+  return <canvas ref={ref} className="fx-burst" aria-hidden="true" style={{ visibility: 'hidden' }} />
 }
 
 const BurstMemo = memo(BurstInner)

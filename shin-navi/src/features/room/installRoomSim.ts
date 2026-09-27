@@ -13,7 +13,7 @@ import { SONG_BY_ID } from '../../data/songs'
 import { LOCALE_IDS, getLocale, setLocale } from '../../i18n'
 import { seeded } from '../../lib/rng'
 import { drawAnswer } from './knowModel'
-import { R } from './strings'
+import { R, type RoomKey } from './strings'
 import {
   finaleVote,
   finaleWinner,
@@ -30,9 +30,13 @@ import {
   sendTwin,
   useSim,
 } from './sim'
-import { advanceOne, finishMineOrTurn, makeMyTurn, runNext, runStep } from './script'
+import { advanceOne, autoStep, finishMineOrTurn, makeMyTurn, runNext, runStep } from './script'
 
 const BUBBLE_TTL = 2600
+// positive floor chatter only (E-2, E-12): never about who knows what, never a judgement
+const QUEUED_BUBBLES = ['bubble.queued0', 'bubble.queued1', 'bubble.queued2'] as const
+const CHEER_BUBBLES = ['bubble.cheer0', 'bubble.cheer1'] as const
+const CLAP_BUBBLES = ['bubble.clap0', 'bubble.clap1'] as const
 
 export function installRoomSim(api: NaviApi): () => void {
   const S = () => api.getState()
@@ -61,10 +65,13 @@ export function installRoomSim(api: NaviApi): () => void {
   let pendingRes: Partial<Record<OtherId, () => void>> = {}
   let resCount: Record<OtherId, number> = { minato: 0, saki: 0, jun: 0 }
   let songEnds = 0
+  let songStarts = 0
   let junAuto = false
   let requestRound = -1
   let twinHalves = new Set<number>()
   let seenPrompts = new Set<string>()
+  let shiftsSeen = 0
+  let firstShift = ''
   let lastBubble: Partial<Record<MemberId, number>> = {}
   let mineTimer: (() => void) | null = null
   /** performance.now() at the start of this night's entrance */
@@ -77,10 +84,13 @@ export function installRoomSim(api: NaviApi): () => void {
     pendingRes = {}
     resCount = { minato: 0, saki: 0, jun: 0 }
     songEnds = 0
+    songStarts = 0
     junAuto = false
     requestRound = -1
     twinHalves = new Set()
     seenPrompts = new Set(S().room.prompt ? [S().room.prompt!.id] : [])
+    shiftsSeen = 0
+    firstShift = ''
     lastBubble = {}
     mineTimer = null
     useSim.setState(freshSim(S().session.nightId))
@@ -95,7 +105,11 @@ export function installRoomSim(api: NaviApi): () => void {
 
   // ================================================================ 知ってる (E-2, C-11)
 
-  /** The navi's own question about the opener during the entrance (B-2): two dots light at ~1.9 s. */
+  /**
+   * The navi's own question about the night's first card during the entrance (B-2): two dots
+   * light at ~1.9 s. The first card is the opener in Japanese and a visa card in other locales
+   * (C-10); either way the friends who came along answer it first.
+   */
   const isOpenerAsk = (songId: SongId) => {
     const s = S()
     const top = s.deck.cards[0]
@@ -103,7 +117,8 @@ export function installRoomSim(api: NaviApi): () => void {
     return (
       !!top &&
       top.kind === 'song' &&
-      top.variant === 'opener' &&
+      (top.variant === 'opener' || !s.deck.history.length) &&
+      performance.now() - introStart < 8000 &&
       top.songId === songId &&
       !s.room.sung.length &&
       !s.room.now &&
@@ -210,22 +225,75 @@ export function installRoomSim(api: NaviApi): () => void {
     }
   }
 
-  // ================================================================ song ends: Saki, requests, twins
+  // ================================================================ script mode: the room's quiet set-up (E-13 steps 2–3)
 
-  const onSongEnded = () => {
-    songEnds++
+  /**
+   * In script mode the room reacts to my first song the way E-13 describes: Minato queues one
+   * of his a few seconds later, then Saki her slow pair. Both are the script's own steps, run
+   * only while they are the next step (a → press beats them to it), so the order never breaks.
+   */
+  const onQueued = (item: QueueItem) => {
     const s = S()
-    if (!live() || s.session.script) return
+    if (!live()) return
     const seed = s.session.seed
-    // Saki: every second song (E-3)
-    if (songEnds % 2 === 0 && sakiWants(s) && membersMayReserve(s) && !pendingRes.saki) {
-      const r = seeded(`${seed}|sakiWait|${songEnds}`)()
+    // a roommate who just booked a song sometimes says so (always positive, never about me)
+    if (item.by !== 'me' && s.room.members[item.by]?.present) {
+      const r = seeded(`${seed}|queuedSay|${item.by}|${item.songId}`)
+      if (r() < 0.45) {
+        const text = R.ref(QUEUED_BUBBLES[Math.floor(r() * QUEUED_BUBBLES.length) % QUEUED_BUBBLES.length])
+        laterReal(350, () => bubble(item.by, text))
+      }
+    }
+    if (!s.session.script) return
+    if (item.by === 'me') {
+      later(4000 + 2000 * seeded(`${seed}|autoMinato`)(), () => {
+        const st = S()
+        const mine = st.room.queue.some(isMine) || (!!st.room.now && isMine(st.room.now.item)) || st.room.sung.some(e => isMine(e.item))
+        if (mine) autoStep(api, 'minato-reserve')
+      })
+    } else if (item.by === 'minato') {
+      later(5000 + 2000 * seeded(`${seed}|autoSaki`)(), () => void autoStep(api, 'saki-mellow'))
+    }
+  }
+
+  // ================================================================ songs start and end: Saki, cheers, requests, twins
+
+  /** One friend (seeded) cheers from the floor: my turn starts, my song ends, someone arrives. */
+  const cheer = (key: string, keys: readonly string[], p: number, delayMs: number, exclude: MemberId | null = null) => {
+    const s = S()
+    const room = presentMembers(s).filter(m => m.id !== 'me' && m.id !== exclude)
+    if (!room.length) return
+    const r = seeded(`${s.session.seed}|cheer|${key}`)
+    if (r() >= p) return
+    const who = room[Math.floor(r() * room.length) % room.length].id
+    const text = R.ref(keys[Math.floor(r() * keys.length) % keys.length] as RoomKey)
+    laterReal(delayMs, () => bubble(who, text))
+  }
+
+  const onSongStarted = (item: QueueItem) => {
+    songStarts++
+    const s = S()
+    if (!live()) return
+    if (isMine(item)) cheer(`start|${item.id}`, CHEER_BUBBLES, 0.85, 450, item.with ?? null)
+    if (s.session.script) return
+    // Saki: every second song (E-3). She books while it plays, so the room never falls silent.
+    if (songStarts % 2 === 0 && sakiWants(s) && membersMayReserve(s) && !pendingRes.saki) {
+      const r = seeded(`${s.session.seed}|sakiWait|${songStarts}`)()
       pendingRes.saki = later(2500 + 4500 * r, () => {
         pendingRes.saki = undefined
         const st = S()
         if (membersMayReserve(st) && sakiWants(st)) reserveFor('saki')
       })
     }
+  }
+
+  const onSongEnded = (item: QueueItem) => {
+    songEnds++
+    const s = S()
+    if (!live()) return
+    if (isMine(item)) cheer(`end|${item.id}`, CLAP_BUBBLES, 0.8, 300, item.with ?? null)
+    if (s.session.script) return
+    const seed = s.session.seed
     // Saki's request, at most once a round, once I have two faces (E-6)
     if (
       s.room.members.saki.present &&
@@ -278,30 +346,67 @@ export function installRoomSim(api: NaviApi): () => void {
 
   // ================================================================ agreement and votes (E-5)
 
+  /**
+   * One roommate's answer to a shift proposal: agree with p 0.85 within 2.5 s. In script mode
+   * the night's first proposal is the demo's beat (SPEC N #6: the song slots in second), so the
+   * room says yes to that one; every later proposal draws its answers as usual.
+   */
+  const scheduleAgree = (p: RoomPrompt, id: MemberId, first: boolean) => {
+    const s = S()
+    const r = seeded(`${s.session.seed}|agree|${id}|${p.songIds[0]}`)
+    const roll = r()
+    const ok = (first && s.session.script) || roll < 0.85
+    const delay = 350 + 2050 * r() // within 2.5 s
+    const talk = ok && r() < 0.4
+    const text = R.ref(r() < 0.5 ? 'bubble.agree0' : 'bubble.agree1')
+    later(delay, () => {
+      const st = S()
+      if (st.room.prompt?.id !== p.id || st.room.prompt.agree?.[id] != null) return
+      // a hold-out still answers (false) so the prompt resolves; nobody learns who it was
+      st.agreePrompt(id, st.room.members[id].present ? ok : true)
+      if (talk) bubble(id, text)
+    })
+  }
+
   const onPrompt = (p: RoomPrompt) => {
     if (seenPrompts.has(p.id)) return
     seenPrompts.add(p.id)
     if (p.kind !== 'shift') return
-    const s = S()
-    const song = p.songIds[0]
-    const room = presentMembers(s).filter(m => m.id !== 'me')
+    const first = shiftsSeen++ === 0
+    firstShift = first ? p.id : firstShift
+    const room = presentMembers(S()).filter(m => m.id !== 'me')
     if (!room.length) {
-      s.agreePrompt('me', true)
+      S().agreePrompt('me', true)
       return
     }
-    for (const m of room) {
-      const r = seeded(`${s.session.seed}|agree|${m.id}|${song}`)
-      const ok = r() < 0.85
-      const delay = 350 + 2050 * r() // within 2.5 s
-      const talk = ok && r() < 0.4
-      const text = R.ref(r() < 0.5 ? 'bubble.agree0' : 'bubble.agree1')
-      later(delay, () => {
-        const st = S()
-        if (st.room.prompt?.id !== p.id) return
-        // a hold-out still answers (false) so the prompt resolves; nobody learns who it was
-        st.agreePrompt(m.id, st.room.members[m.id].present ? ok : true)
-        if (talk) bubble(m.id, text)
-      })
+    for (const m of room) scheduleAgree(p, m.id, first)
+  }
+
+  /** Someone walked in or went home while the room was deciding: the decision still closes. */
+  const onRoomChanged = (joined: MemberId | null) => {
+    const s = S()
+    const p = s.room.prompt
+    if (!p) return
+    const others = presentMembers(s).filter(m => m.id !== 'me')
+    if (p.kind === 'shift') {
+      if (joined) scheduleAgree(p, joined, p.id === firstShift)
+      else if (others.every(m => p.agree?.[m.id] != null)) {
+        // everyone still here has answered: re-state one answer so the room resolves it
+        const first = others[0]
+        s.agreePrompt(first ? first.id : 'me', first ? !!p.agree?.[first.id] : true)
+      }
+    } else if (p.kind === 'finale' && p.votes?.me) {
+      const seed = s.session.seed
+      if (joined) {
+        const m = s.room.members[joined]
+        later(600 + 2400 * seeded(`${seed}|voteAt|${joined}|${p.id}`)(), () => castVote(p.id, joined, finaleVote(seed, m, p.songIds)))
+      } else if (presentMembers(s).every(m => p.votes?.[m.id])) {
+        useSim.setState(u => ({ decided: { ...u.decided, [p.id]: finaleWinner(p.songIds, p.votes ?? {}) } }))
+        laterReal(1700, () => {
+          const st = S()
+          if (st.room.prompt?.id === p.id && p.votes?.me) st.votePrompt('me', p.votes.me)
+        })
+      }
     }
   }
 
@@ -516,6 +621,9 @@ export function installRoomSim(api: NaviApi): () => void {
       for (const songId of Object.keys(S().room.knowing)) {
         scheduleAnswers(songId, { only: e.id, delay: () => 1000 + 2000 * seeded(`${seed}|recount|${e.id}|${songId}`)() })
       }
+      onRoomChanged(e.id)
+      // the newcomer says hello once the ring has turned into light (C-11 ①)
+      if (seeded(`${seed}|hello|${e.id}`)() < 0.9) laterReal(900, () => bubble(e.id, R.ref('bubble.hello')))
       soon()
     }),
     bus.on('member/left', e => {
@@ -525,11 +633,16 @@ export function installRoomSim(api: NaviApi): () => void {
       for (const q of theirs) S().cancelReserve(q.id)
       pendingRes[e.id]?.()
       delete pendingRes[e.id]
+      onRoomChanged(null)
     }),
-    bus.on('song/started', () => armMySong()),
-    bus.on('song/ended', () => {
+    bus.on('queue/added', e => onQueued(e.item)),
+    bus.on('song/started', e => {
       armMySong()
-      onSongEnded()
+      onSongStarted(e.item)
+    }),
+    bus.on('song/ended', e => {
+      armMySong()
+      onSongEnded(e.entry.item)
       soon()
     }),
     bus.on('card/acted', e => {

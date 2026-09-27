@@ -19,16 +19,20 @@ import { useLayoutFrame, useViewMode } from '../../core/layout'
 import { sound } from '../../core/sound'
 import { areaColor } from '../../core/rules'
 import { Icon } from '../../core/ui/Icon'
-import { songTitle, useLocale, type Locale } from '../../i18n'
+import { LOCALES, songTitle, useLocale, type Locale } from '../../i18n'
 import { vocab } from '../../i18n/vocab'
 import { palette } from '../../lib/art'
 import { S } from './strings'
 import { DECADES, LANG_ORDER, TEMPO_ORDER, TRY_QUERIES, VIBE_ORDER, fieldText, matchRange, searchSongs, songsInArea, type MatchField, type SearchHit } from './search'
 
 type SearchArg = { filters?: SearchFilters; query?: string }
+const areaOf = (a: SearchArg | undefined): { tempo: Tempo; genre: Genre } | null => (a?.filters?.tempo && a.filters.genre ? { tempo: a.filters.tempo, genre: a.filters.genre } : null)
 type Facet = keyof SearchFilters
 
 const RESERVE_MS = 280 // same as the card flight (I-4 #2)
+/** Rows mounted with the sheet; the rest follow in small slices once it has risen (no long task). */
+const FIRST_ROWS = 5
+const ROW_SLICE = 12
 const KEEP_MS = 420
 
 // ---------------------------------------------------------------- small helpers
@@ -223,11 +227,17 @@ type RowProps = {
   q: string
   room: boolean
   i: number
+  /** the best hit for a typed query: shows the song's name in every script it is known by */
+  top?: boolean
   onReserve: (songId: string, from: HTMLElement) => void
   onKeep: (songId: string, from: HTMLElement) => void
 }
 
-const Row = memo(function Row({ hit, q, room, i, onReserve, onKeep }: RowProps): JSX.Element {
+const SCRIPT_FIELDS = ['en', 'zhHant', 'zhHans', 'ko'] as const
+const SCRIPT_LANG: Record<(typeof SCRIPT_FIELDS)[number], string> = { en: 'en', zhHant: 'zh-Hant', zhHans: 'zh-Hans', ko: 'ko' }
+const SHORT: Record<string, string> = Object.fromEntries(LOCALES.map(l => [l.id, l.short]))
+
+const Row = memo(function Row({ hit, q, room, i, top, onReserve, onKeep }: RowProps): JSX.Element {
   const t = S.useT()
   const v = vocab.useT()
   const l = useLocale()
@@ -243,15 +253,20 @@ const Row = memo(function Row({ hit, q, room, i, onReserve, onKeep }: RowProps):
   if (title.romaji && title.romaji !== title.main) subs.push({ text: title.romaji, field: 'romaji' })
   const shown = new Set<MatchField>([mainField, ...subs.map(s => s.field)])
   const alias = hit.matched === 'artist' ? fieldText(song, 'artist', q) : null
-  const matchText = q && (!shown.has(hit.matched) && hit.matched !== 'artist' ? fieldText(song, hit.matched) : alias && alias !== song.artist ? alias : null)
+  // the top hit carries its "passport": the title in every script it is known by
+  const scripts = top && q ? SCRIPT_FIELDS.filter(f => song.inboundTitle[f] && song.inboundTitle[f] !== title.main).map(f => ({ f, text: song.inboundTitle[f] as string })) : []
+  const inScripts = scripts.some(x => x.f === hit.matched)
+  const matchText = q && !inScripts && (!shown.has(hit.matched) && hit.matched !== 'artist' ? fieldText(song, hit.matched) : alias && alias !== song.artist ? alias : null)
   const pal = useMemo(() => palette(song.id, song.energy), [song.id, song.energy])
   const color = areaColor(song.genre)
   const justQueued = pos != null && firstPos.current == null
+  const queuedText = pos != null && pos > 0 ? t('reservedN', { n: pos }) : ''
+  const hash = queuedText.lastIndexOf('#')
 
   return (
     <li
-      className={`sx-row${pos != null ? ' is-queued' : ''}${song.reservable ? '' : ' is-unavailable'}`}
-      style={{ '--i': Math.min(i, 10), '--area': color } as CSSProperties}
+      className={`sx-row${i < 10 ? ' is-enter' : ''}${pos != null ? ' is-queued' : ''}${song.reservable ? '' : ' is-unavailable'}${room ? ' is-room' : ''}`}
+      style={{ '--i': Math.min(i, 10), '--area': color, '--a': pal.a } as CSSProperties}
       data-testid="search-result"
       data-song-id={song.id}
       data-genre={song.genre}
@@ -282,15 +297,27 @@ const Row = memo(function Row({ hit, q, room, i, onReserve, onKeep }: RowProps):
           <span className="sx-row__artist" lang="ja">
             <Hl text={song.artist} q={q} />
           </span>
-          <span className="sx-row__dot" aria-hidden="true" />
           <span className="sx-row__year">{song.year}</span>
-          <span className="sx-row__genre">
-            <i style={{ background: color }} aria-hidden="true" />
-            {v(`genre.${song.genre}`)}
-          </span>
         </div>
       </div>
       <div className="sx-act">
+        {pos != null ? (
+          <span key={`pos${pos}`} className={`sx-pos${pos === 0 ? ' is-now' : ''}`} data-testid="search-reserved-pos">
+            {pos === 0 ? (
+              t('row.playing')
+            ) : (
+              <>
+                <small>{`${queuedText.slice(0, Math.max(0, hash)).trim()} `}</small>
+                <b>{queuedText.slice(Math.max(0, hash))}</b>
+              </>
+            )}
+          </span>
+        ) : (
+          <button type="button" className="sx-res" data-testid="search-reserve" disabled={!song.reservable} onClick={() => art.current && onReserve(song.id, art.current)}>
+            <Icon name="chevron" size={13} strokeWidth={3} className="sx-res__up" />
+            {t('row.reserve')}
+          </button>
+        )}
         {room ? null : (
           <button
             type="button"
@@ -303,20 +330,23 @@ const Row = memo(function Row({ hit, q, room, i, onReserve, onKeep }: RowProps):
             onClick={e => onKeep(song.id, e.currentTarget)}
           >
             <Facet className={`sx-keep__icon${face ? ` sx-face--${face}` : ''}`} />
-          </button>
-        )}
-        {pos != null ? (
-          <span key={`pos${pos}`} className={`sx-pos${pos === 0 ? ' is-now' : ''}`} data-testid="search-reserved-pos">
-            {pos === 0 ? t('row.playing') : t('reservedN', { n: pos })}
-          </span>
-        ) : (
-          <button type="button" className="sx-res" data-testid="search-reserve" disabled={!song.reservable} onClick={() => art.current && onReserve(song.id, art.current)}>
-            <Icon name="chevron" size={13} strokeWidth={3} className="sx-res__up" />
-            {t('row.reserve')}
+            <span>{face ? t('row.keptShort') : t('row.keep')}</span>
           </button>
         )}
       </div>
       <div className="sx-row__chips">
+        {scripts.length ? (
+          <div className="sx-scripts" data-testid="search-scripts">
+            {scripts.map(x => (
+              <span key={x.f} className={`sx-script${x.f === hit.matched ? ' is-hit' : ''}`} lang={SCRIPT_LANG[x.f]}>
+                <b>{SHORT[x.f]}</b>
+                <span>
+                  <Hl text={x.text} q={q} />
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
         {matchText ? (
           <span className="sx-match">
             <b>{t('row.matched', { field: t(`field.${hit.matched}`) })}</b>
@@ -325,9 +355,13 @@ const Row = memo(function Row({ hit, q, room, i, onReserve, onKeep }: RowProps):
             </span>
           </span>
         ) : null}
+        <span className="sx-tag sx-tag--genre">
+          <i style={{ background: color }} aria-hidden="true" />
+          {v(`genre.${song.genre}`)}
+        </span>
         <span className="sx-tag sx-tag--lang">{v(`lang.${song.lang}`)}</span>
         {song.versions.map(ver => (
-          <span key={ver} className="sx-tag">
+          <span key={ver} className="sx-tag sx-tag--ver">
             {v(`version.${ver}`)}
           </span>
         ))}
@@ -368,6 +402,7 @@ function AreaBanner({ tempo, genre }: { tempo: Tempo; genre: Genre }): JSX.Eleme
 
 export function SearchSheet(): JSX.Element {
   const t = S.useT()
+  const countText = (n: number) => t(n === 1 ? 'countOne' : 'count', { n })
   const v = vocab.useT()
   const locale = useLocale()
   const room = useViewMode() === 'room'
@@ -375,8 +410,21 @@ export function SearchSheet(): JSX.Element {
   const init = useRef<SearchArg | undefined>(naviApi.getState().ui.sheet?.arg as SearchArg | undefined).current
   const [q, setQ] = useState(init?.query ?? '')
   const [filters, setFilters] = useState<SearchFilters>(() => ({ ...(init?.filters ?? {}) }))
-  const area = useRef(init?.filters?.tempo && init.filters.genre ? { tempo: init.filters.tempo, genre: init.filters.genre } : null).current
+  const [area, setArea] = useState(() => areaOf(init))
   const openedAt = useRef(performance.now())
+  // Re-opened while still sinking (the sheet keeps this instance alive for its exit): take the
+  // new request's filters and query instead of showing the previous search.
+  const openReq = useNavi(s => (s.ui.sheet?.id === 'search' ? s.ui.sheet : null))
+  const reqRef = useRef(openReq)
+  useEffect(() => {
+    if (!openReq || openReq === reqRef.current) return
+    reqRef.current = openReq
+    const a = openReq.arg as SearchArg | undefined
+    setQ(a?.query ?? '')
+    setFilters({ ...(a?.filters ?? {}) })
+    setArea(areaOf(a))
+    openedAt.current = performance.now()
+  }, [openReq])
   const logged = useRef('')
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -386,7 +434,24 @@ export function SearchSheet(): JSX.Element {
 
   const query = q.trim()
   const hits = useMemo(() => searchSongs(query, { filters, limit: query ? 40 : 60 }), [query, filters])
+  const [rowCap, setRowCap] = useState(FIRST_ROWS)
+  useEffect(() => {
+    if (rowCap >= hits.length) return
+    const id = window.setTimeout(() => setRowCap(n => n + ROW_SLICE), rowCap === FIRST_ROWS ? 420 : 40)
+    return () => clearTimeout(id)
+  }, [rowCap, hits.length])
   const nFilters = Object.values(filters).filter(Boolean).length
+  // a found song opens the way on: songs often picked with it ("一緒に選ばれている", 5-2),
+  // kept apart from tag-based suggestions
+  const coHits = useMemo((): SearchHit[] => {
+    if (!query || hits.length === 0 || hits.length > 3) return []
+    const seen = new Set(hits.map(h => h.song.id))
+    return hits[0].song.coOccurrence
+      .map(id => SONG_BY_ID[id])
+      .filter((x): x is Song => !!x && !seen.has(x.id))
+      .slice(0, 4)
+      .map(song => ({ song, score: 0, matched: 'title' as const }))
+  }, [query, hits])
   const unfiltered = useMemo(() => (hits.length === 0 && nFilters > 0 ? searchSongs(query, { limit: 500 }).length : 0), [hits.length, nFilters, query])
 
   // log a query once the typing settles (and a miss when it found nothing)
@@ -490,17 +555,32 @@ export function SearchSheet(): JSX.Element {
     )
   } else {
     body = (
-      <ul className="sx-list" aria-label={t('sheet.title')}>
-        {hits.map((h, i) => (
-          <Row key={h.song.id} hit={h} q={query} room={room} i={i} onReserve={stable.onReserve} onKeep={stable.onKeep} />
-        ))}
-      </ul>
+      <>
+        <ul className="sx-list" aria-label={t('sheet.title')}>
+          {hits.slice(0, rowCap).map((h, i) => (
+            <Row key={h.song.id} hit={h} q={query} room={room} i={i} top={i === 0} onReserve={stable.onReserve} onKeep={stable.onKeep} />
+          ))}
+        </ul>
+        {coHits.length ? (
+          <section className="sx-co" data-testid="search-co">
+            <h3 className="sx-co__title">
+              <i aria-hidden="true" />
+              <span>{t('co.title', { song: { song: hits[0].song.id } })}</span>
+            </h3>
+            <ul className="sx-list">
+              {coHits.map((h, i) => (
+                <Row key={h.song.id} hit={h} q="" room={room} i={i + hits.length} onReserve={stable.onReserve} onKeep={stable.onKeep} />
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </>
     )
   }
 
   return (
     <div ref={rootRef} className={`sx${room ? ' sx--room' : ''}`}>
-      <div className="sx__head">
+      <div className="sx__head" data-anchor="search">
         <label className="sx-field">
           <Icon name="search" size={19} strokeWidth={2.3} className="sx-field__icon" />
           <input
@@ -555,7 +635,7 @@ export function SearchSheet(): JSX.Element {
         <ChipRow label={t('filters.evidence')} chips={evidence} filters={filters} onToggle={toggle} />
         <ChipRow label={t('filters.hypothesis')} note={t('filters.hypothesisNote')} chips={hypothesis} filters={filters} dotted onToggle={toggle} />
         <div className="sx-meta">
-          <b className="sx-meta__n">{t('count', { n: hits.length })}</b>
+          <b className="sx-meta__n">{countText(hits.length)}</b>
           <span className="sx-meta__order">{query ? t('order.match') : t('order.popular')}</span>
           {nFilters ? (
             <button type="button" className="sx-meta__clear" onClick={() => setFilters({})}>
@@ -579,7 +659,7 @@ export function SearchSheet(): JSX.Element {
           if (e.pointerType === 'touch' && document.activeElement === inputRef.current) inputRef.current?.blur()
         }}
       >
-        {area && !room ? <AreaBanner tempo={area.tempo} genre={area.genre} /> : null}
+        {area && !room ? <AreaBanner key={`${area.tempo}:${area.genre}`} tempo={area.tempo} genre={area.genre} /> : null}
         {body}
       </div>
     </div>

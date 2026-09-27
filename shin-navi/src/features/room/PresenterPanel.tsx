@@ -2,7 +2,7 @@
 // monospace. Script toggle + NEXT with the upcoming step, speed, every room event, the view
 // and demo tools, and the live metrics HUD. Everything goes through presenter/cmd so the
 // → key, this panel and window.__navi.fire behave the same.
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { CardKind, PresenterCmd, ViewMode } from '../../core/types'
 import { naviApi, presentMembers, useNavi } from '../../core/store'
@@ -10,6 +10,7 @@ import { useNaviStable } from '../../core/useStable'
 import { useBox } from '../../core/layout'
 import { bus } from '../../core/events'
 import { knowView, roomMinutesLeft } from '../../core/rules'
+import { songTitle, useLocale, useTr } from '../../i18n'
 import { P, type PresenterKey } from './strings'
 import { SCRIPT, nextStepIndex } from './script'
 import { useSim } from './sim'
@@ -100,6 +101,32 @@ function ScriptBlock() {
           </li>
         ))}
       </ol>
+      <LiveLine />
+    </div>
+  )
+}
+
+/** What the room is doing right now, so the presenter never has to look away to know. */
+function LiveLine() {
+  const t = P.useT()
+  const trr = useTr()
+  const locale = useLocale()
+  const now = useNavi(s => s.room.now?.item.songId ?? null)
+  const singer = useNavi(s => (s.room.now ? s.room.members[s.room.now.item.by]?.color ?? '#D8DCE8' : null))
+  const waiting = useNavi(s => s.room.queue.length)
+  const heat = useNavi(s => Math.round(s.room.heat * 100) / 100)
+  const word = useNavi(s => s.room.moodWord)
+  return (
+    <div className="pp__live" data-testid="pp-live">
+      <span className={`pp__livedot${now ? ' is-on' : ''}`} style={{ ['--c' as string]: singer ?? 'rgba(255,255,255,.25)' } as CSSProperties} />
+      <span className="pp__livenow">{now ? songTitle(now, locale).main : t('live.idle')}</span>
+      <span className="pp__livemeta">{t('live.queue', { n: waiting })}</span>
+      <span className="pp__heat" title={t('live.heat')}>
+        <i style={{ transform: `scaleX(${heat})` }} />
+      </span>
+      <span className="pp__livemeta">
+        {heat.toFixed(2)} <small>{trr({ key: `common.mood.${word}` })}</small>
+      </span>
     </div>
   )
 }
@@ -243,10 +270,12 @@ function Hud() {
           {m.mo.placed} / {m.mo.dupBlocked} / {m.mo.afterExitBlocked}
         </dd>
         <dt>{t('hud.voice')}</dt>
-        <dd>{m.voiceToReserve}</dd>
+        <dd>
+          {pct(m.voiceToReserve, m.shown.voice ?? 0)} <small>{m.voiceToReserve}/{m.shown.voice ?? 0}</small>
+        </dd>
         <dt>{t('hud.import')}</dt>
         <dd>
-          {m.importSaved} <small>/ {m.shown.import ?? 0}</small>
+          {pct(m.importSaved, m.shown.import ?? 0)} <small>{m.importSaved}/{m.shown.import ?? 0}</small>
         </dd>
         <dt>{t('hud.search')}</dt>
         <dd>

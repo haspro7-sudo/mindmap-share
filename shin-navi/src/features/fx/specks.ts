@@ -3,7 +3,7 @@
 // touch leaves. Specks ride a rigid "rotation" like real mirror-ball spots: they cross the wall
 // in 12 s, flare as they pass the ball's centre line, and shrink towards the sides where the
 // wall turns away. Everything is drawn from pre-rendered sprites with additive blending.
-import { beamSprite, coneSprite, glintSprite, lighten, rgbCss, speckDot, softDot, Tint, type RGB } from './sprites'
+import { beamSprite, coneSprite, glintSprite, lighten, rgbCss, speckDot, spotDot, softDot, Tint, type RGB } from './sprites'
 import type { Palette3 } from './aurora'
 
 export const LAP_MS = 12000
@@ -37,7 +37,8 @@ export type Streak = { x: number; y: number; ang: number; spin: number; len: num
 export type Ring = { x: number; y: number; age: number; dur: number; r0: number; r1: number; w: number; color: RGB; a: number }
 export type Mote = { x: number; y: number; vx: number; vy: number; tw: number; s: number; a: number }
 
-export type FieldBox = { w: number; h: number; cx: number; cy: number; hy: number }
+/** The wall in CSS px; `spot` scales the spots (a big room screen shows a bigger wall). */
+export type FieldBox = { w: number; h: number; cx: number; cy: number; hy: number; spot?: number }
 
 const wrapLon = (l: number) => {
   const span = ARC * 2
@@ -98,10 +99,11 @@ export function makeSpeck(i: number, from: { x: number; y: number } | null, laun
 }
 
 /**
- * Keep `list` at `target` living specks: adopt transient ones first, then add new specks from
- * the emitters; surplus specks fade out. Returns the number of living (non-dying) specks.
+ * Keep `list` at `target` living specks: adopt transient ones first (a face that just levelled
+ * up threw one), then — when `add` — new specks from the emitters; surplus specks fade out.
+ * Returns the number of living (non-dying, non-transient) specks.
  */
-export function syncCount(list: Speck[], target: number, emit: (i: number) => { x: number; y: number } | null, launchMs: number): number {
+export function syncCount(list: Speck[], target: number, emit: (i: number) => { x: number; y: number } | null, launchMs: number, add = true): number {
   let living = 0
   for (const s of list) if (!s.dying && s.ttl === Infinity) living++
   if (living < target) {
@@ -112,7 +114,7 @@ export function syncCount(list: Speck[], target: number, emit: (i: number) => { 
         living++
       }
     }
-    while (living < target) {
+    while (add && living < target) {
       list.push(makeSpeck(seq++, emit(living), launchMs))
       living++
     }
@@ -147,13 +149,17 @@ export class SpeckField {
   specks: Speck[] = []
   streaks: Streak[] = []
   rings: Ring[] = []
+  /** soft blooms of light where a finger touched */
+  glows: { x: number; y: number; age: number; dur: number; r: number; a: number }[] = []
   motes: Mote[] = []
   box: FieldBox = { w: 390, h: 844, cx: 195, cy: 250, hy: 340 }
-  private dot = speckDot(48)
+  private dot = spotDot(64)
   private glint = glintSprite(64)
   private beam = beamSprite(256, 32)
   private soft = softDot(64)
-  private tints: Tint[] = [0, 1, 2, 3].map(() => new Tint(speckDot(48)))
+  // palette-tinted spots with a white-hot middle (a spot of light, not a painted dot)
+  private tints: Tint[] = [0, 1, 2, 3].map(() => new Tint(spotDot(64), 1, 0.9))
+  private haze = speckDot(48)
   private beamTint = new Tint(coneSprite(256, 64))
   private streakClock = 0
 
@@ -167,10 +173,13 @@ export class SpeckField {
     return n
   }
 
-  /** A face levelled up: one speck slides out from it (kept if the count grows, else fades). */
+  /**
+   * A face levelled up: one speck slides out from it. It is transient; when the level-up grew
+   * the count (mirror / prism), the count keeper adopts it instead of adding a new one.
+   */
   spawnAt(x: number, y: number, keep: boolean): void {
     const s = makeSpeck(seq++, { x, y }, 900)
-    s.ttl = keep ? Infinity : 2600
+    s.ttl = keep ? 4000 : 2600
     s.glint = 1
     // pick a spot on the wall on the same side as the face, so it visibly slides outwards
     const side = x < this.box.cx ? -1 : 1
@@ -190,7 +199,9 @@ export class SpeckField {
 
   /** A touch: nearby specks are nudged outwards and glint; a faint ring spreads. */
   touch(x: number, y: number, color: RGB): void {
-    this.ring(x, y, { color: lighten(color, 0.5), a: 0.42 })
+    this.ring(x, y, { color: lighten(color, 0.55), a: 0.55, r0: 4, r1: 58, w: 2.6, dur: 560 })
+    this.glows.push({ x, y, age: 0, dur: 420, r: 34, a: 0.4 })
+    if (this.glows.length > 6) this.glows.shift()
     const b = this.box
     for (const s of this.specks) {
       const p = project(s, b)
@@ -206,17 +217,36 @@ export class SpeckField {
     }
   }
 
-  /** The room lights come on: a bloom from the ball, eight rays, every speck glints. */
-  lightsOn(palette: Palette3): void {
+  /**
+   * The room lights come on (SPEC B-4): a bloom from the ball, eight rays, every speck glints,
+   * and a handful of extra spots fly off the ball and fade again (the room fills with light).
+   */
+  lightsOn(palette: Palette3, ballR = 90): void {
     const b = this.box
-    this.ring(b.cx, b.cy, { r0: 40, r1: Math.hypot(b.w, b.h) * 0.75, w: 26, dur: 900, a: 0.28, color: lighten(palette[1], 0.55) })
-    this.ring(b.cx, b.cy, { r0: 30, r1: Math.hypot(b.w, b.h) * 0.45, w: 6, dur: 700, a: 0.5, color: WARM })
+    const diag = Math.hypot(b.w, b.h)
+    this.ring(b.cx, b.cy, { r0: ballR * 0.9, r1: diag * 0.75, w: 26, dur: 900, a: 0.28, color: lighten(palette[1], 0.55) })
+    this.ring(b.cx, b.cy, { r0: ballR * 0.8, r1: diag * 0.45, w: 6, dur: 700, a: 0.5, color: WARM })
     const base = Math.random() * Math.PI
     for (let i = 0; i < 8; i++) {
       const c = i % 2 ? WARM : lighten(palette[i % 3], 0.35)
-      this.streak(b.cx, b.cy, c, base + (i * Math.PI) / 4, Math.hypot(b.w, b.h) * 0.8)
+      this.streak(b.cx, b.cy, c, base + (i * Math.PI) / 4, diag * 0.8)
     }
     for (const s of this.specks) s.glint = 1
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3
+      const s = makeSpeck(seq++, { x: b.cx + Math.cos(a) * ballR * 0.7, y: b.cy + Math.sin(a) * ballR * 0.7 }, 520 + Math.random() * 260)
+      s.ttl = 1300 + Math.random() * 900
+      s.glint = 1
+      s.hue = (i % 4) as 0 | 1 | 2 | 3
+      this.specks.push(s)
+    }
+  }
+
+  /** The entrance throw (SPEC B-2 0.4 s): a pulse of light leaves the ball's rim. */
+  throwPulse(ballR: number, color: RGB): void {
+    const b = this.box
+    this.ring(b.cx, b.cy, { r0: ballR * 0.92, r1: ballR * 2.6, w: 14, dur: 720, a: 0.3, color: lighten(color, 0.5) })
+    this.ring(b.cx, b.cy, { r0: ballR * 0.96, r1: ballR * 1.9, w: 3, dur: 560, a: 0.55, color: WARM })
   }
 
   initMotes(n: number): void {
@@ -256,6 +286,7 @@ export class SpeckField {
       if (!frozen) st.ang += st.spin * (dt / 1000)
       if (st.age >= st.dur) this.streaks.splice(i, 1)
     }
+    for (let i = this.glows.length - 1; i >= 0; i--) if ((this.glows[i].age += dt) >= this.glows[i].dur) this.glows.splice(i, 1)
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i]
       r.age += dt
@@ -294,7 +325,7 @@ export class SpeckField {
     ctx.globalCompositeOperation = 'source-over'
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, b.w, b.h)
-    if (f.k <= 0 && !this.rings.length && !this.streaks.length) return
+    if (f.k <= 0 && !this.rings.length && !this.streaks.length && !this.glows.length) return
     ctx.globalCompositeOperation = 'lighter'
     const bright = 1 + f.flash // ×2 when the lights come on, back over 600 ms
     const tints = [lighten(f.palette[0], 0.2), lighten(f.palette[0], 0.55), lighten(f.palette[1], 0.5), lighten(f.palette[2], 0.5)].map((c, i) => this.tints[i].set(f.gold > 0 ? mixGold(i === 0 ? WARM : c, f.gold) : i === 0 ? WARM : c))
@@ -331,38 +362,67 @@ export class SpeckField {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    // specks
+    // specks: spots of light crawling over the wall, a comet tail while they are thrown
     const spread = f.spread
     for (const s of this.specks) {
       if (s.alive <= 0) continue
       const p = project(s, b, spread)
       let x = p.x + s.kx
       let y = p.y + s.ky
-      if (s.launchMs > 0 && s.age < s.launchMs && Number.isFinite(s.fx)) {
-        const u = easeOutQuart(s.age / s.launchMs)
-        x = s.fx + (x - s.fx) * u
-        y = s.fy + (y - s.fy) * u
+      const launching = s.launchMs > 0 && s.age < s.launchMs && Number.isFinite(s.fx)
+      let u = 1
+      if (launching) {
+        u = easeOutQuart(s.age / s.launchMs)
+        // a slight arc: thrown outwards, then settling onto the wall
+        const mx = (s.fx + x) / 2 + (s.fy - y) * 0.18
+        const my = (s.fy + y) / 2 - (x - s.fx) * 0.18
+        const iu = 1 - u
+        x = iu * iu * s.fx + 2 * iu * u * mx + u * u * x
+        y = iu * iu * s.fy + 2 * iu * u * my + u * u * y
       }
-      const flight = s.launchMs > 0 && s.age < s.launchMs ? 1 : p.vis
-      const tw = f.reduced ? 0.85 : 0.72 + 0.28 * Math.sin(s.tw)
+      const flight = launching ? 1 : p.vis
+      const tw = f.reduced ? 0.85 : 0.74 + 0.26 * Math.sin(s.tw)
       // flare when crossing the ball's centre line (a facet looking straight at you)
       const facing = f.reduced ? 0 : Math.max(0, 1 - Math.abs(Math.sin(s.lon)) / 0.12)
       const g = Math.max(s.glint, facing * facing)
-      const a = s.alive * flight * f.k * (0.6 + 0.4 * s.z) * tw
+      const a = s.alive * flight * f.k * (0.62 + 0.38 * s.z) * tw
       if (a < 0.01 && g < 0.05) continue
-      const d = (16 + 20 * s.z) * p.scale * (1 + 0.35 * f.flash + 0.25 * g)
+      const d = (18 + 22 * s.z) * p.scale * (b.spot ?? 1) * (1 + 0.35 * f.flash + 0.25 * g)
+      // spots are a little longer than tall: they slide sideways, and go oblique at the sides
+      const dx = d * (1.12 + 0.35 * (1 - p.scale))
+      if (launching && u < 0.98) {
+        // comet tail pointing back to where the spot left the ball
+        const ang = Math.atan2(s.fy - y, s.fx - x)
+        const L = Math.min(Math.hypot(s.fx - x, s.fy - y), 70) * (1 - u * 0.7)
+        const c = Math.cos(ang)
+        const sn = Math.sin(ang)
+        ctx.setTransform(dpr * c, dpr * sn, -dpr * sn, dpr * c, x * dpr, y * dpr)
+        ctx.globalAlpha = Math.min(1, a * 0.8)
+        ctx.drawImage(this.beam, 0, -d * 0.18, L, d * 0.36)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
       ctx.globalAlpha = Math.min(1, a * bright)
-      ctx.drawImage(tints[s.hue], x - d / 2, y - d / 2, d, d)
+      ctx.drawImage(tints[s.hue], x - dx / 2, y - d / 2, dx, d)
       if (bright > 1.02) {
         // "twice as bright" cannot be done with alpha alone: add a second pass
         ctx.globalAlpha = Math.min(1, a * (bright - 1))
-        ctx.drawImage(this.dot, x - d / 2, y - d / 2, d, d)
+        ctx.drawImage(this.dot, x - dx / 2, y - d / 2, dx, d)
       }
       if (g > 0.08) {
         const gd = d * (1.6 + 1.2 * g)
         ctx.globalAlpha = Math.min(1, g * s.alive * f.k * 0.85)
         ctx.drawImage(this.glint, x - gd / 2, y - gd / 2, gd, gd)
+        ctx.globalAlpha = Math.min(1, g * s.alive * f.k * 0.35)
+        ctx.drawImage(this.haze, x - gd * 0.6, y - gd * 0.6, gd * 1.2, gd * 1.2)
       }
+    }
+
+    // a touch leaves a small bloom of light
+    for (const gl of this.glows) {
+      const t = gl.age / gl.dur
+      const r = gl.r * (0.6 + 0.6 * easeOutQuart(t))
+      ctx.globalAlpha = gl.a * (1 - t) * (1 - t)
+      ctx.drawImage(this.soft, gl.x - r, gl.y - r, r * 2, r * 2)
     }
 
     // rings: touches and the lights-on bloom

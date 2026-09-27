@@ -170,7 +170,37 @@ function build(): Engine | null {
 export function unlock(): void {
   if (!eng) eng = build()
   const ac = eng?.ac
-  if (ac && ac.state === 'suspended' && ac.resume) void ac.resume().catch(() => {})
+  if (ac && ac.state === 'suspended' && ac.resume) {
+    void ac
+      .resume()
+      .then(flushPending)
+      .catch(() => {})
+  }
+}
+
+// Sounds asked for while the context is still suspended. On touch screens the first pointerdown
+// is not a user activation (pointerup / touchend is), so the lights-on chord of the first tap
+// waits here for the resume a moment later instead of being lost.
+const PENDING_MS = 900
+let pending: { name: SfxName; o: SfxOpts; at: number }[] = []
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
+function flushPending(): void {
+  const e = ready()
+  if (!e) return
+  const now = clock()
+  const list = pending
+  pending = []
+  for (const p of list) {
+    if (now - p.at > PENDING_MS) continue
+    traceName = p.name
+    synth(e, p.name, p.o, e.ac.currentTime + 0.005)
+  }
+}
+
+/** Whether the context exists but is not yet running (waiting for a user activation). */
+export function awaitingResume(): boolean {
+  return !!eng && eng.ac.state !== 'running' && eng.ac.state !== 'closed'
 }
 
 export function setMuted(m: boolean): void {
@@ -231,6 +261,7 @@ export function __traceStop(): TraceEntry[] {
 /** Tests: swap the AudioContext factory (null restores the browser one) and reset the engine. */
 export function __setAudioFactory(f: Factory | null): void {
   factory = f ?? defaultFactory
+  pending = []
   eng = null
   muted = false
   ducked = false
@@ -388,7 +419,7 @@ function synth(e: Engine, name: SfxName, o: SfxOpts, t: number): void {
       break
     }
     case 'throw':
-      noise(e, { at: t, dur: 0.2, gain: 0.08 * k, from: 300, to: 4000, q: 1.2, attack: 0.02, send: 0.15 })
+      noise(e, { at: t, dur: 0.18, gain: 0.08 * k, from: 300, to: 4000, q: 1.2, attack: 0.02, send: 0.15 })
       break
     case 'land':
       tone(e, { f: mtof(N.G5), type: 'triangle', at: t, attack: 0.002, decay: 0.08, gain: 0.1 * k })
@@ -511,7 +542,13 @@ function synth(e: Engine, name: SfxName, o: SfxOpts, t: number): void {
 /** Play one named effect now. Silent until unlocked, and while muted. */
 export function play(name: SfxName, o: SfxOpts = {}): void {
   const e = ready()
-  if (!e) return
+  if (!e) {
+    if (!muted && eng && eng.ac.state === 'suspended') {
+      pending.push({ name, o, at: clock() })
+      if (pending.length > 4) pending.shift()
+    }
+    return
+  }
   traceName = name
   synth(e, name, o, e.ac.currentTime + 0.005)
 }

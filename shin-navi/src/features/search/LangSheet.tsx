@@ -45,7 +45,7 @@ export function LangSheet(): JSX.Element {
           <small className="lg__every">{everyName}</small>
         </span>
       </header>
-      <div className="lg__list" role="radiogroup" aria-label={t('lang.title')}>
+      <div className="lg__list" role="radiogroup" aria-label={t('lang.title')} data-anchor="lang">
         {LOCALES.map((l, i) => {
           const on = l.id === cur
           const title = songTitle(SAMPLE_SONG, l.id).main

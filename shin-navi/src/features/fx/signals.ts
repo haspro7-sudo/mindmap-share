@@ -28,3 +28,17 @@ export const fxSignals = {
 /** Frame counter advanced once per ticker frame (by installFx): the canvases that paint at a
  *  reduced rate take turns, so no single frame carries every paint. */
 export const fxClock = { frame: 0 }
+
+/**
+ * Runtime facts the canvases read every frame (written by installFx from the store).
+ * `covered`: a full-screen overlay (standby, wrap-up, entry) hides the phone wall; after its
+ * 300 ms fade the phone canvases stop painting until it closes.
+ * `floor`: the home tab shows the hero's floor. On the other tabs the phone wall keeps its light
+ * but the horizon seam and its reflection fade out (they would cut across lists).
+ */
+export const fxRuntime = { covered: false, coverAt: 0, floor: true }
+
+/** Whether the phone wall is hidden under an overlay right now. */
+export function phoneCovered(now: number): boolean {
+  return fxRuntime.covered && now - fxRuntime.coverAt > 400
+}

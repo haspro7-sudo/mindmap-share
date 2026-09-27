@@ -1,7 +1,7 @@
-// The voice check sheet (S5, SPEC C-8 ⑤ / I-4 #6 / L-M7). Two paths — an optional 3-second hum
+// The voice check sheet (S5, SPEC C-8 (5) / I-4 #6 / L-M7). Two paths — an optional 3-second hum
 // or three questions — end in the same reveal: three pillars of light rise, fuse into a colour
-// orb, "今回の声は{type}" types itself out, the orb stamps tonight's calendar, and one song to
-// try arrives with its key ("−2で予約"). The reading is recorded (col.voices) and "you" takes
+// orb, "this time, the voice was {type}" types itself out, the orb stamps tonight's calendar, and
+// one song to try arrives with its key ("-2 reserve"). The reading is recorded (col.voices) and "you" takes
 // the colour of tonight's voice. Nothing is recorded as audio, ever.
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -55,8 +55,8 @@ type Phase = 'choose' | 'listen' | 'quiz' | 'result'
 /** reveal steps: 0 pillars rise · 1 fuse into the orb · 2 type name · 3 details · 4 stamped */
 type Step = 0 | 1 | 2 | 3 | 4
 
-const MERGE_AT = RISE_MS + 260
-const TYPE_AT = MERGE_AT + 640
+const MERGE_AT = RISE_MS + 80
+const TYPE_AT = MERGE_AT + 620
 
 // ---------------------------------------------------------------- small parts
 
@@ -124,6 +124,8 @@ export function VoiceSheet(): JSX.Element {
   const [fallback, setFallback] = useState(false)
   const [preview, setPreview] = useState<Partial<QuizAnswers>>({})
   const [reading, setReading] = useState<VoiceReading | null>(null)
+  /** the notes actually hummed (shown once, right after the hum; the reading keeps a singing range) */
+  const [hum, setHum] = useState<[number, number] | null>(null)
   const [alts, setAlts] = useState<Suggestion[]>([])
   const [alt, setAlt] = useState(0)
   const [run, setRun] = useState(0)
@@ -179,6 +181,7 @@ export function VoiceSheet(): JSX.Element {
     s.setMemberVoice('me', r.type)
     clearTimers()
     setReading(r)
+    setHum(src.capture?.range ?? null)
     setAlts(suggestionsFor(r.type, r.range ?? DEFAULT_RANGE, exclude, 3))
     setAlt(0)
     setSkipped(false)
@@ -319,8 +322,11 @@ export function VoiceSheet(): JSX.Element {
             runId={run}
             onTap={skip}
           />
-          {phase === 'result' && reading?.range && reading.method === 'mic' ? (
-            <div className="vs__range">{t('mic.range', { lo: noteName(reading.range[0], locale), hi: noteName(reading.range[1], locale) })}</div>
+          {phase === 'result' && reading ? (
+            <div className="vs__range" data-testid="voice-method" data-method={reading.method}>
+              <span className="vs__method">{t(reading.method === 'mic' ? 'method.mic' : 'method.quiz')}</span>
+              {hum && reading.method === 'mic' ? <span>{t('mic.range', { lo: noteName(hum[0], locale), hi: noteName(hum[1], locale) })}</span> : null}
+            </div>
           ) : null}
           <AnimatePresence mode="wait" initial={false}>
             {phase === 'choose' ? (
@@ -384,10 +390,7 @@ export function VoiceSheet(): JSX.Element {
                 <div className="vs__typeslot">{step >= 2 ? <TypeLine type={reading.type} play={!skipped} reduced={reduced} /> : null}</div>
                 {step >= 3 ? (
                   <motion.div className="vs__details" initial={reduced || skipped ? { opacity: 0 } : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0.3 : 0.42, ease: [0.2, 0.8, 0.2, 1] }}>
-                    <p className="vs__ev">
-                      <span className="vs__method">{t(reading.method === 'mic' ? 'method.mic' : 'method.quiz')}</span>
-                      {trr(reading.evidence)}
-                    </p>
+                    <p className="vs__ev">{trr(reading.evidence)}</p>
                     {current && song ? (
                       <>
                         <p className="vs__try">{t(`try.${reading.type}` as VoiceKey)}</p>

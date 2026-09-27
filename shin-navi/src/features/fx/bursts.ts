@@ -2,7 +2,7 @@
 // gold pins, ink splashes. Pure particle data + a painter that only uses pre-rendered sprites,
 // strokes and additive blending.
 import type { BurstPreset } from '../../core/events'
-import { glintSprite, glowSprite, speckDot } from './sprites'
+import { glintSprite, glowSprite, inkSprite } from './sprites'
 
 export type Part = {
   kind: 'spark' | 'glitter' | 'ink'
@@ -95,11 +95,13 @@ export class BurstSystem {
         const ink = o.colors?.length ? o.colors : ['#8A6BFF', '#FF3DA8', '#2EF2FF']
         add(16, i => {
           const a = (i / 16) * Math.PI * 2 + (rnd() - 0.5) * 0.4
-          const v = 90 + rnd() * 120
-          return { kind: 'ink', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, drag: 7, grav: 0, life: 560 + rnd() * 200, size: 2 + rnd() * 3, color: ink[i % ink.length], tail: 0, spin: 0 }
+          const v = 150 + rnd() * 160
+          return { kind: 'ink', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, drag: 7, grav: 0, life: 820 + rnd() * 300, size: 2 + rnd() * 3, color: ink[i % ink.length], tail: 0, spin: 0 }
         })
-        this.rings.push({ x, y, age: 0, life: 560, r0: 16, r1: 64, w: 4, colors: ink, a: 0.6 })
-        this.flashes.push({ x, y, age: 0, life: 300, size: 90, color: ink[0] })
+        // the thump: a heavy ring in tonight's colours and a lamplight flash under the stamp
+        this.rings.push({ x, y, age: 0, life: 620, r0: 16, r1: 70, w: 5, colors: ink, a: 0.75 })
+        this.rings.push({ x, y, age: 0, life: 420, r0: 10, r1: 44, w: 2, colors: ['#FFF0B8'], a: 0.8 })
+        this.flashes.push({ x, y, age: 0, life: 340, size: 110, color: '#FFE9A8' })
         break
       }
       case 'area': {
@@ -142,7 +144,6 @@ export class BurstSystem {
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, w, h)
     const glint = glintSprite(64)
-    const dot = speckDot(48)
     ctx.globalCompositeOperation = 'lighter'
     for (const f of this.flashes) {
       const t = f.age / f.life
@@ -197,12 +198,17 @@ export class BurstSystem {
         ctx.drawImage(glint, p.x - sz, p.y - sz, sz * 2, sz * 2)
         ctx.globalAlpha = fade * 0.8
         ctx.drawImage(glowSprite(p.color, 32), p.x - sz / 2, p.y - sz / 2, sz, sz)
-      } else {
-        ctx.globalAlpha = fade * 0.85
-        ctx.drawImage(glowSprite(p.color, 32), p.x - p.size * 2, p.y - p.size * 2, p.size * 4, p.size * 4)
-        ctx.globalAlpha = fade * 0.5
-        ctx.drawImage(dot, p.x - p.size, p.y - p.size, p.size * 2, p.size * 2)
       }
+    }
+    // ink is paint, not light: drops land with source-over so they read on any background
+    ctx.globalCompositeOperation = 'source-over'
+    for (const p of this.parts) {
+      if (p.kind !== 'ink') continue
+      const t = p.age / p.life
+      const fade = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3
+      const sz = p.size * (1.6 + 0.6 * Math.min(1, t * 3))
+      ctx.globalAlpha = fade * 0.9
+      ctx.drawImage(inkSprite(p.color, 32), p.x - sz, p.y - sz, sz * 2, sz * 2)
     }
     ctx.globalAlpha = 1
     ctx.globalCompositeOperation = 'source-over'

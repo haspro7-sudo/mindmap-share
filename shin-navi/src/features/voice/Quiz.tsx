@@ -1,4 +1,4 @@
-// "3つの質問で" (SPEC L/M7 #2): high notes · the chorus · the way you like to sing.
+// The three questions (SPEC L/M7 #2): high notes · the chorus · the way you like to sing.
 // One question at a time; every answer lifts its pillar on the stage above (a chime per answer),
 // so each tap visibly changes something. Also the automatic fallback when the mic is unavailable.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'

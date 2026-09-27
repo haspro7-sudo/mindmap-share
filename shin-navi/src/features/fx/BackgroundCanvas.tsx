@@ -13,7 +13,7 @@ import { params } from '../../core/params'
 import { AuroraPainter, PaletteTracker, auroraIntro, type IntroMode } from './aurora'
 import { TIERS } from './governor'
 import { fxDebug } from './debug'
-import { fxClock } from './signals'
+import { fxClock, fxRuntime, phoneCovered } from './signals'
 import { rgbCss } from './sprites'
 import './fx.css'
 
@@ -108,6 +108,8 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
 
     let lastHz = ''
     let lastFlash = ''
+    let floor = 1
+    let lastFloor = ''
     const off = ticker.add(dt => {
       // cheap visibility check (display:none tab, closed shell) twice a second
       visClock += dt
@@ -115,13 +117,18 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
         visClock = 0
         visible = el.offsetParent !== null || getComputedStyle(el).position === 'fixed'
       }
-      if (!visible) return
+      if (!visible || (variant === 'phone' && phoneCovered(performance.now()))) return
       geoClock += dt
       if (variant === 'room' && geoClock > 1000) {
         geoClock = 0
         size()
       }
       const reduced = fxState.reduced
+      // the floor belongs to the hero: away from the home tab it fades (300 ms)
+      const floorOn = variant === 'room' || fxRuntime.floor
+      floor = Math.max(0, Math.min(1, floor + (floorOn ? 1 : -1) * (dt / 300)))
+      const fk = floorOn ? '1' : '0'
+      if (fk !== lastFloor) el.dataset.floor = lastFloor = fk
       const q = reduced ? 0 : fxState.quality
       if (q !== tier) {
         tier = q
@@ -162,6 +169,7 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
       flowT += (step / 1000) * speed
       const s = naviApi.getState()
       const k = auroraIntro(introElapsedMs(), s.session.intro, reduced)
+      const c0 = params.test ? performance.now() : 0
       painter.draw(
         ctx,
         {
@@ -169,6 +177,8 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
           t: flowT,
           k,
           bright: 1 + 0.4 * fxState.flash,
+          gold: fxState.gold,
+          floor,
           heat: fxState.heat,
           colors,
           spec: TIERS[tier as 0 | 1 | 2],
@@ -176,7 +186,10 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
         },
         res,
       )
-      if (params.test) fxDebug.frames.bg++
+      if (params.test) {
+        fxDebug.frames.bg++
+        fxDebug.cost.bg += performance.now() - c0
+      }
     }, 0)
 
     return () => {
@@ -186,7 +199,7 @@ function BackgroundInner({ variant }: { variant: Variant }): JSX.Element {
   }, [variant])
 
   return (
-    <div ref={root} className={`fx-bg fx-bg--${variant}`} data-mode="canvas" data-palette="quiet" data-gold="0" aria-hidden="true">
+    <div ref={root} className={`fx-bg fx-bg--${variant}`} data-mode="canvas" data-palette="quiet" data-gold="0" data-floor="1" aria-hidden="true">
       <div className="fx-bg__static">
         <i className="fx-static fx-static--quiet" />
         <i className="fx-static fx-static--mellow" />
