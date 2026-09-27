@@ -22,6 +22,8 @@ import { SheetHost } from './SheetHost'
 import { OverlayHost } from './OverlayHost'
 import { Toasts } from './Toasts'
 import { PHONE_SHEETS, OVERLAYS } from './slots'
+import { shellStrings } from '../i18n/shell'
+import { Button } from '../core/ui/Button'
 
 const openFace = (songId: string) => naviApi.getState().openSheet('face', { songId })
 const openArea = (area: AreaKey) => {
@@ -31,23 +33,31 @@ const openArea = (area: AreaKey) => {
 
 /** Background swipes on the hero: up → search sheet, down → record tab (SPEC C-1). */
 function useHeroSwipe() {
-  const start = useRef<{ x: number; y: number; t: number } | null>(null)
+  const start = useRef<{ x: number; y: number; t: number; id: number } | null>(null)
   return {
     onPointerDown: (e: PointerEvent) => {
-      start.current = { x: e.clientX, y: e.clientY, t: performance.now() }
-    },
-    onPointerUp: (e: PointerEvent) => {
-      const s = start.current
-      start.current = null
-      if (!s) return
-      const dx = e.clientX - s.x
-      const dy = e.clientY - s.y
-      if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(dx) * 1.4 || performance.now() - s.t > 900) return
-      if (dy < 0) naviApi.getState().openSheet('search')
-      else naviApi.getState().setTab('record')
-    },
-    onPointerCancel: () => {
-      start.current = null
+      const s = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }
+      start.current = s
+      // Listen on the window: a swipe that ends above the hero (over the search bar or lane) still counts.
+      const up = (ev: globalThis.PointerEvent) => {
+        if (ev.pointerId !== s.id) return
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', cancel)
+        if (start.current !== s) return
+        start.current = null
+        const dx = ev.clientX - s.x
+        const dy = ev.clientY - s.y
+        if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(dx) * 1.4 || performance.now() - s.t > 900) return
+        if (dy < 0) naviApi.getState().openSheet('search')
+        else naviApi.getState().setTab('record')
+      }
+      const cancel = () => {
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', cancel)
+        start.current = null
+      }
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', cancel)
     },
   }
 }
@@ -73,8 +83,28 @@ function Hero() {
   )
 }
 
+/** After the recap the room is closed: no live deck, just the way back in (SPEC F-2 退室済みの画面). */
+function ClosedPanel() {
+  const t = shellStrings.useT()
+  return (
+    <div className="ps-closed" data-testid="closed-panel">
+      <div className="ps-closed__title">{t('closedTitle')}</div>
+      <p className="ps-closed__body">{t('closedBody')}</p>
+      <div className="ps-closed__actions">
+        <Button kind="secondary" full onClick={() => naviApi.getState().setTab('record')}>
+          {t('closedRecord')}
+        </Button>
+        <Button kind="primary" full testid="closed-next" onClick={() => naviApi.getState().startNight({ nextVisit: true })}>
+          {t('closedNext')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function DiscoverLayer({ active }: { active: boolean }) {
   const m = usePhoneMetrics()
+  const closed = useNavi(s => s.session.phase === 'closed')
   return (
     <motion.div
       className="ps-tab ps-tab--discover"
@@ -89,12 +119,18 @@ function DiscoverLayer({ active }: { active: boolean }) {
         <SearchBar />
       </div>
       <Hero />
-      <div className="ps-deck" style={{ minHeight: m.cardH + 4 }}>
-        <DeckView bodies={CARD_BODIES} />
-      </div>
-      <div className="ps-action" style={{ height: m.action }}>
-        <ActionBar />
-      </div>
+      {closed ? (
+        <ClosedPanel />
+      ) : (
+        <>
+          <div className="ps-deck" style={{ minHeight: m.cardH + 4 }}>
+            <DeckView bodies={CARD_BODIES} />
+          </div>
+          <div className="ps-action" style={{ height: m.action }}>
+            <ActionBar />
+          </div>
+        </>
+      )}
     </motion.div>
   )
 }
@@ -148,7 +184,7 @@ export function PhoneShell() {
         <div className="ps-body">
           <DiscoverLayer active={tab === 'discover'} />
           <AnimatePresence initial={false}>{tab !== 'discover' ? <OtherTab key={tab} tab={tab} /> : null}</AnimatePresence>
-          <div className={`ps-lane${tab === 'sing' ? ' is-hidden' : ''}`} style={{ height: tab === 'discover' ? m.lane : m.laneCompact }}>
+          <div className={`ps-lane${tab === 'sing' ? ' is-hidden' : tab !== 'discover' ? ' is-compact' : ''}`} style={{ height: tab === 'discover' ? m.lane : m.laneCompact }}>
             <StageLane orientation="horizontal" compact={tab === 'record' || tab === 'order'} />
           </div>
         </div>

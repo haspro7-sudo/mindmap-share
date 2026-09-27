@@ -5,7 +5,7 @@ import type { Member, MemberId, QueueItem, SungEntry, FaceMark, PinId, OtherId }
 import { freshRoom, uid } from './initial'
 import { bus } from '../events'
 import { SONG_BY_ID } from '../../data/songs'
-import { SIM_MS_PER_ROOM_MIN, SONG_SIM_MS, heatAfter, isSleeping, knowView, moodWordFor, pKnow } from '../rules'
+import { AURORA_PALETTES, SIM_MS_PER_ROOM_MIN, SONG_SIM_MS, heatAfter, heatBucket, isSleeping, knowView, moodWordFor, pKnow } from '../rules'
 import { coreStrings } from '../../i18n/core'
 
 export function presentMembers(s: Pick<NaviState, 'room'>): Member[] {
@@ -149,6 +149,14 @@ export const createRoomSlice: StateCreator<NaviState, [], [], RoomSlice> = (set,
     }
     if (item.tags.includes('navi')) get().addMarker('navi')
     get().addWallPoint({ t: entry.endedAt / SIM_MS_PER_ROOM_MIN, heat, songId: item.songId, by: item.by, claps, markers: [] })
+    // Keep tonight's colours current (stamp, room screen, recap) instead of only at closeNight.
+    set(st => {
+      const counts: Record<string, number> = {}
+      for (const e of st.room.sung) counts[heatBucket(e.heatAfter)] = (counts[heatBucket(e.heatAfter)] ?? 0) + 1
+      const top = (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'quiet') as keyof typeof AURORA_PALETTES
+      const palette = [...AURORA_PALETTES[top]] as [string, string, string]
+      return { col: { ...st.col, nights: st.col.nights.map(n => (n.id === st.session.nightId ? { ...n, palette } : n)) } }
+    })
 
     if (item.tags.includes('navi') && heatBefore - heat >= 0.03) {
       bus.emit({ type: 'navi/miss', songId: item.songId })

@@ -33,7 +33,9 @@ export function StatusBar({ variant = 'phone', minimal = false }: { variant?: 'p
 
   const onBrand = () => {
     const now = performance.now()
-    taps.current = [...taps.current.filter(x => now - x < 700), now]
+    // three taps within 1.5 s (each within 0.7 s of the previous) open the presenter panel
+    const prev = taps.current[taps.current.length - 1]
+    taps.current = prev != null && now - prev < 700 && now - taps.current[0] < 1500 ? [...taps.current, now] : [now]
     if (taps.current.length >= 3) {
       taps.current = []
       naviApi.getState().togglePresenter()

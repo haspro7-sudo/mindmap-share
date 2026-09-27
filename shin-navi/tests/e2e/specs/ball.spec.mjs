@@ -236,7 +236,7 @@ export async function run({ openApp, assert, step, browser, url }) {
     assert.ok(hb1 - hb0 > 0.5, `dragging the hero background turns the ball (Δ ${(hb1 - hb0).toFixed(2)} rad)`)
     await page.waitForTimeout(2500)
     // vertical swipe on the ball: the hero opens search (not a ball drag)
-    const rs0 = await page.evaluate(() => window.__ball.rot())
+    const [rs0, ts0] = await page.evaluate(() => [window.__ball.rot(), performance.now()])
     await page.evaluate(async ([x, y0]) => {
       const el = document.querySelector('.mb--hero')
       const fire = (type, y) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 9, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y }))
@@ -250,8 +250,10 @@ export async function run({ openApp, assert, step, browser, url }) {
     await page.waitForTimeout(250)
     const sheet = await page.evaluate(() => window.__navi.get().ui.sheet?.id ?? null)
     assert.equal(sheet, 'search', 'swipe up on the hero opens search')
-    const rs1 = await page.evaluate(() => window.__ball.rot())
-    assert.ok(Math.abs(rs1 - rs0) < 0.2, 'a vertical swipe does not spin the ball')
+    const [rs1, ts1] = await page.evaluate(() => [window.__ball.rot(), performance.now()])
+    // The ball keeps its idle spin (one turn per 24 s); only extra rotation would come from the swipe.
+    const idle = ((ts1 - ts0) / 1000) * ((Math.PI * 2) / 24)
+    assert.ok(Math.abs(rs1 - rs0 - idle) < 0.2, `a vertical swipe does not spin the ball (Δ ${(rs1 - rs0).toFixed(2)} rad, idle ${idle.toFixed(2)})`)
     noErrors(errors, 'drag')
     await context.close()
   })

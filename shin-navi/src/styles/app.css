@@ -84,6 +84,10 @@
   z-index: 5;
   transition: opacity 0.2s var(--ease-out);
 }
+.ps-lane.is-compact {
+  /* on record/order tabs content scrolls under the compact lane; give it a floor */
+  background: linear-gradient(180deg, rgba(11, 6, 32, 0.97) 0%, rgba(11, 6, 32, 0.92) 85%, rgba(11, 6, 32, 0) 100%);
+}
 .ps-lane.is-hidden {
   opacity: 0;
   pointer-events: none;
@@ -128,7 +132,9 @@
   z-index: 6;
 }
 .ps-fx {
-  z-index: 40;
+  /* above sheets (50) and overlays (60) so flights from a sheet and bursts during the recap stay visible */
+  z-index: 65;
+  pointer-events: none;
 }
 .ps-toasts {
   position: absolute;
@@ -594,4 +600,39 @@
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* ============================================================ closed night (after the recap) */
+.ps-closed {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 12px 24px 24px;
+  text-align: center;
+}
+.ps-closed__title {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  background: linear-gradient(90deg, var(--neon-violet), var(--neon-magenta), var(--neon-amber));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.ps-closed__body {
+  margin: 0;
+  max-width: 300px;
+  color: var(--ink-dim);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ps-closed__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
 }

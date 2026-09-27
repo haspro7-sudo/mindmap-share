@@ -4,7 +4,7 @@
   --night: #0b0620;
   --night-2: #150b2e;
   --night-3: #1f1340;
-  --surface: rgba(21, 11, 46, 0.92); /* sheets: no blur */
+  --surface: rgba(21, 11, 46, 0.985); /* sheets: no blur, opaque so the deck never ghosts through */
   --dock-glass: rgba(255, 255, 255, 0.06); /* backdrop-filter: blur(14px) only on the dock */
   --line: rgba(255, 255, 255, 0.12);
 
