@@ -1,7 +1,8 @@
 // Generated menu glyphs (no image assets): glasses with liquid, ice and bubbles, a fries box,
 // a karaage plate, a crescent for the breather. Colours come from the item's hue. The liquid level
-// and the slosh are CSS transforms on SVG groups (transform-box: fill-box), bubbles are small
-// transform/opacity loops that only run while the glyph is "live".
+// and the slosh are one-shot CSS transforms on SVG groups (transform-box: fill-box). The looping
+// life (bubbles, steam, twinkles) is an HTML layer over the SVG, so the SVG is painted once and
+// the loops stay on the compositor; it only runs while the glyph is "live".
 import { memo, useId, type CSSProperties } from 'react'
 import type { MenuItem } from './menu'
 
@@ -35,7 +36,7 @@ type GlyphProps = {
   style?: CSSProperties
 }
 
-function Drink({ item, level, live, slosh }: { item: MenuItem; level: number; live: boolean; slosh: number }) {
+function Drink({ item, level, slosh }: { item: MenuItem; level: number; slosh: number }) {
   const g = SHAPE[item.id] ?? TUMBLER
   // unique per instance: the same drink can be drawn in the menu, the tracker and a card at once
   const id = `gl-${item.id}-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
@@ -68,7 +69,7 @@ function Drink({ item, level, live, slosh }: { item: MenuItem; level: number; li
       <ellipse cx="32" cy={g.y1 + 2.5} rx="17" ry="3.2" fill={hsl(h, 95, 60, 0.35)} />
       <path d={glassPath(g)} fill={`url(#${id}-glass)`} />
       <g clipPath={`url(#${id}-clip)`}>
-        <g className="gl-slosh" key={slosh}>
+        <g className={slosh ? 'gl-slosh' : undefined} key={slosh}>
           <g className="gl-liquid" style={{ ['--lvl' as string]: String(Math.max(0.12, Math.min(1, level))) } as CSSProperties}>
             <rect x="8" y={surface} width="48" height={height + 2} fill={`url(#${id}-liq)`} />
             <rect x="8" y={surface} width="48" height="2.2" fill="#ffffff" opacity={dark ? 0.35 : 0.55} />
@@ -81,7 +82,7 @@ function Drink({ item, level, live, slosh }: { item: MenuItem; level: number; li
           </g>
         </g>
         {bubbles.map(i => (
-          <circle key={i} className={live ? 'gl-bub is-live' : 'gl-bub'} cx={25 + i * 4.6} cy={g.y1 - 5 - (i % 2) * 5} r={i % 2 ? 1.1 : 1.5} fill="#ffffff" style={{ ['--d' as string]: `${i * 0.37}s` } as CSSProperties} />
+          <circle key={i} cx={25 + i * 4.6} cy={g.y1 - 6 - (i % 3) * 6} r={i % 2 ? 1 : 1.4} fill="#ffffff" opacity="0.55" />
         ))}
       </g>
       {/* rim and outline */}
@@ -137,7 +138,7 @@ function Fries({ item }: { item: MenuItem }) {
   )
 }
 
-function Karaage({ item, live }: { item: MenuItem; live: boolean }) {
+function Karaage({ item }: { item: MenuItem }) {
   const h = item.hue
   const bits: [number, number, number][] = [
     [23, 39, 7.5],
@@ -162,14 +163,11 @@ function Karaage({ item, live }: { item: MenuItem; live: boolean }) {
         </g>
       ))}
       <path d="M44,33 a7,7 0 0 1 9,6 l-8,1 z" fill="#fff27a" stroke="#ffd84d" strokeWidth="1" />
-      {[0, 1, 2].map(i => (
-        <path key={i} className={live ? 'gl-steam is-live' : 'gl-steam'} d={`M${25 + i * 7},27 q-3,-5 0,-9 q3,-4 0,-8`} fill="none" stroke="#ffffff" strokeOpacity="0.55" strokeWidth="1.4" strokeLinecap="round" style={{ ['--d' as string]: `${i * 0.45}s` } as CSSProperties} />
-      ))}
     </>
   )
 }
 
-function Rest({ item, live }: { item: MenuItem; live: boolean }) {
+function Rest({ item }: { item: MenuItem }) {
   const h = item.hue
   return (
     <>
@@ -182,9 +180,9 @@ function Rest({ item, live }: { item: MenuItem; live: boolean }) {
         [55, 27, 1],
         [44, 52, 1.2],
       ].map(([x, y, r], i) => (
-        <circle key={i} cx={x} cy={y} r={r} fill="#ffffff" className={live ? 'gl-twinkle is-live' : 'gl-twinkle'} style={{ ['--d' as string]: `${i * 0.6}s` } as CSSProperties} />
+        <circle key={i} cx={x} cy={y} r={r} fill="#ffffff" opacity="0.6" />
       ))}
-      <g className={live ? 'gl-zz is-live' : 'gl-zz'}>
+      <g opacity="0.8">
         <text x="47" y="40" fontSize="9" fontWeight="900" fill="#ffffff" opacity="0.85">
           z
         </text>
@@ -196,19 +194,57 @@ function Rest({ item, live }: { item: MenuItem; live: boolean }) {
   )
 }
 
+/** The looping life of a live glyph: HTML dots over the SVG (compositor-only). */
+function Life({ item }: { item: MenuItem }) {
+  if (item.kind === 'drink' || item.kind === 'water') {
+    const n = item.id === 'oolong' ? 2 : 4
+    return (
+      <span className={`gl-life gl-life--fizz${item.id === 'cola' ? ' is-dark' : ''}`} aria-hidden="true">
+        {Array.from({ length: n }, (_, i) => (
+          <i key={i} style={{ left: `${40 + ((i * 7) % 20)}%`, ['--d' as string]: `${i * 0.41}s`, ['--s' as string]: String(i % 2 ? 0.7 : 1) } as CSSProperties} />
+        ))}
+      </span>
+    )
+  }
+  if (item.id === 'karaage')
+    return (
+      <span className="gl-life gl-life--steam" aria-hidden="true">
+        {[0, 1, 2].map(i => (
+          <i key={i} style={{ left: `${36 + i * 11}%`, ['--d' as string]: `${i * 0.5}s` } as CSSProperties} />
+        ))}
+      </span>
+    )
+  if (item.kind === 'rest')
+    return (
+      <span className="gl-life gl-life--stars" aria-hidden="true">
+        {[
+          [76, 22],
+          [86, 42],
+          [70, 80],
+        ].map(([x, y], i) => (
+          <i key={i} style={{ left: `${x}%`, top: `${y}%`, ['--d' as string]: `${i * 0.55}s` } as CSSProperties} />
+        ))}
+      </span>
+    )
+  return null
+}
+
 function GlyphImpl({ item, size = 56, level = 0.55, live = false, slosh = 0, className, style }: GlyphProps) {
   return (
-    <svg className={`gl gl--${item.kind}${className ? ` ${className}` : ''}`} width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" style={style} data-glyph={item.id}>
-      {item.kind === 'drink' || item.kind === 'water' ? (
-        <Drink item={item} level={level} live={live} slosh={slosh} />
-      ) : item.id === 'fries' ? (
-        <Fries item={item} />
-      ) : item.id === 'karaage' ? (
-        <Karaage item={item} live={live} />
-      ) : (
-        <Rest item={item} live={live} />
-      )}
-    </svg>
+    <span className={`gl-wrap${className ? ` ${className}` : ''}`} style={{ width: size, height: size, ...style }}>
+      <svg className={`gl gl--${item.kind}`} width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" data-glyph={item.id}>
+        {item.kind === 'drink' || item.kind === 'water' ? (
+          <Drink item={item} level={level} slosh={slosh} />
+        ) : item.id === 'fries' ? (
+          <Fries item={item} />
+        ) : item.id === 'karaage' ? (
+          <Karaage item={item} />
+        ) : (
+          <Rest item={item} />
+        )}
+      </svg>
+      {live ? <Life item={item} /> : null}
+    </span>
   )
 }
 

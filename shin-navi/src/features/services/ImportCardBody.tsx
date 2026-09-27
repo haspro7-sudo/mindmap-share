@@ -16,7 +16,8 @@ import { SONG_BY_ID } from '../../data/songs'
 import { useTr } from '../../i18n'
 import { Disc } from './Disc'
 import { versionsFor } from './menu'
-import { justLaunched, launchDisc, showToRoom, SHOW_MS } from './importActions'
+import { justLaunched, launchDisc } from './importActions'
+import { ShowRoomButton } from './ShowRoomButton'
 import { S } from './strings'
 import './services.css'
 
@@ -29,12 +30,13 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
   const imports = useNavi(s => s.col.imports)
   const saved = useNavi(s => s.col.saved)
   const showing = useNavi(s => (s.room.prompt?.kind === 'show' ? s.room.prompt.songIds[0] ?? null : null))
-  const busy = useNavi(s => !!s.room.prompt && s.room.prompt.kind !== 'show')
   const root = useRef<HTMLDivElement>(null)
 
   // the card's candidates, in the order the director dealt them
   const ids = useMemo(() => {
-    const list = (card.options?.length ? card.options : card.songId ? [card.songId] : []).filter(id => SONG_BY_ID[id])
+    const dealt = card.options?.length ? card.options : card.songId ? [card.songId] : []
+    // a card dealt without candidates shows the whole shelf that is still waiting
+    const list = (dealt.length ? dealt : naviApi.getState().col.imports.filter(i => i.status !== 'saved').map(i => i.songId)).filter(id => SONG_BY_ID[id])
     return list.slice(0, 6)
   }, [card.id])
   const isSaved = (id: SongId) => saved.some(x => x.songId === id && x.from === 'import')
@@ -47,15 +49,21 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
   const version: VersionId = (sel && vers[sel]) || 'original'
   const selSaved = !!sel && isSaved(sel)
 
+  const allSaved = ids.length > 0 && ids.every(isSaved)
   useEffect(() => {
     if (!sel) return
+    // once every candidate is in My Songs, the big button just closes the card
+    if (allSaved) {
+      setPrimary({ action: 'decline', label: S.ref('import.close'), enabled: true })
+      return
+    }
     setPrimary({
       action: 'save',
       label: selSaved ? S.ref('import.saved') : S.ref('import.save'),
       enabled: !selSaved,
       arg: { songId: sel, version, flightLaunched: true },
     })
-  }, [card.id, sel, version, selSaved])
+  }, [card.id, sel, version, selSaved, allSaved])
 
   const discEl = (id: SongId) => root.current?.querySelector(`[data-song-id="${CSS.escape(id)}"]`)
 
@@ -88,21 +96,17 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
     setVers(m => ({ ...m, [sel]: v }))
     sound.play('tap')
   }
-  const show = () => {
-    if (sel) showToRoom(naviApi, sel, card.id)
-  }
   const openAll = () => naviApi.getState().openSheet('import', { cardId: card.id })
 
   const discSize = small ? 40 : 46
   const song = sel ? SONG_BY_ID[sel] : undefined
-  const showingSel = !!sel && showing === sel
   return (
     <div className={`imp${small ? ' is-small' : ''}`} ref={root} data-private="1" data-active={active ? '1' : '0'}>
       <div className="imp__lead" data-testid="card-reason">
         <span className="imp__leadtext">{t('import.lead', { n: ids.length })}</span>
         <span className="imp__src">{t('import.src')}</span>
       </div>
-      <div className="imp__shelf" role="listbox" aria-label={tr(card.reason.text)}>
+      <div className="imp__shelf" role="group" aria-label={tr(card.reason.text)}>
         {ids.map(id => (
           <Disc
             key={id}
@@ -135,24 +139,24 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
           </span>
         </div>
       ) : (
-      <div className="imp__vers" role="radiogroup" aria-label={t('import.version')}>
-        {versions.map(v => (
-          <button
-            key={v}
-            type="button"
-            role="radio"
-            aria-checked={v === version}
-            className={`imp-ver${v === version ? ' is-on' : ''}`}
-            data-testid="import-version"
-            data-version={v}
-            disabled={selSaved}
-            onClick={() => pickVersion(v)}
-          >
-            {v === version ? <i className="imp-ver__dot" aria-hidden="true" /> : null}
-            {tr({ key: `vocab.version.${v}` })}
-          </button>
-        ))}
-      </div>
+        <div className="imp__vers" role="radiogroup" aria-label={t('import.version')}>
+          {versions.map(v => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={v === version}
+              className={`imp-ver${v === version ? ' is-on' : ''}`}
+              data-testid="import-version"
+              data-version={v}
+              disabled={selSaved}
+              onClick={() => pickVersion(v)}
+            >
+              {v === version ? <i className="imp-ver__dot" aria-hidden="true" /> : null}
+              {tr({ key: `vocab.version.${v}` })}
+            </button>
+          ))}
+        </div>
       )}
       {!small ? (
         <p className="imp__priv">
@@ -163,22 +167,7 @@ function ImportBody({ card, active, setPrimary }: CardBodyProps) {
         </p>
       ) : null}
       <div className="imp__foot">
-        <button
-          type="button"
-          className={`imp-show${showingSel ? ' is-on' : ''}`}
-          data-testid="import-show"
-          disabled={!sel || busy || (!!showing && !showingSel)}
-          onClick={show}
-        >
-          <span className="imp-show__icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.6" />
-              <path d="M5.5 14h5M8 11v3" />
-            </svg>
-          </span>
-          <span className="imp-show__text">{showingSel ? t('import.showing') : busy ? t('import.showBusy') : t('import.show')}</span>
-          {showingSel ? <span key={showing} className="imp-show__bar" style={{ animationDuration: `${SHOW_MS}ms` }} aria-hidden="true" /> : null}
-        </button>
+        <ShowRoomButton songId={sel} cardId={card.id} />
         <button type="button" className="imp-all" data-testid="import-all" onClick={openAll} aria-label={t('import.all')} title={t('import.all')}>
           <svg width="26" height="18" viewBox="0 0 26 18" aria-hidden="true">
             <circle cx="8" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.5" />

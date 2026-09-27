@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { Order } from '../../core/types'
 import { naviApi, useNavi } from '../../core/store'
 import { sound } from '../../core/sound'
+import { bus } from '../../core/events'
 import { Icon } from '../../core/ui/Icon'
 import { SPRING } from '../../core/ui/motion'
 import { useTr } from '../../i18n'
@@ -27,7 +28,6 @@ function OrderRow({ order }: { order: Order }) {
   const item = MENU_BY_ID[order.menuId]
   if (!item) return null
   const idx = trackIndex(order)
-  const closed = order.status === 'closed'
   const status =
     order.status === 'sending'
       ? t('status.sending')
@@ -51,7 +51,7 @@ function OrderRow({ order }: { order: Order }) {
       transition={SPRING.soft}
     >
       <span className="ord-row__glyph">
-        <Glyph item={item} size={34} level={idx >= 1 ? 0.95 : 0.6} live={!closed && order.status !== 'delivered'} />
+        <Glyph item={item} size={34} level={idx >= 1 ? 0.95 : 0.6} />
       </span>
       <div className="ord-row__main">
         <div className="ord-row__top">
@@ -153,7 +153,12 @@ function Tile({ item, open, count, order, resting, onTap, dupKey, burst, colInde
                   {t('status.sending')}
                 </>
               ) : (
-                t('status.accepted', { time: hhmm(order.acceptedAt) })
+                <>
+                  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M2.2 6.4l2.4 2.4 5.2-5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {order.status === 'accepted' ? `${t('step.accepted')} ${hhmm(order.acceptedAt)}` : t(`status.${order.status}` as 'status.preparing')}
+                </>
               )}
             </motion.span>
           ) : isRest && resting ? (
@@ -217,9 +222,14 @@ export function OrderScreen(): JSX.Element {
     if (!open) setDup(null)
   }, [open])
 
-  const pop = (menuId: string) => setBursts(b => ({ ...b, [menuId]: (b[menuId] ?? 0) + 1 }))
+  const pop = (menuId: string, el?: HTMLElement | null) => {
+    setBursts(b => ({ ...b, [menuId]: (b[menuId] ?? 0) + 1 }))
+    // a spray of sparks from the glass (feedback only: ordering earns nothing)
+    const g = el?.querySelector('.ord-tile__glyph')?.getBoundingClientRect()
+    if (g && !naviApi.getState().ui.reduced) bus.emit({ type: 'fx/burst', at: { x: g.left + g.width / 2, y: g.top + g.height * 0.35 }, preset: 'spark12' })
+  }
 
-  const onTap = (item: MenuItem) => {
+  const onTap = (item: MenuItem, el: HTMLElement | null) => {
     const s = naviApi.getState()
     if (!canOrder(s)) return
     if (item.kind === 'rest') {
@@ -238,7 +248,7 @@ export function OrderScreen(): JSX.Element {
       sound.haptic(12)
     } else if (r.ok) {
       setDup(null)
-      pop(item.id)
+      pop(item.id, el)
       sound.haptic(12)
     }
   }
@@ -248,7 +258,7 @@ export function OrderScreen(): JSX.Element {
     if (!d) return
     const r = naviApi.getState().placeOrder(d.menuId, { again: true })
     setDup(null)
-    if (r.ok) pop(d.menuId)
+    if (r.ok) pop(d.menuId, document.querySelector<HTMLElement>(`[data-testid="order-item"][data-menu="${d.menuId}"]`))
   }
 
   // open orders first (newest on top), then the finished ones; a long night folds the tail

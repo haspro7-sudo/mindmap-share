@@ -68,10 +68,14 @@ function CoasterBody({ card, active, act, setPrimary }: CardBodyProps) {
             el.animate(frames, { duration: 460, easing: 'ease-out' })
           }
           sound.haptic(12)
-        } else {
+        } else if (naviApi.getState().orders.list.some(o => o.menuId === menuId && o.status === 'sending')) {
+          // a toast leaves a glass mark on tonight's wall of light (not a reward: no pin, face or stamp)
+          naviApi.getState().addMarker('toast')
           setDup(null)
           setPops(p => ({ ...p, [menuId]: (p[menuId] ?? 0) + 1 }))
           sound.haptic(12)
+          const g = root.current?.querySelector(`[data-menu="${menuId}"] .co-drink__glass`)?.getBoundingClientRect()
+          if (g && !naviApi.getState().ui.reduced) bus.emit({ type: 'fx/burst', at: { x: g.left + g.width / 2, y: g.top + g.height * 0.3 }, preset: 'spark12' })
         }
       }),
     [card.id],
@@ -119,7 +123,7 @@ function CoasterBody({ card, active, act, setPrimary }: CardBodyProps) {
               <span className="co-drink__coaster" aria-hidden="true" />
               {i === 0 && !o ? <span className="co-drink__pick">{t('coaster.pick')}</span> : null}
               <span className="co-drink__glass">
-                <Glyph item={item} size={glyph} level={o ? 1 : 0.5} live={!!o || (active && on)} slosh={pops[id] ?? 0} />
+                <Glyph item={item} size={glyph} level={o ? 1 : 0.5} live={active && (!!o || on)} slosh={pops[id] ?? 0} />
               </span>
               {pops[id] ? <span key={pops[id]} className="co-drink__ring" aria-hidden="true" /> : null}
               <span className="co-drink__name">{tr(item.name)}</span>

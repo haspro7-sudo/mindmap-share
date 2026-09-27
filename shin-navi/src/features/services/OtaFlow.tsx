@@ -127,6 +127,13 @@ function Passport({ done, defs, reduced, complete }: { done: number; defs: Stamp
                     transition={reduced ? { duration: 0.25 } : { type: 'spring', stiffness: 560, damping: 19, mass: 0.9 }}
                   >
                     <span className="pp-stamp__ink" aria-hidden="true" />
+                    {!reduced ? (
+                      <span className="pp-stamp__splat" aria-hidden="true">
+                        {[0, 1, 2, 3, 4, 5, 6, 7].map(k => (
+                          <i key={k} style={{ ['--a' as string]: `${k * 45 + (i * 17) % 30}deg` } as CSSProperties} />
+                        ))}
+                      </span>
+                    ) : null}
                     <StampArt s={s} />
                   </motion.div>
                 ) : null}
@@ -198,8 +205,8 @@ function RouteMap() {
   return (
     <svg className="ota-route" viewBox="0 0 280 120" aria-hidden="true">
       <rect x="1" y="1" width="278" height="118" rx="14" fill="#120a2c" stroke="#8a6bff" strokeOpacity="0.35" />
-      {[0, 1, 2, 3].map(i => (
-        <rect key={i} x={70 + i * 46} y="18" width="36" height="26" rx="4" fill="#1d1444" stroke="#ffffff" strokeOpacity="0.12" />
+      {[0, 1, 2].map(i => (
+        <rect key={i} x={70 + i * 44} y="18" width="36" height="26" rx="4" fill="#1d1444" stroke="#ffffff" strokeOpacity="0.12" />
       ))}
       <rect x="18" y="58" width="36" height="46" rx="5" fill="#1d1444" stroke="#2ef2ff" strokeOpacity="0.7" />
       <path d="M36 66v10M31 71l5-5 5 5M31 88l5 5 5-5M36 83v10" stroke="#2ef2ff" strokeWidth="1.6" fill="none" strokeLinecap="round" />

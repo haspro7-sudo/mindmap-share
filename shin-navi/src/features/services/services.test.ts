@@ -188,6 +188,17 @@ describe('bring-in (C-8 ⑧)', () => {
     expect(S().col.pins.map(p => p.id)).toContain('importer')
   })
 
+  it('the import card closes with "done" (decline) without touching anything else', () => {
+    const c = card('import', { songId: IMPORT_DEMO[0], options: [...IMPORT_DEMO] })
+    S().dealCards([c], 'top')
+    const pins = S().col.pins.length
+    performCardAction(naviApi, c.id, 'decline')
+    expect(S().deck.cards.some(x => x.id === c.id)).toBe(false)
+    expect(S().col.saved).toHaveLength(0)
+    expect(S().col.pins.length).toBe(pins)
+    expect(S().deck.passStreak).toBe(0)
+  })
+
   it('shows one title on the room screen for ten seconds, never over a room vote', () => {
     vi.useFakeTimers()
     expect(showToRoom(naviApi, 'ditto')).toBe(true)

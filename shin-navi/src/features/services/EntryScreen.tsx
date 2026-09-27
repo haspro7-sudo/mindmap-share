@@ -97,14 +97,15 @@ function EntryBall({ size }: { size: number }) {
             {BALL.facets.map((f, i) => (
               <path key={i} d={f.d} fill={f.fill} />
             ))}
-            <g className="ent-ball__glint">
-              <ellipse cx="34" cy="30" rx="16" ry="11" fill="#ffffff" opacity="0.18" />
-            </g>
           </g>
           <circle cx="50" cy="50" r="44" fill="url(#entBallShade)" />
           <circle cx="50" cy="50" r="44" fill="none" stroke="#2ef2ff" strokeOpacity="0.35" strokeWidth="0.8" />
           <rect x="46" y="3" width="8" height="5" rx="1.5" fill="#cfd3e6" />
         </svg>
+        {/* the moving glint is an HTML layer so the faceted SVG is painted once */}
+        <span className="ent-ball__glintwrap">
+          <span className="ent-ball__glint" />
+        </span>
         {BALL.sparks.map(([x, y], i) => (
           <span key={i} className="ent-spark" style={{ left: `${x}%`, top: `${y}%`, ['--d' as string]: `${i * 0.7}s` } as CSSProperties} />
         ))}
@@ -219,7 +220,7 @@ export function EntryScreen(): JSX.Element {
             className="ent-page"
             initial={{ opacity: 0, x: -30 }}
             animate={leaving && !reduced ? { opacity: 0, scale: 1.08 } : { opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -40 }}
+            exit={{ opacity: 0, x: -40, transition: { duration: 0.18 } }}
             transition={leaving ? { duration: 0.5, ease: [0.4, 0, 0.2, 1] } : SPRING.soft}
           >
             <div className="ent-top">
@@ -257,28 +258,28 @@ export function EntryScreen(): JSX.Element {
             </div>
 
             <div className="ent-bottom">
-            <div className="ent-langbox">
-              <LangChips />
-              <span className="ent-langnote">{t('entry.lang')}</span>
-            </div>
+              <div className="ent-langbox">
+                <LangChips />
+                <span className="ent-langnote">{t('entry.lang')}</span>
+              </div>
 
-            <div className="ent-how">{t('entry.how')}</div>
-            <div className="ent-doors">
-              <DoorCard kind="guest" index={0} testid="entry-guest" title={t('entry.guest')} sub={t('entry.guestSub')} onGo={() => go('guest')} />
-              <DoorCard
-                kind="continue"
-                index={1}
-                testid="entry-continue"
-                title={t('entry.continue')}
-                sub={savedCount ? t('entry.continueSaved', { n: savedCount }) : t('entry.continueSub')}
-                onGo={() => go('continue')}
-              />
-              <DoorCard kind="voucher" index={2} testid="entry-voucher" title={t('entry.voucher')} sub={t('entry.voucherSub')} badge={t('ota.mock')} onGo={() => go('voucher')} />
-            </div>
-            <p className="ent-mock">
-              <Icon name="lock" size={12} strokeWidth={2} />
-              {t('entry.mock')}
-            </p>
+              <div className="ent-how">{t('entry.how')}</div>
+              <div className="ent-doors">
+                <DoorCard kind="guest" index={0} testid="entry-guest" title={t('entry.guest')} sub={t('entry.guestSub')} onGo={() => go('guest')} />
+                <DoorCard
+                  kind="continue"
+                  index={1}
+                  testid="entry-continue"
+                  title={t('entry.continue')}
+                  sub={savedCount ? t('entry.continueSaved', { n: savedCount }) : t('entry.continueSub')}
+                  onGo={() => go('continue')}
+                />
+                <DoorCard kind="voucher" index={2} testid="entry-voucher" title={t('entry.voucher')} sub={t('entry.voucherSub')} badge={t('ota.mock')} onGo={() => go('voucher')} />
+              </div>
+              <p className="ent-mock">
+                <Icon name="lock" size={12} strokeWidth={2} />
+                {t('entry.mock')}
+              </p>
             </div>
           </motion.div>
         ) : (
@@ -287,7 +288,7 @@ export function EntryScreen(): JSX.Element {
             className="ent-page ent-page--ota"
             initial={{ opacity: 0, x: 40 }}
             animate={leaving && !reduced ? { opacity: 0, scale: 1.06 } : { opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 40 }}
+            exit={{ opacity: 0, x: 40, transition: { duration: 0.18 } }}
             transition={leaving ? { duration: 0.5, ease: [0.4, 0, 0.2, 1] } : SPRING.soft}
           >
             <OtaFlow onBack={() => setPage('doors')} onDone={() => go('voucher')} />

@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useRef, useState } from 'react'
 import type { SongId, VersionId } from '../../core/types'
 import { naviApi, useNavi } from '../../core/store'
+import { useBox } from '../../core/layout'
 import { sound } from '../../core/sound'
 import { SongTitle } from '../../core/ui/SongTitle'
 import { Icon } from '../../core/ui/Icon'
@@ -14,7 +15,8 @@ import { SONG_BY_ID } from '../../data/songs'
 import { useTr } from '../../i18n'
 import { Disc } from './Disc'
 import { versionsFor } from './menu'
-import { saveCandidate, showToRoom, SHOW_MS } from './importActions'
+import { saveCandidate } from './importActions'
+import { ShowRoomButton } from './ShowRoomButton'
 import { S } from './strings'
 import './services.css'
 
@@ -26,8 +28,9 @@ export function ImportSheet(): JSX.Element {
   const saved = useNavi(s => s.col.saved)
   const arg = useNavi(s => s.ui.sheet?.arg) as { cardId?: string; songId?: SongId } | undefined
   const showing = useNavi(s => (s.room.prompt?.kind === 'show' ? s.room.prompt.songIds[0] ?? null : null))
-  const busy = useNavi(s => !!s.room.prompt && s.room.prompt.kind !== 'show')
   const live = useNavi(s => s.session.phase === 'live')
+  const box = useBox()
+  const small = box.h < 760 || box.w < 375
   const root = useRef<HTMLDivElement>(null)
 
   const ids = useMemo(() => imports.map(i => i.songId).filter(id => SONG_BY_ID[id]), [imports])
@@ -42,7 +45,6 @@ export function ImportSheet(): JSX.Element {
   const savedCount = saved.length
   const allSaved = ids.length > 0 && ids.every(isSaved)
   const song = sel ? SONG_BY_ID[sel] : undefined
-  const showingSel = !!sel && showing === sel
 
   const discEl = (id: SongId) => root.current?.querySelector(`[data-song-id="${CSS.escape(id)}"]`)
 
@@ -80,7 +82,7 @@ export function ImportSheet(): JSX.Element {
           <div key={id} className={`imps__slot${id === sel ? ' is-sel' : ''}`}>
             <Disc
               songId={id}
-              size={54}
+              size={small ? 46 : 54}
               rise
               selected={id === sel}
               saved={isSaved(id)}
@@ -143,22 +145,7 @@ export function ImportSheet(): JSX.Element {
               <Icon name={selSaved ? 'sparkle' : 'plus'} size={18} strokeWidth={2.2} />
               {selSaved ? t('import.saved') : t('import.save')}
             </motion.button>
-            <button
-              type="button"
-              className={`imp-show imps__show${showingSel ? ' is-on' : ''}`}
-              data-testid="import-show"
-              disabled={!live || busy || (!!showing && !showingSel)}
-              onClick={() => sel && showToRoom(naviApi, sel, arg?.cardId)}
-            >
-              <span className="imp-show__icon" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.6" />
-                  <path d="M5.5 14h5M8 11v3" />
-                </svg>
-              </span>
-              <span className="imp-show__text">{showingSel ? t('import.showing') : busy ? t('import.showBusy') : t('import.show')}</span>
-              {showingSel ? <span key={showing} className="imp-show__bar" style={{ animationDuration: `${SHOW_MS}ms` }} aria-hidden="true" /> : null}
-            </button>
+            <ShowRoomButton songId={sel} cardId={arg?.cardId} className="imps__show" disabled={!live} />
           </motion.section>
         ) : (
           <p key="empty" className="imps__empty">{t('import.pickOne')}</p>
